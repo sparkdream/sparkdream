@@ -68,6 +68,27 @@ func TestGenesisKeepsPromotionQueue(t *testing.T) {
 	require.Equal(t, int64(60), at)
 }
 
+// FRM-106: an in-flight tag prune survives export/import with its cursor,
+// and Validate refuses a duplicated tag.
+func TestGenesisKeepsTagPruneQueue(t *testing.T) {
+	f := initFixture(t)
+	require.NoError(t, f.keeper.TagPruneQueue.Set(f.ctx, "aurora", 42))
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, []types.TagPruneEntry{{Tag: "aurora", NextPostId: 42}}, exported.TagPruneQueue)
+	require.NoError(t, exported.Validate())
+
+	g := initFixture(t)
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *exported))
+	next, err := g.keeper.TagPruneQueue.Get(g.ctx, "aurora")
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), next)
+
+	dup := *exported
+	dup.TagPruneQueue = append(dup.TagPruneQueue, types.TagPruneEntry{Tag: "aurora", NextPostId: 7})
+	require.Error(t, dup.Validate())
+}
+
 // Import indexes still-ephemeral posts by author, but not a soft-deleted
 // one: MsgDeletePost dropped its entry while the post kept its
 // expiration_time for the TTL prune.

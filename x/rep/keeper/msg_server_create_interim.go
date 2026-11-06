@@ -27,10 +27,12 @@ func (k msgServer) CreateInterim(ctx context.Context, msg *types.MsgCreateInteri
 			"only active members may create interim work (creator: %s)", msg.Creator)
 	}
 
-	// ADJUDICATION and JURY_DUTY interims are raised by the module only
-	// (REP-E-01). A member-created ADJUDICATION interim naming a challenged
-	// initiative, with a deadline already behind it, force-rejected the
-	// challenge sitting in jury review on its next EndBlock.
+	// ADJUDICATION, JURY_DUTY and EXPERT_TESTIMONY interims are raised by the
+	// module only (REP-E-01, REP-E-101). A member-created ADJUDICATION interim
+	// naming a challenged initiative, with a deadline already behind it,
+	// force-rejected the challenge sitting in jury review on its next
+	// EndBlock; a self-made EPIC EXPERT_TESTIMONY interim was paid in place
+	// of the invitation's.
 	if IsSystemOnlyInterimType(msg.InterimType) {
 		return nil, errorsmod.Wrapf(types.ErrInterimTypeSystemOnly, "%s", msg.InterimType)
 	}
@@ -40,9 +42,19 @@ func (k msgServer) CreateInterim(ctx context.Context, msg *types.MsgCreateInteri
 	if _, known := types.InterimComplexity_name[int32(msg.Complexity)]; !known {
 		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "unknown interim complexity %d", int32(msg.Complexity))
 	}
-	if msg.Deadline <= sdk.UnwrapSDKContext(ctx).BlockHeight() {
+	// A zero deadline asks for the default: interim_deadline_epochs from now.
+	deadline := msg.Deadline
+	height := sdk.UnwrapSDKContext(ctx).BlockHeight()
+	if deadline == 0 {
+		params, err := k.Keeper.Params.Get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		deadline = height + params.InterimDeadlineEpochs*params.EpochBlocks
+	}
+	if deadline <= height {
 		return nil, errorsmod.Wrapf(types.ErrInterimDeadlineInvalid,
-			"deadline %d is not after the current height %d", msg.Deadline, sdk.UnwrapSDKContext(ctx).BlockHeight())
+			"deadline %d is not after the current height %d", deadline, height)
 	}
 
 	// Create interim work with single assignee (creator)
@@ -54,7 +66,7 @@ func (k msgServer) CreateInterim(ctx context.Context, msg *types.MsgCreateInteri
 		msg.ReferenceId,
 		msg.ReferenceType,
 		msg.Complexity,
-		msg.Deadline,
+		deadline,
 	)
 	if err != nil {
 		return nil, err

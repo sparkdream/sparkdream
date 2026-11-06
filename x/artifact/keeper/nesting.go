@@ -232,6 +232,29 @@ func (k Keeper) releaseChildren(ctx context.Context, t types.Token) error {
 
 // moveDescendants moves every token under root to newOwner, keeping the
 // owner index in step (moveToken calls it for a root that holds anything).
+// reownSubtree re-keys an unlocked root token and its subtree to newOwner
+// without any other transfer side effect. Only for an owner change within
+// one member (a migrated address), which settles nothing.
+func (k Keeper) reownSubtree(ctx context.Context, t *types.Token, newOwner string) error {
+	oldOwner := t.Owner
+	if err := k.TokensByOwner.Remove(ctx, collections.Join3(oldOwner, t.ClassId, t.Id)); err != nil {
+		return err
+	}
+	t.Owner = newOwner
+	if err := k.TokensByOwner.Set(ctx, collections.Join3(newOwner, t.ClassId, t.Id)); err != nil {
+		return err
+	}
+	if err := k.saveToken(ctx, *t); err != nil {
+		return err
+	}
+	emit(ctx, types.EventTransferred, classAttr(t.ClassId), tokenAttr(t.Id),
+		sdk.NewAttribute("from", oldOwner), sdk.NewAttribute("to", newOwner), sdk.NewAttribute("via", "nest"))
+	if t.Descendants > 0 {
+		return k.moveDescendants(ctx, *t, oldOwner, newOwner)
+	}
+	return nil
+}
+
 func (k Keeper) moveDescendants(ctx context.Context, root types.Token, oldOwner, newOwner string) error {
 	desc, err := k.descendantsOf(ctx, root)
 	if err != nil {

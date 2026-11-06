@@ -15,7 +15,8 @@ import (
 // metadata must prove into the commitment fixed at class creation, so the
 // issuer can neither change what a token was committed to nor swap
 // metadata between tokens. A revealed token releases its escrowed mint
-// price to the class. Pending (inbox) mints are revealed in place.
+// price to the class, or refunds it to the holder when the reveal lands
+// after the class deadline. Pending (inbox) mints are revealed in place.
 func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.MsgRevealResponse, error) {
 	if _, err := k.decodeAddr("signer", msg.Signer); err != nil {
 		return nil, err
@@ -84,7 +85,9 @@ func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.Msg
 		t.Unrevealed = false
 		t.MetadataFrozen = tokenFrozen(c)
 		t.MediaFlags = types.LabelTokenAll(t)
-		if err := k.releasePayment(ctx, c, &t); err != nil {
+		// Past the deadline the escrow is the holder's refund: a late
+		// reveal pays it out instead of taking it (ART-205).
+		if err := k.releaseOrRefund(ctx, c, &t); err != nil {
 			return nil, err
 		}
 		if err := k.saveToken(ctx, t); err != nil {

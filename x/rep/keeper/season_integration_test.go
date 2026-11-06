@@ -239,7 +239,7 @@ func TestArchiveSeasonalReputation(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			archivedScores, err := f.keeper.ArchiveSeasonalReputation(f.ctx, tt.memberAddr.String())
+			archivedScores, err := f.keeper.ArchiveSeasonalReputation(f.ctx, tt.memberAddr.String(), math.LegacyZeroDec())
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -294,7 +294,7 @@ func TestArchiveSeasonalReputation_SkipsMalformedScores(t *testing.T) {
 	err := f.keeper.Member.Set(f.ctx, TestAddrMember1.String(), member)
 	require.NoError(t, err)
 
-	archivedScores, err := f.keeper.ArchiveSeasonalReputation(f.ctx, TestAddrMember1.String())
+	archivedScores, err := f.keeper.ArchiveSeasonalReputation(f.ctx, TestAddrMember1.String(), math.LegacyZeroDec())
 	require.NoError(t, err)
 
 	// All scores returned in archived (including malformed)
@@ -404,6 +404,33 @@ func TestFormatTagCount(t *testing.T) {
 	require.NoError(t, err)
 
 	// Archive should not panic
-	_, err = f.keeper.ArchiveSeasonalReputation(f.ctx, TestAddrMember1.String())
+	_, err = f.keeper.ArchiveSeasonalReputation(f.ctx, TestAddrMember1.String(), math.LegacyZeroDec())
 	require.NoError(t, err)
+}
+
+// A positive baseline restarts every tag the member held at that value
+// (the archive to lifetime is unchanged); a zero baseline clears them.
+func TestArchiveSeasonalReputation_Baseline(t *testing.T) {
+	f := initFixture(t)
+	member := types.Member{
+		Address:          TestAddrMember1.String(),
+		ReputationScores: map[string]string{"go": "120.5", "design": "3"},
+	}
+	require.NoError(t, f.keeper.Member.Set(f.ctx, TestAddrMember1.String(), member))
+
+	archived, err := f.keeper.ArchiveSeasonalReputation(f.ctx, TestAddrMember1.String(), math.LegacyMustNewDecFromStr("10"))
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"go": "120.5", "design": "3"}, archived)
+	got, err := f.keeper.Member.Get(f.ctx, TestAddrMember1.String())
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"go": "10.000000000000000000", "design": "10.000000000000000000"}, got.ReputationScores)
+	require.Equal(t, "120.500000000000000000", got.LifetimeReputation["go"])
+
+	// Next season at baseline 0: the tags are cleared, lifetime keeps adding.
+	_, err = f.keeper.ArchiveSeasonalReputation(f.ctx, TestAddrMember1.String(), math.LegacyZeroDec())
+	require.NoError(t, err)
+	got, err = f.keeper.Member.Get(f.ctx, TestAddrMember1.String())
+	require.NoError(t, err)
+	require.Empty(t, got.ReputationScores)
+	require.Equal(t, "130.500000000000000000", got.LifetimeReputation["go"])
 }

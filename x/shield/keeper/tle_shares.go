@@ -281,11 +281,16 @@ func (k Keeper) TryReconstructEpochKey(ctx context.Context, epoch uint64) {
 	}); err != nil {
 		return
 	}
+	source := "beacon"
+	if k.hasPendingOpsForEpoch(ctx, epoch) {
+		source = "batch"
+	}
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeShieldDecryptionKeyAvailable,
 		sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", epoch)),
 		sdk.NewAttribute(types.AttributeKeySharesSubmitted, fmt.Sprintf("%d", shareCount)),
 		sdk.NewAttribute(types.AttributeKeyThresholdRequired, fmt.Sprintf("%d", threshold)),
+		sdk.NewAttribute(types.AttributeKeySource, source),
 	))
 }
 

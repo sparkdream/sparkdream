@@ -57,7 +57,11 @@ wait_for_tx() {
 
 send() {
     local RES TXHASH
-    RES=$("$@" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    # Budget-backed propose-project burns the creation fee and opens the
+    # committee review interim, which no longer fits the 200k default gas.
+    local GAS_FLAG=(--gas 400000)
+    case " $* " in *" --gas "*) GAS_FLAG=() ;; esac
+    RES=$("$@" "${GAS_FLAG[@]}" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$RES" | jq -r '.txhash // empty' 2>/dev/null)
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
         echo "{\"code\": 998, \"raw_log\": $(echo "$RES" | jq -Rs '.')}"

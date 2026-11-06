@@ -266,8 +266,12 @@ accuracy freshness as handled by the window rather than by decay.
   are refused while the appeal is pending.
 - Curation outcomes (`ActionKindForumCuration`, upheld only) count only when
   the thread author endorsed the proposal (author confirmation, or an
-  auto-confirm where the author was active after the proposal), never for the
-  sentinel's own reply, and at most `MaxRewardedCurationsPerEpoch` (10) per
-  sentinel reward epoch. This keeps self-curation from diluting overturned
-  hides in the window.
+  auto-confirm where the author was active after the proposal), only when
+  that author is an ACTIVE member at arm's length from the sentinel (not
+  `SameMember`, not its inviter or invitee), never for the sentinel's own
+  reply, never for a reply the thread author wrote (the proposal itself is
+  refused, `ErrCannotCurateSelfAnswer`), and at most
+  `MaxRewardedCurationsPerEpoch` (10) per sentinel reward epoch. This keeps self-curation from diluting overturned hides in the
+  window. An upheld curation never resets `consecutive_overturns` (x/rep
+  `UpheldKeepsStreak`), so curations cannot hold off streak demotion.
 

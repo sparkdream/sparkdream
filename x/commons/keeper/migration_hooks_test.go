@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	"context"
 	"testing"
 
 	"cosmossdk.io/collections"
@@ -12,14 +11,6 @@ import (
 	"sparkdream/x/commons/types"
 	reptypes "sparkdream/x/rep/types"
 )
-
-type fixedDelayRep struct{ seconds int64 }
-
-func (r fixedDelayRep) ZkKeyActivationDelaySeconds(context.Context) int64 { return r.seconds }
-func (r fixedDelayRep) CanActAs(_ context.Context, signer, stored string) bool {
-	return signer == stored
-}
-func (r fixedDelayRep) ActiveZkPublicKey(context.Context, string) []byte { return nil }
 
 // TestMigrationHooks_SeatAndVoteFollowIdentity: a council seat and a vote on
 // an open proposal move with the member; a vote on a closed proposal stays.
@@ -55,21 +46,4 @@ func TestMigrationHooks_SeatAndVoteFollowIdentity(t *testing.T) {
 	require.Equal(t, to.String(), moved.Voter)
 	_, err = f.keeper.Votes.Get(f.ctx, collections.Join(uint64(8), from.String()))
 	require.NoError(t, err, "votes on closed proposals stay lazy")
-}
-
-// TestMaxLiveVotingPeriodAndCap: the longest live voting period is reported,
-// and a registration above the ZK activation delay is refused once a rep
-// keeper is wired.
-func TestMaxLiveVotingPeriodAndCap(t *testing.T) {
-	f := initFixture(t)
-	require.NoError(t, f.keeper.DecisionPolicies.Set(f.ctx, "p1", types.DecisionPolicy{VotingPeriod: 100}))
-	require.NoError(t, f.keeper.DecisionPolicies.Set(f.ctx, "p2", types.DecisionPolicy{VotingPeriod: 3600}))
-	require.Equal(t, int64(3600), f.keeper.MaxLiveVotingPeriodSeconds(f.ctx))
-
-	require.NoError(t, f.keeper.CheckVotingPeriodCapForTest(f.ctx, 999999), "no rep keeper: no cap")
-	f.keeper.SetRepKeeper(fixedDelayRep{seconds: 1000})
-	require.NoError(t, f.keeper.CheckVotingPeriodCapForTest(f.ctx, 1000))
-	require.Error(t, f.keeper.CheckVotingPeriodCapForTest(f.ctx, 1001))
-	f.keeper.SetRepKeeper(fixedDelayRep{seconds: 0})
-	require.NoError(t, f.keeper.CheckVotingPeriodCapForTest(f.ctx, 1001), "a zero delay means the cap is off (test build)")
 }

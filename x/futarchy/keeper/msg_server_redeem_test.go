@@ -45,6 +45,21 @@ func TestMsgRedeem(t *testing.T) {
 			},
 		},
 		{
+			name:        "Success - losing shares burned with the winning ones",
+			msg:         types.MsgRedeem{Creator: alice.String(), MarketId: 1},
+			blockHeight: 110,
+			setupBal: func(m *MockBankKeeper) {
+				m.SetBalance(alice, sdk.NewCoin("f/1/yes", math.NewInt(100)))
+				m.SetBalance(alice, sdk.NewCoin("f/1/no", math.NewInt(40)))
+			},
+			expectErr: false,
+			checkState: func(t *testing.T, m *MockBankKeeper, ctx context.Context) {
+				require.True(t, m.GetBalance(ctx, alice, "f/1/yes").Amount.IsZero())
+				require.True(t, m.GetBalance(ctx, alice, "f/1/no").Amount.IsZero(), "losing dust is burned too")
+				require.Equal(t, math.NewInt(100), m.GetBalance(ctx, alice, "uspark").Amount, "paid for the winners only")
+			},
+		},
+		{
 			name:        "Error - No Winning Shares",
 			msg:         types.MsgRedeem{Creator: alice.String(), MarketId: 1},
 			blockHeight: 110,

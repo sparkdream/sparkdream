@@ -40,8 +40,11 @@ type RepKeeper interface {
 	RecentAddressesOf(ctx context.Context, member string) []string
 	AllAddressesOf(ctx context.Context, member string) []string
 
-	// DREAM token operations
+	// DREAM token operations. MintDREAM returns ErrDreamMintCapExceeded when
+	// the chain-wide per-epoch mint budget is exhausted; the budget renews at
+	// NextEpochStartHeight (0 when x/rep epochs are disabled).
 	MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	NextEpochStartHeight(ctx context.Context) (int64, error)
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error

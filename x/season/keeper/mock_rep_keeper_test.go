@@ -146,7 +146,7 @@ func (m *mockRepKeeper) GetReputationScores(ctx context.Context, addr string) (m
 }
 
 // ArchiveSeasonalReputation archives seasonal reputation to lifetime and resets
-func (m *mockRepKeeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map[string]string, error) {
+func (m *mockRepKeeper) ArchiveSeasonalReputation(ctx context.Context, addr string, _ math.LegacyDec) (map[string]string, error) {
 	m.ArchiveCallCount++
 	m.LastArchivedAddresses = append(m.LastArchivedAddresses, addr)
 

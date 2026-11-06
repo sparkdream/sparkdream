@@ -73,8 +73,8 @@ var (
 	DefaultInviteCleanupBatchSize       uint32 = 50
 
 	// Nomination / Retroactive Public Goods Funding defaults
-	DefaultNominationWindowEpochs             uint64 = 5
-	DefaultMaxNominationsPerMember            uint64 = 3
+	DefaultNominationWindowEpochs             uint64 = 14
+	DefaultMaxNominationsPerMember            uint64 = 5
 	DefaultRetroRewardMaxRecipients           uint64 = 20
 	DefaultRetroRewardBudgetRatio                    = math.LegacyNewDecWithPrec(25, 2)         // 0.25
 	DefaultRetroRewardBudgetMin                      = math.NewInt(10_000_000_000)              // 10,000 DREAM in micro-DREAM
@@ -248,6 +248,12 @@ func (p Params) Validate() error {
 	}
 	if p.MaxActiveQuestsPerMember == 0 {
 		return errors.Wrap(ErrInvalidParams, "max_active_quests_per_member must be positive")
+	}
+
+	// baseline_reputation is the value every tag a member held restarts the
+	// season at (zero clears the tags); it can never be negative.
+	if p.BaselineReputation.IsNil() || p.BaselineReputation.IsNegative() {
+		return errors.Wrap(ErrInvalidParams, "baseline_reputation must be non-negative")
 	}
 
 	// level_thresholds must be non-empty and strictly increasing.

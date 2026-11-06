@@ -15,15 +15,18 @@ import (
 // of the Commons Council Operations Committee — same pattern as
 // `MsgResolveGovActionAppeal` and forum's appeal-resolve handlers.
 // The resolver acts as a low-trust relayer: the on-chain integrity
-// check is the verdict cross-check against x/rep's JuryReview.
+// check is the verdict cross-check against x/rep's JuryReview, and the
+// two choices that depart from the jury's verdict need the committee
+// policy (SVC-101). An UPHOLD nobody relays is applied by the EndBlocker
+// at max_escalated_blocks (sweepEscalatedReports).
 //
 // Verdict semantics (mapping to x/rep verdicts in §6.2):
 //   - ACCEPT: requires JuryReview verdict == VERDICT_UPHOLD_CHALLENGE.
 //     Apply full proposed_slash_bps. dissolve=true ⇒ unconditional
-//     SLASHED.
+//     SLASHED; dissolve needs the committee policy, not a member.
 //   - REDUCE: also requires JuryReview verdict == VERDICT_UPHOLD_CHALLENGE.
 //     Apply a smaller slash; remainder of any contested escrow returns
-//     to bond.
+//     to bond. Needs the committee policy, not a member.
 //   - REJECT: requires JuryReview verdict ∈ {VERDICT_REJECT_CHALLENGE,
 //     VERDICT_INCONCLUSIVE}. No slash; contested escrow (if any)
 //     returns to bond.
@@ -37,9 +40,6 @@ import (
 // scaffolded code; conceptually it means "the council member relaying
 // the jury verdict" rather than "the x/rep module account."
 func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolveReportByJury) (*types.MsgResolveReportByJuryResponse, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentHeight := sdkCtx.BlockHeight()
-
 	// Authority gate: Commons Operations Committee member (§5.2 + §6.2).
 	if err := k.assertCouncilResolver(ctx, msg.JuryAuthority); err != nil {
 		return nil, err
@@ -56,23 +56,6 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	// Verdict cross-check against the underlying JuryReview (§6.2).
 	// Skipped in standalone-mode when repKeeper is not wired.
 	if err := k.crossCheckSlashVerdict(ctx, report.JuryCaseId, msg.Verdict); err != nil {
-		return nil, err
-	}
-
-	opBytes, err := k.addrBytes(report.OperatorAddress)
-	if err != nil {
-		return nil, err
-	}
-	op, exists := k.GetOperator(ctx, opBytes, report.ServiceType)
-	if !exists {
-		// Operator archived since escalation — shouldn't happen because
-		// dissolution closes ESCALATED reports as CLOSED_OPERATOR_DISSOLVED,
-		// but defensive guard.
-		return nil, types.ErrOperatorNotFound
-	}
-
-	cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
-	if err != nil {
 		return nil, err
 	}
 
@@ -103,12 +86,55 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		return nil, types.ErrInvalidVerdict.Wrap(msg.Verdict.String())
 	}
 
+	// SVC-101: the jury decided UPHOLD or not; a single committee member
+	// only relays that. Departing from it (a REDUCE below the proposed
+	// slash, or dissolving the operator outright) is a committee decision:
+	// the Operations Committee or Commons Council policy, or governance.
+	if msg.Verdict == types.JuryVerdict_JURY_VERDICT_REDUCE || msg.Dissolve {
+		if err := k.assertCommitteePolicy(ctx, msg.JuryAuthority); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := k.applyJuryVerdict(ctx, report, msg.Verdict, msg.SlashBps, msg.Dissolve); err != nil {
+		return nil, err
+	}
+	return &types.MsgResolveReportByJuryResponse{}, nil
+}
+
+// applyJuryVerdict applies a tier-2 verdict to an ESCALATED report: the
+// slash (drawn from a contested escrow if one is still held, else from the
+// bond), the reporter deposit, the reputation deduction and, on dissolve or
+// an emptied bond, dissolution. Called by MsgResolveReportByJury after its
+// checks, and by the escalated-report sweep, which applies a tallied
+// UPHOLD as ACCEPT at the proposed slash when nobody relayed it (SVC-101).
+func (k Keeper) applyJuryVerdict(ctx context.Context, report types.Report, verdict types.JuryVerdict, slashBps uint32, dissolve bool) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	currentHeight := sdkCtx.BlockHeight()
+
+	opBytes, err := k.addrBytes(report.OperatorAddress)
+	if err != nil {
+		return err
+	}
+	op, exists := k.GetOperator(ctx, opBytes, report.ServiceType)
+	if !exists {
+		// Operator archived since escalation — shouldn't happen because
+		// dissolution closes ESCALATED reports as CLOSED_OPERATOR_DISSOLVED,
+		// but defensive guard.
+		return types.ErrOperatorNotFound
+	}
+
+	cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
+	if err != nil {
+		return err
+	}
+
 	// Find any escrow that may still be holding contested T1 funds for
 	// this report. If found, we re-route it based on verdict; if not,
 	// any slash is taken directly from bond.
-	escrow, escrowID, hasEscrow, err := k.findTier1EscrowForReport(ctx, opBytes, report.ServiceType, report.ReportId)
+	escrow, escrowID, hasEscrow, err := k.findTier1EscrowForReportK(ctx, opBytes, report.ServiceType, report.ReportId)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Compute the slash amount the jury verdict imposes. Bond-blocks
@@ -124,7 +150,7 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	bondDenom := k.BondDenom(ctx)
 
 	var slashAmount sdkmath.Int
-	if msg.Verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
+	if verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
 		slashAmount = sdkmath.ZeroInt()
 	} else {
 		// ACCEPT or REDUCE — compute on whichever pool the slash is
@@ -141,12 +167,12 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		// capped at the escrow. Applying bps to the escrow itself would
 		// slash bps² of the bond.
 		switch {
-		case hasEscrow && msg.Verdict == types.JuryVerdict_JURY_VERDICT_ACCEPT:
+		case hasEscrow && verdict == types.JuryVerdict_JURY_VERDICT_ACCEPT:
 			slashAmount = escrow.Amount
 		case hasEscrow:
-			slashAmount = computeSlashAmount(op.BondAmount.Add(escrow.Amount), msg.SlashBps)
+			slashAmount = computeSlashAmount(op.BondAmount.Add(escrow.Amount), slashBps)
 		default:
-			slashAmount = computeSlashAmount(op.BondAmount, msg.SlashBps)
+			slashAmount = computeSlashAmount(op.BondAmount, slashBps)
 		}
 	}
 
@@ -166,7 +192,7 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		if !slashAmount.IsZero() && k.distributionKeeper() != nil {
 			payout := sdk.NewCoin(bondDenom, slashAmount)
 			if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(payout), k.bankModuleAddress()); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		refund := escrow.Amount.Sub(slashAmount)
@@ -181,13 +207,14 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 				slashAmount = op.BondAmount
 			}
 			op.BondAmount = op.BondAmount.Sub(slashAmount)
+			clampPendingWithdrawal(&op)
 			if k.distributionKeeper() != nil {
 				if err := k.distributionKeeper().FundCommunityPool(
 					ctx,
 					sdk.NewCoins(sdk.NewCoin(bondDenom, slashAmount)),
 					k.bankModuleAddress(),
 				); err != nil {
-					return nil, err
+					return err
 				}
 			}
 			// Status may flip ACTIVE → UNDERFUNDED — borrow applySlashToBond's
@@ -208,7 +235,7 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	if hasEscrow && op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED && op.BondAmount.GTE(cfg.MinBondAmount) {
 		if op.UnderfundedSince > 0 {
 			if err := k.removeUnderfundedQueueEntry(ctx, op.UnderfundedSince, opBytes, op.ServiceType); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
@@ -220,47 +247,54 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	// contested funds have been routed by this point).
 	if hasEscrow {
 		if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
-			return nil, err
+			return err
 		}
 		if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID)); err != nil {
-			return nil, err
+			return err
 		}
 		if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	// Dissolve check (§5.2): ACCEPT with dissolve=true OR bond → 0 ⇒
 	// SLASHED + archive + dissolution hook + close any open reports.
-	dissolveNow := msg.Dissolve || (msg.Verdict != types.JuryVerdict_JURY_VERDICT_REJECT && op.BondAmount.IsZero())
+	dissolveNow := dissolve || (verdict != types.JuryVerdict_JURY_VERDICT_REJECT && op.BondAmount.IsZero())
 
 	// Update report.
 	report.Status = types.ReportStatus_REPORT_STATUS_RESOLVED_T2
 	report.SlashAmount = slashAmount
 	if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
-		return nil, err
+		return err
 	}
 	if err := k.EscalatedReportsQueue.Remove(ctx, collections.Join(report.EscalatedAt, report.ReportId)); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Reporter deposit: refund on ACCEPT/REDUCE, forfeit on REJECT.
-	if msg.Verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
+	if verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
 		if err := k.forfeitDepositToCommunityPool(ctx, report.Deposit); err != nil {
-			return nil, err
+			return err
 		}
 	} else {
 		if err := k.refundDepositToReporter(ctx, report); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	// §6.6: a jury slash is final on resolution. bondBefore reconstructs
 	// the bond as it stood before any slash on this report: the bond now
-	// held (escrow refund already folded in) plus what was just taken.
-	if !slashAmount.IsZero() {
-		bondBefore := op.BondAmount.Add(slashAmount)
-		if err := k.deductReputationOnSlash(ctx, op, opBytes, slashAmount, bondBefore, types.JurySlashReputationMultiplier); err != nil {
+	// held (escrow refund already folded in) plus what was just taken. A
+	// dissolution confiscates whatever bond remains, and that remainder is
+	// a slash too: the deduction covers the whole amount the operator
+	// loses, not only the bps the verdict named.
+	bondBefore := op.BondAmount.Add(slashAmount)
+	deducted := slashAmount
+	if dissolveNow && op.BondAmount.IsPositive() {
+		deducted = deducted.Add(op.BondAmount)
+	}
+	if !deducted.IsZero() {
+		if err := k.deductReputationOnSlash(ctx, op, opBytes, deducted, bondBefore, types.JurySlashReputationMultiplier); err != nil {
 			sdkCtx.Logger().Warn(
 				"x/service: reputation deduction on jury slash failed (non-fatal)",
 				"operator", op.Address,
@@ -272,18 +306,18 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 
 	if !dissolveNow {
 		if err := k.PutOperator(ctx, op); err != nil {
-			return nil, err
+			return err
 		}
 	} else {
 		if err := k.dissolveOperator(ctx, &op, currentHeight, report.ReportId); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	verdictStr := msg.Verdict.String()
+	verdictStr := verdict.String()
 	slashCoin := sdk.NewCoin(bondDenom, slashAmount)
 	events := sdk.Events{
-		types.NewReportResolvedT2Event(report.ReportId, verdictStr, slashCoin, msg.Dissolve),
+		types.NewReportResolvedT2Event(report.ReportId, verdictStr, slashCoin, dissolve),
 	}
 	if !slashAmount.IsZero() {
 		events = append(events, types.NewOperatorSlashedEvent(
@@ -310,7 +344,7 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		k.hooks().AfterOperatorUnderfunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
 	}
 
-	return &types.MsgResolveReportByJuryResponse{}, nil
+	return nil
 }
 
 // assertCouncilResolver gates jury-resolver msgs to members of the
@@ -330,6 +364,21 @@ func (k Keeper) assertCouncilResolver(ctx context.Context, signer string) error 
 	}
 	if !k.commonsKeeper().IsCouncilAuthorized(ctx, signer, "commons", "operations") {
 		return types.ErrUnauthorizedCouncilResolver.Wrap(signer)
+	}
+	return nil
+}
+
+// assertCommitteePolicy gates the resolver choices that depart from the
+// jury's verdict (REDUCE, dissolve) to an executed committee decision: the
+// Commons Operations Committee or Commons Council policy address, or
+// governance. Skipped in standalone mode like assertCouncilResolver.
+func (k Keeper) assertCommitteePolicy(ctx context.Context, signer string) error {
+	if k.commonsKeeper() == nil {
+		return nil
+	}
+	if !k.commonsKeeper().IsCouncilOrCommitteePolicy(ctx, signer, "commons", "operations") {
+		return types.ErrUnauthorizedCouncilResolver.Wrapf(
+			"%s: REDUCE and dissolve need the Operations Committee or Commons Council policy", signer)
 	}
 	return nil
 }

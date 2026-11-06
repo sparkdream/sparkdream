@@ -1,9 +1,9 @@
 syntax = "proto3";
 package sparkdream.rep.v1;
 
+import "gogoproto/gogo.proto";
 import "sparkdream/rep/v1/accountability.proto";
 import "sparkdream/rep/v1/member.proto";
-import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/rep/types";
 // Map fields are encoded in sorted key order: an unsorted encoding differs

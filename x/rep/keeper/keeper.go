@@ -27,7 +27,10 @@ type lateKeepers struct {
 	distrKeeper    types.DistrKeeper
 	mintKeeper     types.MintKeeper
 	stakingKeeper  types.StakingKeeper
-	hooks          types.RepHooks
+	// beacon is x/shield's randomness beacon, seeding jury draws
+	// (SetBeaconSource); nil means block-hash seeds.
+	beacon types.BeaconSource
+	hooks  types.RepHooks
 	// zeroingHooks are the modules that drop a zeroed member's lock records
 	// (AddMemberZeroingHook).
 	zeroingHooks []types.MemberZeroingHook
@@ -100,6 +103,9 @@ type Keeper struct {
 	InterimsByStatus     collections.KeySet[collections.Pair[int32, uint64]]
 	JuryReviewsByVerdict collections.KeySet[collections.Pair[int32, uint64]]
 	JuryReviewsByJuror   collections.KeySet[collections.Pair[string, uint64]]
+	// PendingJuryDraws: reviews whose seats the EndBlocker still has to draw,
+	// with the x/shield beacon epoch each draw is seeded from.
+	PendingJuryDraws collections.Map[uint64, types.PendingJuryDraw]
 	// Key: (targetType, targetID, stakeID) - allows lookup of stakes by target
 	StakesByTarget collections.KeySet[collections.Triple[int32, uint64, uint64]]
 	// Key: (status, id) - allows iteration of challenges by status
@@ -228,6 +234,12 @@ type Keeper struct {
 	InitiativeCompletionDue     collections.KeySet[collections.Pair[int64, uint64]]
 	ChallengeResponseDue        collections.KeySet[collections.Pair[int64, uint64]]
 	ContentChallengeResponseDue collections.KeySet[collections.Pair[int64, uint64]]
+	InterimDeadlineDue          collections.KeySet[collections.Pair[int64, uint64]]
+	ProjectExpiryDue            collections.KeySet[collections.Pair[int64, uint64]]
+	// InterimsByAssignee: (assignee, interim id) for live interims;
+	// ProposedProjectsByCreator: (creator, project id) for PROPOSED projects.
+	InterimsByAssignee        collections.KeySet[collections.Pair[string, uint64]]
+	ProposedProjectsByCreator collections.KeySet[collections.Pair[string, uint64]]
 	// SubmittedCheckCursor is the last SUBMITTED initiative id the capped
 	// completion-threshold check visited (submitted_check.go).
 	SubmittedCheckCursor collections.Item[uint64]
@@ -310,6 +322,10 @@ func NewKeeper(
 		JuryReviewsByJuror: collections.NewKeySet(
 			sb, types.JuryReviewsByJurorKey, "juryReviewsByJuror",
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		PendingJuryDraws: collections.NewMap(
+			sb, types.PendingJuryDrawsKey, "pendingJuryDraws", collections.Uint64Key,
+			codec.CollValue[types.PendingJuryDraw](cdc),
 		),
 		StakesByTarget: collections.NewKeySet(
 			sb, types.StakesByTargetKey, "stakesByTarget",
@@ -479,6 +495,14 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 		ContentChallengeResponseDue: collections.NewKeySet(sb, types.ContentChallengeResponseDueKey, "contentChallengeResponseDue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		InterimDeadlineDue: collections.NewKeySet(sb, types.InterimDeadlineDueKey, "interimDeadlineDue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		ProjectExpiryDue: collections.NewKeySet(sb, types.ProjectExpiryDueKey, "projectExpiryDue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		InterimsByAssignee: collections.NewKeySet(sb, types.InterimsByAssigneeKey, "interimsByAssignee",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		ProposedProjectsByCreator: collections.NewKeySet(sb, types.ProposedProjectsByCreatorKey, "proposedProjectsByCreator",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 
 		MemberActionRestorations: collections.NewMap(sb, types.MemberActionRestorationKey, "memberActionRestorations",
 			collections.StringKey, codec.CollValue[types.MemberActionRestoration](cdc)),
@@ -519,6 +543,14 @@ func (k Keeper) SetStakingKeeper(sk types.StakingKeeper) {
 // annual provisions, which size the bonded-role funding draw.
 func (k Keeper) SetMintKeeper(mk types.MintKeeper) {
 	k.late.mintKeeper = mk
+}
+
+// SetBeaconSource late-binds x/shield's randomness beacon, which seeds jury
+// draws (REP-R-102). x/shield depends on x/rep (SetRepKeeper), so this is
+// wired from app.go after injection rather than through depinject. Unwired,
+// every draw is seeded from the block hash.
+func (k Keeper) SetBeaconSource(b types.BeaconSource) {
+	k.late.beacon = b
 }
 
 // SetForumKeeper sets the forum keeper after depinject initialization.

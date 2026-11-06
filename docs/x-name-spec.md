@@ -9,7 +9,7 @@ Key principles:
 - **ENS-style resolver target**: A name's owner can point it at any address (`target`). Forward resolution returns `target` when set, owner otherwise. Reverse resolution requires explicit consent from the target via `MsgAcceptTarget` to prevent identity hijacking.
 - **Direct transfers**: Owner-to-owner name transfers (`MsgTransferName`) for cooperative handoffs (e.g., reserving an agent's name at genesis and transferring it post-launch).
 - **Name scavenging**: Inactive owners lose names after expiration period
-- **DREAM-staked disputes**: Formal challenge mechanism with DREAM staking, owner contest option, and jury/council arbitration
+- **DREAM-staked disputes**: Formal challenge mechanism with DREAM staking, owner contest option, and council arbitration (x/gov, the Commons Council or its Operations Committee; no x/rep jury is opened)
 - **BeginBlocker auto-resolution**: Uncontested disputes auto-resolve after timeout
 
 ---
@@ -53,8 +53,15 @@ message OwnerInfo {
   string address = 1;          // Owner's address (bech32)
   string primary_name = 2;     // Primary name for reverse resolution
   int64 last_active_time = 3;  // Unix timestamp of last activity
+  string display_name = 4;     // Free-form, non-unique (MsgSetDisplayName)
+  bool scavengeable = 5;       // Set by the x/rep zeroing hook: every name
+                               // of this address is released (§7.8)
 }
 ```
+
+`scavengeable` makes `IsOwnerExpired` report true whatever
+`last_active_time` says; nothing clears it (a zeroed address restarts
+under a new one).
 
 ### 3.3. Dispute
 
@@ -67,9 +74,9 @@ message Dispute {
   int64 filed_at = 3;                // Block height when filed
   string stake_amount = 4;           // Claimant's DREAM stake (cosmos.Int)
   bool active = 5;                   // Whether dispute is pending
-  string contest_challenge_id = 6;   // Set when owner contests (for jury tracking)
+  string contest_challenge_id = 6;   // Set when owner contests (keys the ContestStake row)
   int64 contested_at = 7;            // Block height when contested
-  bool contest_succeeded = 8;        // Jury verdict: did owner's contest win?
+  bool contest_succeeded = 8;        // Resolution: did owner's contest win?
   bool awaiting_review = 9;          // Left to council review by the BeginBlocker; never re-queued for auto-resolution
 }
 ```
@@ -157,6 +164,8 @@ Using Cosmos SDK collections framework:
 | `ContestStakes` | challenge_id (string) | ContestStake | Owner contest DREAM stake tracking |
 | `TargetNames` | (target_address, name) pair | - | Every name whose resolver target is set (accepted or not); maintained by `SetName`, read by the migration hook |
 | `PendingDisputes` | (filed_at_height, name) pair | - | Active uncontested disputes not `awaiting_review`; maintained by `SetDispute` (genesis import rebuilds it the same way), walked by the BeginBlocker |
+| `ReviewDisputes` | (filed_at_height, name) pair | - | Active disputes waiting for a council decision: contested ones and uncontested ones `awaiting_review`; maintained by `SetDispute`, walked by the BeginBlocker for the review window (§7.4) |
+| `ClaimantDisputes` | (claimant, name) pair | - | Active disputes by claimant; maintained by `SetDispute`, read by the zeroing hook (§7.8) |
 
 ---
 
@@ -250,7 +259,7 @@ message MsgFileDispute {
 
 ### 5.5. ContestDispute
 
-Allows the current name owner to contest a filed dispute, triggering jury review.
+Allows the current name owner to contest a filed dispute. A contested dispute is never auto-*upheld*: it waits for `MsgResolveDispute` until the review window closes (`filed_at + 2 * dispute_timeout_blocks`), after which it is dismissed in the owner's favour (§7.4). Contesting is therefore a way to put the owner's own stake behind the name, not a prerequisite for keeping it: an active owner who does not contest sees an undecided dispute dismissed on the same schedule.
 
 ```protobuf
 message MsgContestDispute {
@@ -268,11 +277,11 @@ message MsgContestDispute {
 5. Lock owner's DREAM stake (`contest_stake_dream` from params) via `dreamOps.Lock()`
 6. Generate contest challenge ID `"name_contest:<name>:<block>"` and update dispute record (`contest_challenge_id`, `contested_at`)
 7. Store ContestStake record
-8. Emit `name_dispute_contested` event (jury integration via x/rep happens off-chain or via event listeners)
+8. Emit `name_dispute_contested` event
 
 ### 5.6. ResolveDispute
 
-Resolves a dispute after jury verdict or governance decision.
+Resolves a dispute by a governance or council decision. No x/rep jury is involved; the deciding bodies are listed under Authorization.
 
 ```protobuf
 message MsgResolveDispute {
@@ -361,6 +370,7 @@ message MsgTransferName {
 **Logic:**
 1. Verify name exists and `authority` is the owner
 2. Reject if `new_owner == authority` (`ErrCannotTransferToSelf`)
+2a. Reject if the owner's `OwnerInfo.scavengeable` is set (`ErrNotAuthorized`): a zeroed member's names are released for scavenging (§7.8) and cannot be handed to a chosen successor
 3. Reject if the name has an active dispute (`ErrCannotTransferDisputed`) — prevents dumping disputed names on third parties to escape stake-burn
 4. Verify `new_owner` is an active x/rep member (`ErrRecipientNotMember`)
 5. Enforce `max_names_per_address` against the recipient (`ErrTooManyNames`)
@@ -438,11 +448,15 @@ func (k Keeper) IsActiveRepMember(ctx context.Context, memberAddr string) (bool,
 
 ### 7.2. Name Scavenging
 
-Names become available for scavenging when owner is inactive beyond `expiration_duration`:
+Names become available for scavenging when the owner is inactive beyond `expiration_duration`, or when x/rep zeroed the owner (`OwnerInfo.scavengeable`, §7.8):
 
 ```go
 func (k Keeper) IsOwnerExpired(ctx sdk.Context, ownerAddr sdk.AccAddress) bool {
-    lastActive := k.GetLastActiveTime(ctx, ownerAddr)
+    info, err := k.Owners.Get(ctx, ownerAddr.String())
+    if err == nil && info.Scavengeable {
+        return true // zeroed owner: released at once, whatever the clock says
+    }
+    lastActive := info.LastActiveTime // 0 when there is no record
     // A zero last_active_time counts as expired. It never arises in normal
     // operation: AddNameToOwner seeds it whenever an owner gains a name, so
     // only an inconsistent genesis record has zero, and treating it as
@@ -471,19 +485,23 @@ This creates a simple inactivity-based expiration without oracles.
 
 The BeginBlocker walks only the `PendingDisputes` index (active uncontested disputes by filing height, at most 50 per block) and handles those whose `dispute_timeout_blocks` has passed:
 
-```go
-func (k Keeper) BeginBlocker(ctx context.Context) error {
-    return k.processExpiredDisputes(ctx)
-}
-```
-
 **Auto-resolution rules:**
-- Only **uncontested** disputes (no `contest_challenge_id`) are auto-resolved
-- Contested disputes wait for explicit jury verdict via `MsgResolveDispute`
+- Only **uncontested** disputes (no `contest_challenge_id`) can be auto-*upheld*
+- Contested disputes wait for an explicit decision via `MsgResolveDispute` until the review window below closes
 - If the owner is **expired** (no x/name activity within `expiration_duration`): the dispute is **upheld** — the name transfers to the claimant and the claimant's DREAM stake is returned. If the claimant is no longer an active x/rep member or is at `max_names_per_address`, the dispute is voided and the stake returned. Emits `name_dispute_expired_upheld`
 - If the owner is still **active**: silence is not consent (an owner may simply lack the contest stake). The dispute is marked `awaiting_review` (so a genesis import does not re-queue it), leaves the auto-resolution queue, stays active, and waits for a Commons Council or Operations Committee decision via `MsgResolveDispute`. Emits `name_dispute_needs_review`. Council review (rather than an automatic transfer) is the decided behaviour for an uncontested dispute against an active owner
 - Each resolution runs in a cache context and commits only on success. A failure closes the dispute without a transfer, returns the claimant's stake and emits `name_dispute_auto_resolve_failed`, instead of retrying every block with half-applied writes. If the stake cannot be returned either, the still-locked DREAM is never left unaccounted for: the dispute stays active with its `DisputeStakes` row, leaves the auto-resolution queue and emits `name_dispute_needs_review` (`reason=auto_resolve_failed`); `MsgResolveDispute` then settles it and the stake
+- **Review window (NAM-102, NAM-201).** A dispute left to a council decision, whether uncontested and `awaiting_review` or **contested** (it joins `ReviewDisputes` the moment the owner contests), is dismissed once block height > `filed_at + 2 * dispute_timeout_blocks`: exactly a `MsgResolveDispute` dismissal, the name stays with its owner, the claimant's stake is burned and a contesting owner's stake is returned (`contest_succeeded = true`). Emits `name_dispute_resolved` (`outcome=dismissed`, `contested`) and `name_dispute_review_expired`. Without the window an undecided dispute froze the name (no transfer, no KEY migration) for good; with it only for uncontested disputes, contesting turned a 2-window freeze into an indefinite one and the rational owner never contested. The BeginBlocker walks the `ReviewDisputes` index, at most 50 per block, each in a cache context; a failure is logged and retried next block
 - Errors never halt the chain
+
+```go
+func (k Keeper) BeginBlocker(ctx context.Context) error {
+    if err := k.processExpiredDisputes(ctx); err != nil {
+        return err
+    }
+    return k.processUnreviewedDisputes(ctx)
+}
+```
 
 ### 7.5. Dispute Resolution Flow
 
@@ -492,13 +510,15 @@ Two resolution paths exist:
 **Path 1: Uncontested (owner does not respond)**
 1. Claimant files dispute → DREAM locked
 2. `dispute_timeout_blocks` pass with no contest
-3. Owner expired: BeginBlocker auto-resolves (name transfers, claimant stake returned). Owner still active: the Commons Council or Operations Committee decides with `MsgResolveDispute` after the window
+3. Owner expired: BeginBlocker auto-resolves (name transfers, claimant stake returned). Owner still active: the Commons Council or Operations Committee decides with `MsgResolveDispute` after the window; undecided after one more `dispute_timeout_blocks`, the dispute is dismissed
 
 **Path 2: Contested (owner responds)**
 1. Claimant files dispute → claimant DREAM locked
-2. Owner contests within timeout → owner DREAM locked, jury review triggered
-3. Jury/council issues verdict via `MsgResolveDispute`
+2. Owner contests within timeout → owner DREAM locked
+3. x/gov, the Commons Council or its Operations Committee decides via `MsgResolveDispute` before `filed_at + 2 * dispute_timeout_blocks`; undecided by then, the dispute is dismissed (owner keeps the name and the contest stake, claimant's stake burned)
 4. Winner's stake returned, loser's stake burned
+
+**Zeroed owner (either path):** the x/rep zeroing hook decides the dispute at once (§7.8).
 
 ### 7.6. Forward vs. Reverse Resolution (Hijacking Prevention)
 
@@ -547,6 +567,18 @@ consent was tied to the prior owner's identity. The new owner must
 re-establish any resolver pointer.
 
 ---
+
+### 7.8. Zeroed Parties (NAM-101, NAM-202)
+
+x/rep's `ZeroMember` burns a member's whole DREAM balance, locks included, so a dispute or contest stake the member held has no DREAM behind it. A zeroing punishes the position, not the person, and a name is a position: the member restarts under a new address, and their names are released rather than squatting until the one-year clock. x/name registers a `MemberZeroingHook` (wired in `app.go`) that runs over every address the member held:
+
+- **Disputes the member filed** (found through `ClaimantDisputes`) are closed: the stake record goes, a contesting owner's stake is unlocked (`contest_succeeded = true`), the name stays with its owner. Emits `name_dispute_resolved` with `outcome=claimant_zeroed`.
+- **Disputes against the member's names** are decided at once instead of waiting for the review window (which would default to a dismissal burning an innocent claimant's stake): the dispute is **upheld** when the claimant can still receive the name (active member, under the name cap) — the name transfers, the claimant's stake is returned — and **voided** otherwise (stake returned, name stays and is released like the rest). The zeroed owner's contest stake record goes (its DREAM went with the balance). Emits `name_dispute_resolved` with `outcome=upheld|voided`, `reason=owner_zeroed`.
+- **Every `OwnerInfo` the member held is marked `scavengeable`**: `IsOwnerExpired` reports true at once, so any active member can take the names through the normal `MsgRegisterName` scavenge path (`name_scavenged`), and `MsgTransferName` refuses to move them to a chosen successor. Owner activity never clears the mark.
+
+Emits `name_zeroed_stakes_settled` (`disputes_closed`, `disputes_decided`, `owners_released`) when anything was touched.
+
+The records are dropped in the hook rather than tolerated at resolution: after an overturned zeroing gives the member a balance back, a kept record would release an unrelated lock. As a fallback (for example a hook that failed), resolution settles stakes with dreamutil's `UnlockOrGone` / `BurnLockedOrGone` / `SettleStakesOrGone`, which treat a lock x/rep reports as gone as already settled. Before this, every resolution path failed on the zeroed side, the other party's stake stayed locked and the name was frozen for good. Covered by `app/zeroing_cross_module_test.go`.
 
 ## 8. Default Parameters
 
@@ -602,7 +634,9 @@ re-establish any resolver pointer.
 | `name_updated` | name, owner, new_data | Metadata changed |
 | `name_dispute_filed` | name, claimant, stake_amount, reason, filed_at | New dispute created with DREAM stake |
 | `name_dispute_contested` | name, owner, contest_stake, contest_challenge_id, reason, contested_at | Owner contests a dispute |
-| `name_dispute_resolved` | name, claimant, outcome (upheld/dismissed/voided), contested | Dispute resolved by authority, jury or BeginBlocker |
+| `name_dispute_resolved` | name, claimant, outcome (upheld/dismissed/voided/claimant_zeroed), contested, [reason=owner_zeroed] | Dispute resolved by authority, BeginBlocker or the zeroing hook |
+| `name_dispute_review_expired` | name, claimant, contested | A dispute left to a council decision (contested, or uncontested awaiting review) past the review window was dismissed |
+| `name_zeroed_stakes_settled` | member, disputes_closed, disputes_decided, owners_released | x/rep zeroed a member holding names, dispute or contest stakes |
 | `name_dispute_expired_upheld` | name, claimant, expired_at_block | Uncontested dispute against an expired owner auto-resolved by BeginBlocker |
 | `name_dispute_needs_review` | name, claimant, owner (or reason, error, unlock_error) | Uncontested dispute against an active owner, or a failed auto-resolution whose stake could not be returned, left for a council decision |
 | `name_dispute_auto_resolve_failed` | name, claimant, error | Auto-resolution failed; dispute closed without transfer |
@@ -713,7 +747,9 @@ The dispute mechanism uses DREAM staking with two resolution paths:
 
 **Uncontested path:** If the owner does not contest within `dispute_timeout_blocks`, the BeginBlocker auto-resolves the dispute in favor of an eligible claimant only when the owner is expired (inactive); an active owner's dispute goes to the Commons Council or its Operations Committee, so an owner who cannot afford the contest stake is not dispossessed by silence.
 
-**Contested path:** If the owner contests, both parties have DREAM at stake. A jury verdict (via x/rep) or council decision determines the outcome. The loser's DREAM stake is burned; the winner's is returned.
+**Contested path:** If the owner contests, both parties have DREAM at stake. A governance or council decision (`MsgResolveDispute`) determines the outcome; no x/rep jury is opened. The loser's DREAM stake is burned; the winner's is returned. A contested dispute the council leaves undecided past `filed_at + 2 * dispute_timeout_blocks` is dismissed in the owner's favour (§7.4), so the freeze a dispute puts on a name (no transfer, no KEY migration) is bounded for every owner, contesting or not.
+
+**Zeroed owner:** a dispute against a name whose owner x/rep zeroed is decided by the zeroing hook (§7.8); the claimant's stake is never burned for a dispute the owner's zeroing made moot.
 
 - Requires 50 DREAM stake to file (skin-in-the-game, not just fees)
 - Owner must stake 100 DREAM to contest (higher conviction required)
@@ -730,6 +766,7 @@ The dispute mechanism uses DREAM staking with two resolution paths:
 - Only active x/rep members can register (limits attackers and ties names to invitation-accountable identities)
 - 1-year expiration gives owners ample time to renew activity; the committee cannot lower it below 180 days
 - A name under an active dispute cannot be scavenged
+- A zeroed member's names are scavengeable at once (`OwnerInfo.scavengeable`, §7.8); the zeroing hook settles any dispute on them first
 - Scavenging emits events for monitoring
 
 ### 12.6. Genesis Handle Squat Protection
@@ -753,8 +790,9 @@ their own behalf) but still enforces format rules, blocked names, and the
 per-address cap.
 
 x/season also claims names through `ClaimName` (`MsgSetUsername`, guild
-names): it charges `username_cost_dream` in DREAM on its side instead of the
-SPARK `registration_fee`. Those names count toward `max_names_per_address`,
+names): it burns DREAM on its side (`username_cost_dream` for a username,
+`guild_creation_cost` for a guild name) instead of charging the SPARK
+`registration_fee`. Those names count toward `max_names_per_address`,
 so a member's username and guild names compete with their own handles.
 When x/season no longer needs one (username change, guild dissolution) it
 calls `ReleaseName(name, owner)`, which deletes the record together with its

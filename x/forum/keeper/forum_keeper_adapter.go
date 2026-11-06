@@ -444,28 +444,42 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 			}
 			return nil
 		}
-		// Dangling-reference guard.
-		if k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, post.CategoryId) {
-			sdkCtx.Logger().Warn("reverse sentinel action: parent category gone, skipping unhide",
+		// Dangling-reference guard: the post cannot come back to a deleted
+		// category. The author still won, so the bond is restored below, and
+		// the post is soft-deleted rather than left HIDDEN with no record
+		// (nothing would ever settle it).
+		categoryGone := k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, post.CategoryId)
+		if categoryGone {
+			sdkCtx.Logger().Warn("reverse sentinel action: parent category gone, soft-deleting instead of unhiding",
 				"post_id", id, "category_id", post.CategoryId)
-			return nil
-		}
-		post.Status = types.PostStatus_POST_STATUS_ACTIVE
-		post.HiddenBy = ""
-		post.HiddenAt = 0
-		if err := k.Post.Set(ctx, id, post); err != nil {
-			return fmt.Errorf("reverse hide: update post: %w", err)
+			if err := k.softDeleteHiddenPost(ctx, id, post); err != nil {
+				return fmt.Errorf("reverse hide: soft-delete post: %w", err)
+			}
+		} else {
+			post.Status = types.PostStatus_POST_STATUS_ACTIVE
+			post.HiddenBy = ""
+			post.HiddenAt = 0
+			if err := k.Post.Set(ctx, id, post); err != nil {
+				return fmt.Errorf("reverse hide: update post: %w", err)
+			}
 		}
 
 		// Restore the author bond that MsgHidePost slashed (mint + re-lock).
 		// Net DREAM supply change across slash→restore is zero. Best-effort:
 		// failures are logged but do not abort the appeal-resolution tx.
+		// A soft-deleted post gets the DREAM back unlocked: a bond re-locked
+		// on a post that is gone would strand it.
 		if haveHideRecord && k.repKeeper != nil && hideRecord.AuthorBondAmount != "" {
 			if amt, ok := math.NewIntFromString(hideRecord.AuthorBondAmount); ok && amt.IsPositive() {
 				authorAddr, addrErr := sdk.AccAddressFromBech32(post.Author)
 				if addrErr != nil {
 					sdkCtx.Logger().Warn("reverse sentinel action: bad author address for bond restore",
 						"post_id", id, "author", post.Author, "error", addrErr)
+				} else if categoryGone {
+					if err := k.repKeeper.MintDREAM(ctx, authorAddr, amt); err != nil {
+						sdkCtx.Logger().Warn("reverse sentinel action: return author bond failed",
+							"post_id", id, "author", post.Author, "error", err)
+					}
 				} else if err := k.repKeeper.RestoreAuthorBond(ctx, authorAddr, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, id, amt); err != nil {
 					sdkCtx.Logger().Warn("reverse sentinel action: restore author bond failed",
 						"post_id", id, "author", post.Author, "error", err)
@@ -476,6 +490,14 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 		if err := k.HideRecord.Remove(ctx, id); err != nil {
 			sdkCtx.Logger().Warn("reverse sentinel action: remove hide record failed",
 				"post_id", id, "error", err)
+		}
+		if categoryGone {
+			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+				"hidden_post_removed_category_gone",
+				sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
+				sdk.NewAttribute("category_id", fmt.Sprintf("%d", post.CategoryId)),
+			))
+			return nil
 		}
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"post_unhidden",

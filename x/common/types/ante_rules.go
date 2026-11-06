@@ -5,17 +5,20 @@ package types
 // proposals, x/session exec and ScheduledOneshot Exec, the ICA host) skips
 // them. Executors keep off these message types instead:
 //
-//   - x/commons MsgSubmitProposal: the minimum proposal fee is charged by
-//     commons' ProposalFeeDecorator.
+//   - x/commons MsgSubmitProposal: the ante floors the tx fee at N proposal
+//     fees; the msg server charges the fee itself when no ante credit is
+//     present (nested submissions), so this one is ante-floored, not
+//     ante-only. x/session still keeps it off the allowlists.
 //   - x/gnovm MsgRun / MsgCall / MsgAddPackage: the gnovm ante refuses a tx
 //     that mixes VM messages with any other message.
 //
-// x/session forbids all of them in its allowlists, x/vault refuses
-// MsgSubmitProposal and applies the gnovm no-mix rule to a proposal's
-// messages, and the ICA host only runs app.ICAHostAllowedMsgs.
+// x/session forbids all of them in its allowlists, x/vault applies the
+// gnovm no-mix rule to a proposal's messages (a vault-signed
+// MsgSubmitProposal pays the fee from the vault address), and the ICA host
+// only runs app.ICAHostAllowedMsgs.
 
 // CommonsSubmitProposalTypeURL is the commons proposal msg whose fee floor
-// is enforced only in the ante.
+// is enforced in the ante (the handler charges nested submissions itself).
 const CommonsSubmitProposalTypeURL = "/sparkdream.commons.v1.MsgSubmitProposal"
 
 // GnoVMMsgTypeURLs are the gnovm messages the gnovm ante refuses to mix

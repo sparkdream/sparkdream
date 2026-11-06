@@ -131,13 +131,13 @@ func (k Keeper) startSeasonTransition(ctx context.Context, season types.Season) 
 		return err
 	}
 
-	// Initialize transition state
+	// Initialize transition state at the first phase (cursor, maintenance
+	// flag and total_count come from beginTransitionPhase).
 	transitionState := types.SeasonTransitionState{
-		Phase:           types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS,
-		ProcessedCount:  0,
-		TotalCount:      0, // Will be set when we know how many members
 		TransitionStart: sdkCtx.BlockHeight(),
-		MaintenanceMode: false,
+	}
+	if err := k.beginTransitionPhase(ctx, &transitionState, types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS, true); err != nil {
+		return err
 	}
 
 	if err := k.SeasonTransitionState.Set(ctx, transitionState); err != nil {
@@ -195,6 +195,26 @@ func (k Keeper) runTransitionBatch(ctx context.Context, state types.SeasonTransi
 	// TransitionBatchSize is validated > 0 by Params.Validate.
 	batchSize := params.TransitionBatchSize
 
+	if state.Phase == types.TransitionPhase_TRANSITION_PHASE_COMPLETE {
+		// Transition is complete - finalize
+		return k.finalizeTransition(ctx, state)
+	}
+
+	// Maintenance mode from SNAPSHOT through RESET_XP, so the reputation
+	// and DREAM the snapshot records stop moving while it is taken
+	// (SEA-16). The season's status mirrors the flag; both are re-derived
+	// from the phase here so an imported or retried state is consistent.
+	state.MaintenanceMode = phaseIsMaintenance(state.Phase)
+	if state.ProcessedCount == 0 && state.LastProcessed == "" {
+		season, err := k.Season.Get(ctx)
+		if err != nil {
+			return err
+		}
+		if err := k.syncSeasonStatus(ctx, season, state.MaintenanceMode); err != nil {
+			return err
+		}
+	}
+
 	var phaseComplete bool
 	var processErr error
 
@@ -206,35 +226,22 @@ func (k Keeper) runTransitionBatch(ctx context.Context, state types.SeasonTransi
 		phaseComplete, processErr = k.processReturnNominationStakesPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT:
-		// Maintenance mode from SNAPSHOT on, so the reputation and DREAM
-		// the snapshot records stop moving while it is taken (SEA-16).
-		state.MaintenanceMode = true
 		phaseComplete, processErr = k.processSnapshotPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION:
-		// Enable maintenance mode for critical phases
-		state.MaintenanceMode = true
 		phaseComplete, processErr = k.processArchiveReputationPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_RESET_REPUTATION:
-		state.MaintenanceMode = true
 		phaseComplete, processErr = k.processResetReputationPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_RESET_XP:
-		state.MaintenanceMode = true
 		phaseComplete, processErr = k.processResetXPPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_TITLES:
-		state.MaintenanceMode = false
 		phaseComplete, processErr = k.processTitlesPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_CLEANUP:
-		state.MaintenanceMode = false
 		phaseComplete, processErr = k.processCleanupPhase(ctx, &state, int(batchSize))
-
-	case types.TransitionPhase_TRANSITION_PHASE_COMPLETE:
-		// Transition is complete - finalize
-		return k.finalizeTransition(ctx, state)
 	}
 
 	if processErr != nil {
@@ -243,11 +250,12 @@ func (k Keeper) runTransitionBatch(ctx context.Context, state types.SeasonTransi
 	}
 
 	if phaseComplete {
-		// Move to next phase
+		// Move to next phase: cursor, maintenance flag, total_count and
+		// the season status follow it.
 		completedPhase := state.Phase
-		state.Phase = k.nextTransitionPhase(state.Phase)
-		state.ProcessedCount = 0
-		state.LastProcessed = ""
+		if err := k.beginTransitionPhase(ctx, &state, k.nextTransitionPhase(state.Phase), true); err != nil {
+			return err
+		}
 
 		sdkCtx.EventManager().EmitEvent(
 			sdk.NewEvent(
@@ -480,13 +488,18 @@ func (k Keeper) processArchiveReputationPhase(ctx context.Context, state *types.
 // profiles left that member's seasonal reputation unreset into the next
 // season. The cursor is the last member address processed.
 func (k Keeper) processResetReputationPhase(ctx context.Context, state *types.SeasonTransitionState, batchSize int) (bool, error) {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	baseline := params.BaselineReputation
 	if k.late.repKeeper != nil {
 		members, done, err := k.late.repKeeper.MembersAfter(ctx, state.LastProcessed, batchSize)
 		if err != nil {
 			return false, err
 		}
 		for _, addr := range members {
-			if _, err := k.late.repKeeper.ArchiveSeasonalReputation(ctx, addr); err != nil {
+			if _, err := k.late.repKeeper.ArchiveSeasonalReputation(ctx, addr, baseline); err != nil {
 				// SEA-22: fail the batch rather than advance the cursor
 				// past an unreset member. The batch is discarded, retried,
 				// and after transition_max_retries enters recovery mode,
@@ -525,9 +538,9 @@ func (k Keeper) processResetReputationPhase(ctx context.Context, state *types.Se
 		// Archive seasonal reputation to lifetime and reset for new season
 		// This is the critical step that:
 		// 1. Adds seasonal scores to lifetime totals
-		// 2. Clears seasonal reputation scores
+		// 2. Resets seasonal reputation scores to baseline_reputation
 		if k.late.repKeeper != nil {
-			if _, err := k.late.repKeeper.ArchiveSeasonalReputation(ctx, profile.Address); err != nil {
+			if _, err := k.late.repKeeper.ArchiveSeasonalReputation(ctx, profile.Address, baseline); err != nil {
 				return false, fmt.Errorf("archive seasonal reputation of %s: %w", profile.Address, err) // SEA-22
 			}
 		}
@@ -677,6 +690,15 @@ func (k Keeper) processCleanupPhase(ctx context.Context, state *types.SeasonTran
 		if err := k.deactivateSeasonQuests(ctx, season.Number); err != nil {
 			return false, err
 		}
+		// Completed-season records past snapshot_retention_seasons go
+		// with the member snapshots of the same seasons.
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return false, err
+		}
+		if err := k.pruneSeasonHistory(ctx, season.Number, uint64(params.SnapshotRetentionSeasons)); err != nil {
+			return false, err
+		}
 	}
 
 	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
@@ -809,6 +831,12 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 		newSeason.Name = fmt.Sprintf("Season %d", newSeason.Number)
 	}
 
+	// Archive the finished season's record (its final end_block and
+	// extension counters) as COMPLETED before the live item is replaced.
+	oldSeason.Status = types.SeasonStatus_SEASON_STATUS_COMPLETED
+	if err := k.SeasonHistory.Set(ctx, oldSeason.Number, oldSeason); err != nil {
+		return err
+	}
 	if err := k.Season.Set(ctx, newSeason); err != nil {
 		return err
 	}
@@ -852,6 +880,8 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"season_transition_complete",
+			sdk.NewAttribute("completed_season_number", fmt.Sprintf("%d", oldSeason.Number)),
+			sdk.NewAttribute("completed_season_end_block", fmt.Sprintf("%d", oldSeason.EndBlock)),
 			sdk.NewAttribute("new_season_number", fmt.Sprintf("%d", newSeason.Number)),
 			sdk.NewAttribute("new_season_name", newSeason.Name),
 			sdk.NewAttribute("start_block", fmt.Sprintf("%d", newSeason.StartBlock)),

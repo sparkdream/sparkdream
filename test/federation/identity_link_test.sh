@@ -251,8 +251,12 @@ else
         fi
     else
         RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-        if echo "$RAW" | grep -qi "not active\|not found"; then
-            echo "  Peer not active (expected)"
+        # In this single-chain suite spark.testnet is registered without an
+        # IBC channel (see peer_lifecycle_test.sh TEST 3), so the challenge
+        # packet cannot be sent (ErrIBCNotAvailable, 2360). The multichain
+        # suite covers the real two-chain link.
+        if echo "$RAW" | grep -qi "not active\|not found\|no IBC channel\|IBC channel keeper not available"; then
+            echo "  Peer not active or has no IBC channel (expected in a single-chain suite)"
             record_result "Link to IBC peer" "PASS"
         else
             record_result "Link to IBC peer" "FAIL"

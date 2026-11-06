@@ -38,6 +38,12 @@ func (k msgServer) TransferName(goCtx context.Context, msg *types.MsgTransferNam
 		return nil, types.ErrCannotTransferToSelf
 	}
 
+	// A zeroed owner's names are released for scavenging (NAM-202); handing
+	// one to a chosen successor would undo the release.
+	if info, err := k.Owners.Get(ctx, record.Owner); err == nil && info.Scavengeable {
+		return nil, errorsmod.Wrapf(types.ErrNotAuthorized, "name '%s' belongs to a zeroed member and is released for scavenging", name)
+	}
+
 	// Active dispute? Refuse — otherwise the current owner can shed liability
 	// by transferring the disputed name to a third party.
 	if d, ok := k.GetDispute(ctx, name); ok && d.Active {

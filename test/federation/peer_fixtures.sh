@@ -13,9 +13,12 @@
 PROPOSAL_DIR="${PROPOSAL_DIR:-$SCRIPT_DIR/proposals}"
 mkdir -p "$PROPOSAL_DIR"
 
-# register_test_peer <peer_id> <type> <display_name> [ibc_channel_id] [activate]
+# register_test_peer <peer_id> <type> <display_name> [ibc_channel_id] [activate] [expected_chain_id]
 # type: PEER_TYPE_ACTIVITYPUB | PEER_TYPE_ATPROTO | PEER_TYPE_SPARK_DREAM
 # activate: yes (default) | no
+# expected_chain_id: required by the chain for PEER_TYPE_SPARK_DREAM (the
+#   chain id behind the federation channel, checked at activation; FED-106),
+#   defaults to the peer id; must stay empty for other types.
 #
 # Registration alone leaves the peer PENDING, and a PENDING peer is inert:
 # register-bridge, federate-content, submit-content and reputation
@@ -30,6 +33,10 @@ register_test_peer() {
     local DISPLAY_NAME=$3
     local IBC_CHAN=${4:-""}
     local ACTIVATE=${5:-yes}
+    local EXPECTED_CHAIN_ID=${6:-""}
+    if [ "$PEER_TYPE" == "PEER_TYPE_SPARK_DREAM" ] && [ -z "$EXPECTED_CHAIN_ID" ]; then
+        EXPECTED_CHAIN_ID="$PEER_ID"
+    fi
 
     # If peer already exists, skip registration -- but still make sure it
     # is ACTIVE, since it may have been seeded PENDING by another test.
@@ -54,6 +61,7 @@ register_test_peer() {
       "display_name": "$DISPLAY_NAME",
       "type": "$PEER_TYPE",
       "ibc_channel_id": "$IBC_CHAN",
+      "expected_chain_id": "$EXPECTED_CHAIN_ID",
       "metadata": "fixture peer for federation tests"
     }
   ],

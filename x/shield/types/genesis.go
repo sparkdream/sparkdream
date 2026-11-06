@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"sparkdream/tools/tle"
@@ -266,6 +267,22 @@ func (gs GenesisState) Validate() error {
 		if liveDomains[reg.NullifierDomain] {
 			return fmt.Errorf("retired nullifier domain %d is used by a registered op", reg.NullifierDomain)
 		}
+	}
+	// Per-identity epoch fees: one entry per (epoch, identity), a 32-byte
+	// hex rate-limit nullifier and a non-negative amount.
+	seenFees := make(map[string]bool, len(gs.IdentityEpochFees))
+	for _, e := range gs.IdentityEpochFees {
+		if b, err := hex.DecodeString(e.RateLimitNullifierHex); err != nil || len(b) != 32 || hex.EncodeToString(b) != e.RateLimitNullifierHex {
+			return fmt.Errorf("identity epoch fee: invalid rate-limit nullifier %q", e.RateLimitNullifierHex)
+		}
+		if e.Paid.IsNil() || e.Paid.IsNegative() {
+			return fmt.Errorf("identity epoch fee: invalid amount for %s", e.RateLimitNullifierHex)
+		}
+		key := fmt.Sprintf("%d/%s", e.Epoch, e.RateLimitNullifierHex)
+		if seenFees[key] {
+			return fmt.Errorf("duplicate identity epoch fee entry %s", key)
+		}
+		seenFees[key] = true
 	}
 	if err := gs.TleKeySet.Validate(); err != nil {
 		return err

@@ -107,11 +107,8 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	if msg.PolicyType != PolicyTypePercentage && msg.PolicyType != PolicyTypeThreshold {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid policy_type '%s'", msg.PolicyType)
 	}
-	if msg.VotingPeriod <= 0 {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "voting_period must be greater than 0")
-	}
-	if err := k.checkVotingPeriodCap(ctx, int64(msg.VotingPeriod)); err != nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	if err := validateDecisionPeriods(int64(msg.VotingPeriod), int64(msg.MinExecutionPeriod)); err != nil {
+		return nil, err
 	}
 
 	// Allowlist: globally forbidden messages are refused for every signer,

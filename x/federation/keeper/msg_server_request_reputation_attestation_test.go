@@ -19,7 +19,7 @@ func TestRequestReputationAttestation(t *testing.T) {
 	// Set to ACTIVE and enable reputation
 	peer, _ := f.keeper.Peers.Get(f.ctx, "rep-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "rep-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 	require.NoError(t, f.keeper.PeerPolicies.Set(f.ctx, "rep-peer", types.PeerPolicy{
 		PeerId: "rep-peer", AcceptReputationAttestations: true,
 	}))
@@ -62,7 +62,7 @@ func TestRequestReputationAttestationRequiresVerifiedLink(t *testing.T) {
 		registerTestIBCPeer(t, f, ms, "rep-peer")
 		peer, _ := f.keeper.Peers.Get(f.ctx, "rep-peer")
 		peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-		require.NoError(t, f.keeper.Peers.Set(f.ctx, "rep-peer", peer))
+		require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 		require.NoError(t, f.keeper.PeerPolicies.Set(f.ctx, "rep-peer", types.PeerPolicy{
 			PeerId: "rep-peer", AcceptReputationAttestations: true,
 		}))
@@ -111,7 +111,7 @@ func TestRequestReputationAttestationWrongPeerType(t *testing.T) {
 
 	peer, _ := f.keeper.Peers.Get(f.ctx, "ap-rep-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "ap-rep-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	userStr := testAddr(t, f, "rep-user2")
 	_, err := ms.RequestReputationAttestation(f.ctx, &types.MsgRequestReputationAttestation{

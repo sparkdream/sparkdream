@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -29,6 +30,12 @@ const (
 	// a voter snapshot).
 	MaxOpenPollsPerGroup   = 20
 	MaxOpenPollsPerCreator = 3
+	// MaxPollOpensPerCreatorPerDay caps the polls one creator opens per UTC
+	// day, counted at opening and never given back: the open-poll cap
+	// alone resets on cancel, so an open/cancel loop could churn fee-free
+	// secret polls (each a voter-tree build and a record kept for
+	// PollRetention) without limit.
+	MaxPollOpensPerCreatorPerDay = 3
 	// MaxPollTransitionsPerBlock caps the PollQueue entries (closes and
 	// prunes) EndBlock processes per block; the rest drain in order.
 	MaxPollTransitionsPerBlock = 20
@@ -83,6 +90,30 @@ func (k Keeper) checkOpenPollCaps(ctx context.Context, councilName, creator stri
 	return nil
 }
 
+// recordPollOpen counts one poll opening against the creator's bucket for
+// the current UTC day and refuses the opening past
+// MaxPollOpensPerCreatorPerDay. The bucket is keyed by the signing address
+// and reset when the day changes; cancelling a poll never decrements it.
+func (k Keeper) recordPollOpen(ctx sdk.Context, creator string) error {
+	day := ctx.BlockTime().Unix() / 86400
+	bucket, err := k.PollOpenCounts.Get(ctx, creator)
+	if err != nil {
+		if !errors.Is(err, collections.ErrNotFound) {
+			return err
+		}
+		bucket = types.PollOpenCount{Creator: creator}
+	}
+	if bucket.UtcDay != day {
+		bucket = types.PollOpenCount{Creator: creator, UtcDay: day}
+	}
+	if bucket.Count >= MaxPollOpensPerCreatorPerDay {
+		return errorsmod.Wrapf(types.ErrPollRateLimit, "%s already opened %d polls today (limit %d per UTC day)",
+			creator, bucket.Count, MaxPollOpensPerCreatorPerDay)
+	}
+	bucket.Count++
+	return k.PollOpenCounts.Set(ctx, creator, bucket)
+}
+
 // openPollForVoting loads a poll that is open and before its deadline.
 func (k Keeper) openPollForVoting(ctx sdk.Context, pollID, option uint64) (types.Poll, error) {
 	poll, err := k.Polls.Get(ctx, pollID)
@@ -131,6 +162,29 @@ func (k Keeper) endPoll(ctx sdk.Context, poll *types.Poll, status types.PollStat
 		return err
 	}
 	return k.PollQueue.Set(ctx, collections.Join(pollRetentionEnd(*poll), poll.Id))
+}
+
+// cancelOpenPollsOf cancels every open poll of councilName (MsgDeleteGroup).
+func (k Keeper) cancelOpenPollsOf(ctx sdk.Context, councilName string) error {
+	var ids []uint64
+	if err := k.OpenPollsByCouncil.Walk(ctx, collections.NewPrefixedPairRange[string, uint64](councilName),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			ids = append(ids, key.K2())
+			return false, nil
+		}); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		poll, err := k.Polls.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := k.endPoll(ctx, &poll, types.PollStatus_POLL_STATUS_CANCELLED); err != nil {
+			return err
+		}
+		ctx.EventManager().EmitEvent(pollEvent("poll_cancelled", id, sdk.NewAttribute("reason", "group deleted")))
+	}
+	return nil
 }
 
 // prunePoll deletes a poll past its retention with its open votes.

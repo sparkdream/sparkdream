@@ -12,4 +12,8 @@ message OwnerInfo {
   // zero-width chars, no newlines, 1-32 codepoints. Not unique. Not
   // required to own a primary_name.
   string display_name = 4;
+  // Set by the x/rep zeroing hook: every name this address owns is
+  // released and can be scavenged at once (IsOwnerExpired reports true),
+  // whatever last_active_time says. A zeroed address never clears it.
+  bool scavengeable = 5;
 }

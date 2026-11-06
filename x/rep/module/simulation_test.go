@@ -3,9 +3,10 @@ package rep_test
 import (
 	"encoding/json"
 
-	"cosmossdk.io/math"
 	"math/rand"
 	"testing"
+
+	"cosmossdk.io/math"
 
 	"github.com/cosmos/cosmos-sdk/types/module"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
@@ -41,6 +42,7 @@ func TestGenerateGenesisState(t *testing.T) {
 	require.NoError(t, genesis.Params.Validate())
 	want := types.DefaultParams()
 	want.EpochBlocks = genesis.Params.EpochBlocks
+	want.ZkKeyActivationDelay = genesis.Params.ZkKeyActivationDelay
 	want.DefaultReviewPeriodEpochs = genesis.Params.DefaultReviewPeriodEpochs
 	want.ChallengeResponseDeadlineEpochs = genesis.Params.ChallengeResponseDeadlineEpochs
 	want.DefaultChallengePeriodEpochs = genesis.Params.DefaultChallengePeriodEpochs
@@ -128,7 +130,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 55) // +MsgRevokeInvitation, +9 member key migration ops (ForceMigration is authority-only and not simulated), +MsgClearZkPublicKey, +MsgCompleteProject (NoOp: policy-signed), +MsgInviteExpertWitness
+	require.Len(t, ops, 56) // +MsgRevokeInvitation, +9 member key migration ops (ForceMigration is authority-only and not simulated), +MsgClearZkPublicKey, +MsgCompleteProject (NoOp: policy-signed), +MsgInviteExpertWitness, +MsgEndorseExpertWitness
 }
 
 func TestProposalMsgs(t *testing.T) {

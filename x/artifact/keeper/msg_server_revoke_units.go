@@ -42,7 +42,7 @@ func (k msgServer) RevokeUnits(ctx context.Context, msg *types.MsgRevokeUnits) (
 	// alias contract (either address may be named). Only free units are
 	// revoked; a revocable class is never transferable, so its units can
 	// never be listed or pending a transfer.
-	holder := k.balanceHolder(ctx, c.Id, e.Id, msg.Holder)
+	holder := k.unitsHolderOf(ctx, c.Id, e.Id, msg.Holder)
 	if err := k.debit(ctx, &e, holder, msg.Amount, false); err != nil {
 		return nil, err
 	}

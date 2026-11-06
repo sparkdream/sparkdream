@@ -17,7 +17,7 @@ func TestSuspendPeer(t *testing.T) {
 	// Set to ACTIVE manually
 	peer, _ := f.keeper.Peers.Get(f.ctx, "test-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "test-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	// Suspend
 	_, err := ms.SuspendPeer(f.ctx, &types.MsgSuspendPeer{

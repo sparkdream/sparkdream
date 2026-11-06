@@ -199,6 +199,23 @@ else
 fi
 
 # ========================================================================
+# TEST 10: Query allowed granters (grantee consent, x-session-spec §31)
+# ========================================================================
+echo "--- TEST 10: Query allowed granters ---"
+
+# create_session_test.sh had grantee1 accept the granter's pending session,
+# which recorded the granter as one of grantee1's allowed granters.
+ALLOWED_GRANTERS=$($BINARY query session allowed-granters "$GRANTEE1_ADDR" --output json 2>&1)
+HAS_GRANTER=$(echo "$ALLOWED_GRANTERS" | jq -r --arg g "$GRANTER_ADDR" '[.granters[]? | select(.==$g)] | length')
+if [ "$HAS_GRANTER" = "1" ]; then
+    echo "  grantee1 allows $GRANTER_ADDR"
+    record_result "Query allowed granters" "PASS"
+else
+    echo "  Expected the granter in grantee1's allowed granters: $ALLOWED_GRANTERS"
+    record_result "Query allowed granters" "FAIL"
+fi
+
+# ========================================================================
 # Results
 # ========================================================================
 echo "============================================"

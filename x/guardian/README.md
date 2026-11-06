@@ -30,7 +30,7 @@ The inner Msg's response is packed back into `Any` in `MsgExecResponse`.
 
 ## Per-Msg-Type Filters
 
-All bounds are compiled constants in [keeper/msg_server.go](keeper/msg_server.go); changing one needs a chain upgrade.
+All bounds are compiled constants in [keeper/msg_server.go](keeper/msg_server.go); changing one needs a chain upgrade. The gov voting-period floors are the one per-network table ([keeper/network_bounds.go](keeper/network_bounds.go), selected by the `devnet` / `testnet` / `mainnet` build tag like `params_vals_*`): every SDK `MsgUpdateParams` replaces the whole `Params` and guardian compares against the compiled bound, not the current value, so a floor above a network's shipped value would force every later gov retune on that network (of `min_deposit`, say) to lengthen the voting periods as a side effect. `TestNetworkGenesisParamsInsideGuardianBounds` ([deploy/config/network/crossnetwork](../../deploy/config/network/crossnetwork/guardian_bounds_test.go)) runs each network's shipped auth, bank, consensus, distribution, gov, mint, slashing and staking params through the real filters with that network's table, so a genesis regeneration can never ship a value gov could not re-submit.
 
 | Inner Msg | Behavior |
 |---|---|
@@ -40,18 +40,25 @@ All bounds are compiled constants in [keeper/msg_server.go](keeper/msg_server.go
 | `bank.MsgUpdateParams` | `default_send_enabled` must stay `true` (the networks ship `send_enabled: []`, so the native denoms read the default). Legacy `params.send_enabled` entries that disable a denom are rejected |
 | `distribution.MsgUpdateParams` | `community_tax` clamped to `[0.05, 0.25]` (required) |
 | `distribution.MsgCommunityPoolSpend` | **Hard reject.** Community pool spending must flow through x/split. |
-| `gov.MsgUpdateParams` | `voting_period` in `[6h, 28d]`, `expedited_voting_period` in `[1h, 28d]`, `max_deposit_period ≤ 28d`; `quorum` in `[0.2, 0.5]`, `threshold` in `[0.5, 0.67]`, `veto_threshold` in `[0.2, 0.5]`, `expedited_threshold ≥ 0.667` (gov cannot freeze itself or weaken expedited votes); `min_deposit_ratio` a decimal in `[0.001, 1]` (the SDK parses it on every submission and deposit but never validates it) and `min_initial_deposit_ratio` in `[0, 1]`; `min_deposit` at least 5,000,000 base units of the sealed bond denom, `expedited_min_deposit` at least `min_deposit` |
+| `gov.MsgUpdateParams` | `voting_period` in `[floor, 28d]`, `expedited_voting_period` in `[floor, 28d]` with per-network floors (testnet, mainnet and the untagged test build: 6h / 1h; devnet: 30min / 10min, its genesis ships 1h / 30min), `max_deposit_period ≤ 28d`; `quorum` in `[0.2, 0.5]`, `threshold` in `[0.5, 0.67]`, `veto_threshold` in `[0.2, 0.5]`, `expedited_threshold ≥ 0.667` (gov cannot freeze itself or weaken expedited votes); `min_deposit_ratio` a decimal in `[0.001, 1]` (the SDK parses it on every submission and deposit but never validates it) and `min_initial_deposit_ratio` in `[0, 1]`; `min_deposit` at least 5,000,000 base units of the sealed bond denom, `expedited_min_deposit` at least `min_deposit` |
 | `slashing.MsgUpdateParams` | `slash_fraction_double_sign` in `[0.01, 0.33]`, `slash_fraction_downtime` in `[1e-5, 0.05]`, `min_signed_per_window` in `[0.05, 0.95]`, `downtime_jail_duration` in `[10m, 30d]`, `signed_blocks_window` in `[100, 1M]` |
 | `auth.MsgUpdateParams` | `tx_size_cost_per_byte` in `[1, 100]`, `sig_verify_cost_ed25519` in `[100, 10,000]`, `sig_verify_cost_secp256k1` in `[100, 20,000]` (a cost no signed tx can pay would stop every tx, Technical Council votes included, so not even an on-chain upgrade could repair it), `tx_sig_limit` in `[7, 100]` (every sub-key of a multisig account counts, so a lower limit would lock out existing native-multisig members), `max_memo_characters ≤ 10,000` |
 | `consensus.MsgUpdateParams` | `block.max_bytes ≥ 200k`; `block.max_gas` in `[1M, 1B]` (`-1`, unlimited, is refused); `evidence.max_age_num_blocks ≥ 1k`; `evidence.max_age_duration` in `[1h, staking unbonding_time]`; `validator.pub_key_types` must include `ed25519` (every validator key is ed25519, and CometBFT refuses a validator update whose key type is not listed) |
 
 On accept, the filter overwrites the inner msg's `Authority` field with guardian's module address and dispatches via the message router. Failures inside the filter return typed errors and roll back the tx. A decimal field left out of an inner msg is refused (`... is required`) rather than reaching the comparison and panicking.
 
+**Intentional passthroughs.** These fields of the filtered msgs reach the SDK with only its own validation. Each was reviewed and judged low impact; bounding one is a chain upgrade:
+
+- gov: `proposal_cancel_ratio`, `proposal_cancel_dest` (where the cancelled share of a cancelled proposal's deposit goes; it touches only that deposit, never the community pool), `burn_vote_quorum`, `burn_proposal_deposit_prevote`, `burn_vote_veto`;
+- distribution: `withdraw_addr_enabled` (turning it off cannot strand a migrating member's rewards: migration finalization logs the failure and x/rep's send restriction redirects SPARK sent to a tombstone);
+- staking: `max_validators` has a floor (20) but no ceiling; a larger set only costs validator performance;
+- consensus: `evidence.max_bytes` and the `abci` block. `vote_extensions_enable_height` is already active at height 1 on every network and CometBFT refuses to change it once set.
+
 `bank.MsgSetDenomMetadata` is intentionally absent — Cosmos SDK v0.53.6 doesn't expose it as gov-routable. Native-denom Symbol/Display protection is handled by `BankKeeperWithIdentityGuard` plus x/identity invariant 4 instead.
 
 ## State
 
-One item: the time of the last accepted `blocks_per_year` change, for its cooldown. It is not in genesis (guardian has an empty genesis); an export/import only restarts the cooldown. `ConsensusVersion=1`, no invariants. Enforcement is purely through the Msg server.
+One item: the time of the last accepted `blocks_per_year` change, for its cooldown. It is not in genesis (guardian has an empty genesis); an export/import only restarts the cooldown. The read fails closed: only a missing record means "never changed", any other store error refuses the change. `ConsensusVersion=1`, no invariants. Enforcement is purely through the Msg server.
 
 ## Errors
 
@@ -77,7 +84,7 @@ Late-wired (write-once setters) from app.go:
 | `SetIdentityKeeper` | bank `MsgSetSendEnabled` filter (native denoms) and gov filter (deposit denom) |
 | `SetMintKeeper` | mint filter (locked fields, `blocks_per_year` ±50% band) |
 | `SetStakingKeeper` | staking filter (`bond_denom`) and consensus filter (`evidence.max_age_duration ≤ unbonding_time`) |
-| `SetDistrKeeper`, `SetGovKeeper`, `SetSlashingKeeper`, `SetAuthKeeper` | **Not read.** The distribution, gov, slashing and auth filters are stateless clamps against compiled bounds, so no filter depends on current values there. The setters are wired for a future diff-based check |
+| `SetDistrKeeper`, `SetGovKeeper`, `SetSlashingKeeper`, `SetAuthKeeper` | **Not read.** The distribution, gov, slashing and auth filters clamp against compiled bounds and never consult current values (the consensus filter does read the staking keeper, see above). The setters are wired for a future diff-based check |
 
 Most non-identity keepers go through app-layer adapters (`NewMintKeeperAdapter`, `NewDistrKeeperAdapterForGuardian`, etc.) because the upstream keepers expose params via `collections.Item` rather than methods.
 
@@ -90,7 +97,7 @@ Guardian covers only the eight modules above. Gov keeps direct authority, with n
 - **x/upgrade**: inherently all-powerful (a software upgrade can change anything, guardian included).
 - **x/evidence**.
 - **IBC core, IBC transfer, and the ICA host and controller** (`app/ibc.go`, gov module address). The ICA host `allow_messages` list decides which msgs a foreign chain's interchain account may run here without any ante decorator, so a change to it deserves the same scrutiny as a guardian-filtered param. It can only narrow the compiled ceiling `app.ICAHostAllowedMsgs` (plain bank / staking / distribution / IBC transfer msgs): the host's router refuses any other type even if the param says `"*"`.
-- **Legacy x/params `ParameterChangeProposal`s** (the params module's gov handler).
+- **Legacy x/params `ParameterChangeProposal`s** (the params module's gov handler, reachable through `gov.MsgExecLegacyContent`). The depinject wiring gives every SDK module a legacy subspace for migrations, but only the four IBC subspaces (`ibc`, `transfer`, ICA host and controller, [app/ibc.go](../../app/ibc.go)) carry a key table. A legacy change aimed at a guardian-filtered module (staking, mint, bank, distribution, ...) hits a subspace with no registered keys: `Subspace.Update` panics, gov recovers the panic and the proposal fails, so the route cannot sidestep a filter. A change to an IBC subspace lands in legacy params storage that ibc-go v10 no longer reads (self-managed params since v8), a no-op. Pinned by `TestLegacyParamChangeProposalCannotReachGuardedModules` ([app/legacy_params_test.go](../../app/legacy_params_test.go)).
 
 ## No BeginBlocker / EndBlocker
 

@@ -4,7 +4,8 @@ import "fmt"
 
 // validatePolls checks the poll section: unique IDs below next_poll_id, a
 // tally per option, votes and voter snapshots that reference stored polls
-// (and open-ballot proposals), and no duplicate entries.
+// (and open-ballot proposals), no duplicate entries, and one opening bucket
+// per creator.
 func (gs GenesisState) validatePolls() error {
 	polls := make(map[uint64]Poll, len(gs.Polls))
 	for _, p := range gs.Polls {
@@ -69,6 +70,19 @@ func (gs GenesisState) validatePolls() error {
 			return fmt.Errorf("duplicated voter tree for proposal %d", e.ProposalId)
 		}
 		seen[e.ProposalId] = struct{}{}
+	}
+	creators := make(map[string]struct{}, len(gs.PollOpenCounts))
+	for _, c := range gs.PollOpenCounts {
+		if c.Creator == "" {
+			return fmt.Errorf("poll open count with an empty creator")
+		}
+		if c.UtcDay < 0 {
+			return fmt.Errorf("poll open count for %s has a negative day", c.Creator)
+		}
+		if _, ok := creators[c.Creator]; ok {
+			return fmt.Errorf("duplicated poll open count for %s", c.Creator)
+		}
+		creators[c.Creator] = struct{}{}
 	}
 	return nil
 }

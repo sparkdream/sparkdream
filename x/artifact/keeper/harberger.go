@@ -35,10 +35,9 @@ func (k Keeper) unindexHarbergerDue(ctx context.Context, t types.Token) error {
 	return k.HarbergerDue.Remove(ctx, collections.Join3(t.Harberger.NextDue, t.ClassId, t.Id))
 }
 
-// resetHarberger restarts a Harberger token's tax state for a new holder:
-// priced at price (what a buyer paid, or the current price for a gift so a
-// foreclosure cannot be shed by moving the token), no grant, one tax
-// period of grace.
+// resetHarberger restarts a Harberger token's tax state for a buyer:
+// priced at what they paid, no grant, one tax period of grace. Gifts carry
+// the old state instead (types.GiftedHarbergerState).
 func (k Keeper) resetHarberger(ctx context.Context, c types.Class, t *types.Token, price math.Int) error {
 	if !c.IsHarberger() {
 		return nil
@@ -78,6 +77,12 @@ func (k Keeper) validateTaxGrant(ctx context.Context, c types.Class, owner strin
 		return 0, errorsmod.Wrapf(types.ErrInvalidHarbergerGrant, "the grant period must be %d seconds", c.Harberger.TaxPeriod)
 	case info.NextClaim >= info.ExpiresAt:
 		return 0, errorsmod.Wrap(types.ErrInvalidHarbergerGrant, "the grant ends before its first pull")
+	case info.NextClaim > now(ctx)+c.Harberger.TaxPeriod:
+		return 0, errorsmod.Wrap(types.ErrInvalidHarbergerGrant, "the grant's first pull must fall within one tax period")
+	case !info.MaxPerEpoch.IsNil() && info.MaxPerEpoch.IsPositive() && info.MaxPerEpoch.LT(info.Amount.Amount.MulRaw(2)):
+		// A pull delayed into the UTC day of the next one must not trip
+		// session's per-day ceiling (ART-204).
+		return 0, errorsmod.Wrapf(types.ErrInvalidHarbergerGrant, "the grant's max_per_epoch must cover two pulls (%s%s)", info.Amount.Amount.MulRaw(2), k.BondDenom(ctx))
 	}
 	return info.NextClaim, nil
 }
@@ -116,7 +121,8 @@ func (k Keeper) collectTax(ctx sdk.Context, grantID uint64) (math.Int, int64, er
 
 // collectHarbergerTax is the EndBlocker pass that takes due tax pulls. A
 // pull that fails forecloses the token from its due time; a grant with no
-// further pull forecloses it one period later.
+// further pull forecloses it one period later; a pull session defers
+// (ErrTaxPullDeferred) is retried when the UTC day turns.
 func (k Keeper) collectHarbergerTax(ctx sdk.Context, cutoff int64, limit int) {
 	for _, key := range dueTimeTokens(ctx, k.HarbergerDue, cutoff, limit) {
 		classID, tokenID := key.K2(), key.K3()
@@ -130,6 +136,19 @@ func (k Keeper) collectHarbergerTax(ctx sdk.Context, cutoff int64, limit int) {
 			}
 			h := t.Harberger
 			paid, next, err := k.collectTax(c, h.GrantId)
+			if errors.Is(err, types.ErrTaxPullDeferred) {
+				// A passing condition on session's side (its per-day
+				// ceiling): try again when the day turns, no foreclosure
+				// (ART-204).
+				h.NextDue = nextUTCDay(key.K1())
+				emit(c, types.EventHarbergerTaxDeferred, classAttr(classID), tokenAttr(tokenID),
+					sdk.NewAttribute("holder", t.Owner), sdk.NewAttribute("error", err.Error()),
+					sdk.NewAttribute("next_due", i64(h.NextDue)))
+				if err := k.saveToken(c, t); err != nil {
+					return err
+				}
+				return k.indexHarbergerDue(c, t)
+			}
 			if err != nil {
 				h.ForeclosedAt = key.K1()
 				h.GrantId, h.NextDue = 0, 0
@@ -138,6 +157,8 @@ func (k Keeper) collectHarbergerTax(ctx sdk.Context, cutoff int64, limit int) {
 				return k.saveToken(c, t)
 			}
 			h.TaxPaid = h.TaxPaid.Add(paid)
+			// The period this pull pays for is held at the current price.
+			h.PaidPrice = h.Price
 			if next == 0 {
 				// The grant is spent: the holder has until the end of the
 				// period it paid for to name a new one.
@@ -180,6 +201,12 @@ func (k Keeper) collectHarbergerTax(ctx sdk.Context, cutoff int64, limit int) {
 			}
 		})
 	}
+}
+
+// nextUTCDay is the first second of the UTC day after t, when session's
+// per-grant epoch bucket resets.
+func nextUTCDay(t int64) int64 {
+	return (t/86400 + 1) * 86400
 }
 
 func (k Keeper) harbergerPeriod(ctx context.Context, classID uint64) int64 {

@@ -22,7 +22,7 @@ func SimulateMsgRevokeSession(
 	label := &types.MsgRevokeSession{}
 	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		sessions, err := e.grants(func(g types.Grant) bool {
-			return g.Type == types.GrantType_GRANT_TYPE_SESSION_KEY && pending(g)
+			return g.Type == types.GrantType_GRANT_TYPE_SESSION_KEY && actionable(g)
 		})
 		if err != nil {
 			return noOpErr(label, err)

@@ -37,6 +37,13 @@ func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteIn
 			return nil, errorsmod.Wrap(types.ErrInvalidRequest,
 				"completing an ADJUDICATION interim requires a decision: ADJUDICATION_DECISION_UPHOLD or ADJUDICATION_DECISION_REJECT")
 		}
+	} else if IsProjectReviewInterimType(interim.Type) {
+		// A project review is settled by the approval of the project it
+		// reviews (MsgApproveProjectBudget), or expired unpaid when the
+		// proposal is cancelled or expires. Nobody completes it by hand.
+		return nil, errorsmod.Wrapf(types.ErrInterimTypeSystemOnly,
+			"interim %d is a %s; it is settled when the project is approved (MsgApproveProjectBudget)",
+			interim.Id, interim.Type)
 	} else {
 		// Every other interim is paid only through MsgApproveInterim, by the
 		// Operations Committee and never by an assignee (REP-E-02, REP-E-05).

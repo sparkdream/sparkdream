@@ -55,6 +55,10 @@ service Msg {
   rpc UpdatePeerController(MsgUpdatePeerController) returns (MsgUpdatePeerControllerResponse);
   rpc ResyncBridgeCount(MsgResyncBridgeCount) returns (MsgResyncBridgeCountResponse);
   rpc PruneOrphanBindings(MsgPruneOrphanBindings) returns (MsgPruneOrphanBindingsResponse);
+  // RevokeIdentityLink removes a member's identity link (verified or not)
+  // by governance or the Commons Council / Operations Committee policy:
+  // the remedy for a false bridge attestation whose operator has retired.
+  rpc RevokeIdentityLink(MsgRevokeIdentityLink) returns (MsgRevokeIdentityLinkResponse);
 }
 
 // --- Governance ---
@@ -99,6 +103,11 @@ message MsgRegisterPeer {
   // rarely share a number. Voucher metadata for peer_identity is keyed on
   // this channel and is skipped when it is empty.
   string ibc_transfer_channel_id = 9;
+  // expected_chain_id is the chain id the peer's federation channel must
+  // lead to; MsgResumePeer refuses activation when the channel's light
+  // client names another chain. Required for PEER_TYPE_SPARK_DREAM peers,
+  // must be empty for every other type. See Peer.expected_chain_id.
+  string expected_chain_id = 10;
 }
 message MsgRegisterPeerResponse {}
 
@@ -149,6 +158,11 @@ message MsgUpdatePeerInfo {
   string peer_id = 2;
   string display_name = 3;
   string metadata = 4;
+  // expected_chain_id, when non-empty, replaces Peer.expected_chain_id.
+  // Only on a PEER_TYPE_SPARK_DREAM peer that is not ACTIVE: changing the
+  // pin on an active peer would re-trust a channel without a vote. Empty
+  // keeps the current value.
+  string expected_chain_id = 5;
 }
 message MsgUpdatePeerInfoResponse {}
 
@@ -438,3 +452,16 @@ message MsgPruneOrphanBindings {
 message MsgPruneOrphanBindingsResponse {
   uint64 pruned = 1;
 }
+
+// MsgRevokeIdentityLink removes the identity link of local_address to
+// peer_id. Signed by governance or the Commons Council / Operations
+// Committee policy address (an executed proposal), never one member.
+message MsgRevokeIdentityLink {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgRevokeIdentityLink";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string local_address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 3;
+  string reason = 4;
+}
+message MsgRevokeIdentityLinkResponse {}

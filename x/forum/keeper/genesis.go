@@ -36,7 +36,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 				return err
 			}
 		}
-		if elem.ParentId == 0 {
+		if elem.ParentId == 0 && elem.Status != types.PostStatus_POST_STATUS_DELETED {
 			if err := k.RootsByCategory.Set(ctx, collections.Join(elem.CategoryId, elem.PostId)); err != nil {
 				return err
 			}
@@ -249,6 +249,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+	for _, e := range genState.TagPruneQueue {
+		if err := k.TagPruneQueue.Set(ctx, e.Tag, e.NextPostId); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -397,6 +402,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.PromotionQueue.Walk(ctx, nil, func(addr string, at int64) (bool, error) {
 		genesis.PromotionQueue = append(genesis.PromotionQueue, types.PromotionQueueEntry{Address: addr, EnqueuedAt: at})
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.TagPruneQueue.Walk(ctx, nil, func(tag string, next uint64) (bool, error) {
+		genesis.TagPruneQueue = append(genesis.TagPruneQueue, types.TagPruneEntry{Tag: tag, NextPostId: next})
 		return false, nil
 	}); err != nil {
 		return nil, err

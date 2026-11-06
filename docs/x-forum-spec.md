@@ -186,7 +186,7 @@ enum PostStatus {
 }
 ```
 
-**Media labels.** `media_flags`, `media_rules_version` and `body_hash` are recomputed on create, edit, delete, hidden-expiry tombstone and genesis import. `GZIP`/`ZSTD` content gets `MEDIA_FLAG_COMPRESSED`, `IPFS`/`ARWEAVE`/`FILECOIN`/`JACKAL` get `MEDIA_FLAG_OFFCHAIN_REF`, and any other type is scanned once for an RFC 2397 data URI (`MEDIA_FLAG_INLINE_DATA`). A deleted post's placeholder (`"[deleted]"` or `""`) is never labelled, whatever its original `content_type`. Whenever `media_flags != 0`, `GetPost`, `ListPost`, `Posts`, `Thread` and `UserPosts` return `content = ""`; clients fetch it through `PostContent` once off-chain scanner verdicts clear it, and check it against `body_hash`. See [content-scanning.md](content-scanning.md).
+**Media labels.** `media_flags`, `media_rules_version` and `body_hash` are recomputed on create, edit, delete, hidden-expiry tombstone and genesis import. `GZIP`/`ZSTD` content gets `MEDIA_FLAG_COMPRESSED`, `IPFS`/`ARWEAVE`/`FILECOIN`/`JACKAL` get `MEDIA_FLAG_OFFCHAIN_REF`, and any other type is scanned once for an RFC 2397 data URI (`MEDIA_FLAG_INLINE_DATA`). A deleted post's placeholder (`"[deleted]"` or `""`) is never labelled, whatever its original `content_type`. Whenever `media_flags != 0`, `GetPost`, `ListPost`, `Posts`, `Thread`, `UserPosts`, `TopPosts`, `PinnedPosts` and `LockedThreads` return `content = ""`; clients fetch it through `PostContent` once off-chain scanner verdicts clear it, and check it against `body_hash`. See [content-scanning.md](content-scanning.md).
 
 **Media rules** (params `media_min_trust_level` = 68, default 1 = PROVISIONAL; `media_author_bond_min` = 69, default 100 DREAM, 0 disables the bond path; `media_scan_fee` = 70, default 0). `MsgCreatePost` / `MsgEditPost` content labelled as media is accepted only from an active member at `media_min_trust_level`, or, on create, one whose `author_bond` is at least `media_author_bond_min`. Edits into media have no bond path; non-members and anonymous (shield) authors can never post media (`ErrMediaNotPermitted`, 2500). Accepted media writes pay `media_scan_fee`, burned. See [content-scanning.md](content-scanning.md) §9.
 
@@ -430,12 +430,13 @@ message SentinelActivity {
   // incremented on confirm (not propose) so unconfirmed proposals cannot farm
   // rewards; reset each epoch.
   //
-  // Curation OUTCOMES also feed the shared accuracy_window ring + the
-  // consecutive_upheld/consecutive_overturns streaks: a confirm (or auto-confirm)
-  // is an upheld tick, an author rejection is an overturned tick that, on a
-  // streak, demotes the sentinel — exactly as overturned moderation actions do.
-  // So routinely-rejected curation lowers reward accuracy and can cost the role,
-  // which is what makes rejection costly and disarms re-propose harassment.
+  // Curation OUTCOMES also feed the shared accuracy_window ring: a confirm (or
+  // auto-confirm) is an upheld tick that leaves the verdict streaks alone, an
+  // author rejection is an accuracy miss (x/rep RecordRoleRejection) that
+  // moves no streak, starts no cooldown and never demotes. Routinely-rejected
+  // curation lowers reward accuracy, which is what makes rejection costly and
+  // disarms re-propose harassment; only overturned moderation actions can
+  // cost the role.
   uint64 total_proposals = 32;                           // Proposals created by this sentinel
   uint64 confirmed_proposals = 33;                       // Proposals confirmed (author or auto)
   uint64 rejected_proposals = 34;                        // Proposals rejected by the author
@@ -696,6 +697,8 @@ message ThreadFollowCount {
 
 ### 4.5. Archived Thread
 
+> **Implementation note:** archiving is implemented as an in-place status change (`POST_STATUS_ARCHIVED` on the thread's posts, reversible by unarchive); the compressed `ArchivedThread` blob below is design-only and not implemented. Reactions and initiative links on an archived thread are kept, not dropped.
+
 ```protobuf
 // proto/forum/v1/archive.proto
 syntax = "proto3";
@@ -787,7 +790,7 @@ message MemberWarning {
 // MsgAppealThreadMove (THREAD_MOVE), and MsgDisputePin (REPLY_PIN) — are thin
 // facades that call x/rep's CreateGovActionAppeal, charging the rep appeal bond
 // (the legacy per-action forum appeal fees are superseded). Each appeal seats a
-// jury (selectModerationAppealJury, parties excluded) and resolves by jury
+// jury (drawn at the end of the block by x/rep, parties excluded) and resolves by jury
 // verdict through the vote-triggered TallyJuryVotes path: UPHOLD_CHALLENGE →
 // OVERTURNED, REJECT_CHALLENGE → UPHELD, INCONCLUSIVE/no-quorum → left PENDING
 // for TimeoutExpiredAppeals (TIMEOUT, no penalty). The committee
@@ -1050,7 +1053,7 @@ message GenesisState {
 }
 ```
 
-The promotion queue (members admitted after posting ephemeral content, awaiting the EndBlocker's eager promotion) is hook-driven and cannot be rebuilt from the posts, so it is exported verbatim with its enqueue heights (`promotion_queue`).
+The promotion queue (members admitted after posting ephemeral content, awaiting the EndBlocker's eager promotion) is hook-driven and cannot be rebuilt from the posts, so it is exported verbatim with its enqueue heights (`promotion_queue`). In-flight tag prunes (`TagPruneQueue`: a tag x/rep removed, with the next post id to scan) are exported the same way (`tag_prune_queue`, a `TagPruneEntry{tag, next_post_id}` list): the registry no longer knows the removed tag, so an import could not rebuild them.
 
 #### 4.7.2. Design Genesis Fields (Not Yet Implemented)
 
@@ -1508,7 +1511,7 @@ Pins a thread to the top of its category. Only HR Committee can pin posts.
    - Fail with `ErrPostNotFound` if post does not exist
    - Fail with `ErrNotRootPost` if `post.parent_id != 0` (only root posts can be pinned)
    - Fail with `ErrPostAlreadyPinned` if `post.pinned == true`
-   - Fail with `ErrMaxPinnedPosts` if category already has `max_pinned_per_category` pinned posts
+   - Fail with `ErrMaxPinnedPosts` (1921) if the category already holds `DefaultMaxPinnedPerCategory` (compiled constant, 5) pinned posts, counted from the `PostsByPinned` prefix. There is no `max_pinned_per_category` param. `MsgMoveThread` re-keys a pinned root into its new category without re-checking the cap, so a category can briefly hold more than five until a pin is removed
 
 2. **Action:**
    - Set `post.pinned = true`
@@ -2586,6 +2589,8 @@ Mark a reply as the accepted answer. For thread authors, this is immediate. For 
    - Fail with `ErrProposalAlreadyPending` if `proposed_reply_id != 0`
    - If `reply_id == 0`: Fail with `ErrSentinelCannotClearAccepted` (only author can clear)
    - Fail with `ErrThreadProposalsLocked` if `proposals_locked == true` (author closed the thread to curation)
+   - Fail with `ErrCannotCurateOwnContent` (1919) if the reply's author is the sentinel (`SameMember`)
+   - Fail with `ErrCannotCurateSelfAnswer` (1922) if the reply's author is the thread author (`SameMember`; skipped when the thread is anonymous, since every anonymous post shares the shield account). A self-answered thread is not a curation: the author's confirmation would endorse their own reply
    - Fail with `ErrMaxProposalsReached` if this sentinel has already made
      `max_accept_proposals_per_sentinel_per_thread` proposals on this thread
      (`proposal_count_by_thread_sentinel/{thread_id}/{marker}`; counts confirmed
@@ -2662,13 +2667,13 @@ Thread author rejects a sentinel's accept proposal.
    - Clear `proposed_reply_id`, `proposed_by`, `proposed_at`
    - Remove from `proposal_auto_confirm_queue`
    - Increment `sentinel_activity.rejected_proposals` (lifetime) on `proposed_by`
-   - Record an **overturned** accuracy tick on the sentinel (bump the current
-     reward epoch's `overturned`, increment `consecutive_overturns`, reset
-     `consecutive_upheld`, set the overturn cooldown). When `consecutive_overturns`
-     reaches `DefaultMaxConsecutiveOverturnsBeforeDemotion` the sentinel is
-     **demoted** via the rep keeper — the same ratchet as overturned moderation
-     actions. This is what gives rejection a cost and disarms the re-propose
-     harassment loop.
+   - Record an accuracy **miss** on the sentinel through x/rep
+     `RecordRoleRejection` (bump the current reward epoch's `overturned` and the
+     per-kind overturned counter). The verdict streaks, the overturn cooldown
+     and the demotion ratchet are untouched: an author's "no" is their say-so,
+     not a verdict on a contested action (REP-R-207). The accuracy hit is what
+     gives rejection a cost and disarms the re-propose harassment loop; only
+     overturned moderation actions can cost the role.
    - *No DREAM slash, no clawback* - rejection lowers accuracy (reducing/zeroing
      rewards) rather than confiscating bond.
    - Store updated `ThreadMetadata`
@@ -5896,7 +5901,7 @@ message EventInitiativeLinkRemoved {
 | **Defense Bypass** | `min_defense_wait` (24h) ensures HR Committee cannot resolve immediately after defense submitted. Member's response gets consideration time. |
 | **Archive Griefing Cycle** | `max_archive_cycles` (5) requires HR Committee approval for re-archiving after multiple cycles. Makes griefing attacks infeasible. |
 | **Module Account Insolvency** | Balance safety check in `OnInitiativeFinalized` detects insufficient funds and gracefully restores post rather than leaving in limbo. |
-| **Pinned Post Spam** | `max_pinned_per_category` (5) limits pinned posts per category. Only HR Committee can pin, preventing abuse. |
+| **Pinned Post Spam** | `DefaultMaxPinnedPerCategory` (compiled constant, 5) limits pinned posts per category. Only HR Committee can pin, preventing abuse. |
 | **Pin Priority Collision** | Multiple posts can share same priority; secondary sort by `pinned_at` timestamp ensures deterministic ordering. |
 | **Thread Lock Bypass** | Lock check occurs at reply creation time, not just validation. Locked status stored on root post, so single lookup determines thread state. |
 | **Lock Reason Abuse** | Lock reason required for Sentinels, displayed to users. HR Committee and jury oversight via appeals. |
@@ -6036,16 +6041,17 @@ func TagCountInvariant(k Keeper) sdk.Invariant {
 ### Pinned Post Invariant
 
 ```go
-// PinnedPostLimitInvariant ensures pinned posts don't exceed category limits
+// PinnedPostLimitInvariant ensures pinned posts don't exceed the compiled
+// per-category cap (types.DefaultMaxPinnedPerCategory; not a param). A
+// MsgMoveThread of a pinned root may exceed it transiently, see §5 PinPost.
 func PinnedPostLimitInvariant(k Keeper) sdk.Invariant {
     return func(ctx sdk.Context) (string, bool) {
-        params := k.GetParams(ctx)
         for _, category := range k.GetAllCategories(ctx) {
             pinnedCount := k.CountPinnedPostsInCategory(ctx, category.Id)
-            if pinnedCount > params.MaxPinnedPerCategory {
+            if pinnedCount > types.DefaultMaxPinnedPerCategory {
                 return sdk.FormatInvariant(types.ModuleName, "pinned_limit",
                     fmt.Sprintf("category %d has %d pinned > max %d",
-                        category.Id, pinnedCount, params.MaxPinnedPerCategory)), true
+                        category.Id, pinnedCount, types.DefaultMaxPinnedPerCategory)), true
             }
         }
         return "", false
@@ -6306,11 +6312,12 @@ The following ranges are recommended for production deployment. Values outside t
 | `max_reply_depth` | 5-20 | 10 | Max nesting depth; prevents deep recursion |
 | `max_tags_per_post` | 3-10 | 5 | Tags per post |
 | `max_total_tags` | 1000-50000 | 10000 | System-wide tag limit |
-| `max_pinned_per_category` | 3-10 | 5 | Pinned threads per category |
 | `max_pinned_replies_per_thread` | 1-5 | 3 | Pinned replies per thread |
 | `max_bounty_winners` | 1-10 | 5 | Winners per bounty |
 | `max_recurring_managers` | 2-10 | 5 | Managers per recurring bounty |
 | `max_recurring_winners_per_period` | 1-20 | 10 | Winners per period |
+
+The per-category pin cap is not a parameter: `DefaultMaxPinnedPerCategory` is a compiled constant (5) enforced by `MsgPinPost` (`ErrMaxPinnedPosts`, 1921).
 
 ### XP Integration
 
@@ -6748,12 +6755,35 @@ Every sentinel reservation has exactly one terminal path:
   (`ErrMoveRecordOpen`, 1662).
 - A pin under an unresolved dispute cannot be unpinned by anyone
   (`ErrPinDisputed`).
-- A hidden ephemeral post that reaches its TTL: unappealed, the hide is
-  finalized like an expiry (author slash, conviction-stake slash, reservation
-  released) and the post pruned; appealed, the prune is deferred a day at a
-  time until the verdict.
+- A hidden ephemeral post that reaches its TTL: while the hide is still
+  unappealed and inside its window (before `hidden_at + hidden_expiration`),
+  the prune is deferred to that time, so an ephemeral post gets the same
+  appeal window as a permanent one and the hide is settled by the normal
+  expiry pass; past the window, the hide is finalized like an expiry (author
+  slash, conviction-stake slash, reservation released) and the post pruned;
+  appealed, the prune is deferred a day at a time until the verdict.
+- A hide on an anonymous post (author = the x/shield account) can never be
+  appealed: nobody can act as that account and `MsgAppealPost` is not
+  shield-compatible. When it stands, its conviction stakes are closed and
+  unlocked without the `post_conviction_staker_slash_bps` burn, it is not
+  deferred at the TTL (there is nobody to wait for), and it earns the sentinel
+  no `unchallenged_hides` credit.
+- An OVERTURNED or TIMEOUT hide whose category was deleted meanwhile cannot
+  bring the post back (no ACTIVE post in a deleted category). The post is
+  soft-deleted instead of being left HIDDEN with no record, and the slashed
+  author bond is returned as unlocked DREAM (a bond re-locked on a deleted
+  post would strand it). Conviction stakes on such a post are not settled by
+  the chain (the author won, so there is nothing to slash or claw back): they
+  stop accruing (the post is no longer ACTIVE), stay locked until each stake's
+  `unlocks_at`, and each staker releases their own with
+  `MsgReleasePostConviction`, which has no post-status gate.
 - Hard-deleting a post (TTL prune) releases any lock, move or pin reservation
   attached to it.
+- A sentinel's self-unhide (`MsgUnhidePost` by the hiding sentinel) releases
+  the hide reservation immediately and drops the record. Unlike x/collect
+  (its §10.3b holds the reservation until the original `appeal_deadline`),
+  forum has no anti hide/unhide-cycling hold; the per-epoch hide rate limit
+  and the `pending_hide_count` cap bound the cycling instead.
 
 ### 17.4. Write gates and rate limits
 - A reply's category is its thread's category: `msg.category_id` must be 0 or
@@ -6767,10 +6797,19 @@ Every sentinel reservation has exactly one terminal path:
 - `max_content_size`, `max_reply_depth`, `edit_max_window`,
   `max_follows_per_day` and `edit_grace_period` are read from params (0 falls
   back to the default).
-- `forum_paused` also stops edit, delete, flag, up/downvote, follow, reply
-  pins, make-permanent, accepted-reply marking, bounty create / increase and
-  conviction staking. Moderation, appeals and fund exits (bounty cancel /
-  award, stake release) stay open.
+- `forum_paused` also stops edit, delete, flag, up/downvote, follow,
+  unfollow, reply pins, make-permanent, accepted-reply marking, bounty create
+  / increase and conviction staking, and the moderation actions: hide, lock,
+  move, freeze, pin, unpin and unlock. Appeals (`MsgAppealPost`,
+  `MsgAppealThreadLock`, `MsgAppealThreadMove`) and fund exits (bounty cancel
+  / award, stake release) stay open whatever the Logic sections above say:
+  hide and lock expiry keep running during a pause, so a blocked appeal window
+  would let a hide finalize unappealed. `appeals_paused` stops appeals on its
+  own.
+- `lock_appeal_cooldown` and `move_appeal_cooldown` must stay below the
+  compiled 14-day lock / move appeal deadlines (`Params.Validate`), as
+  `hide_appeal_cooldown` must stay below the hidden expiration; otherwise every
+  lock or move would expire unappealable.
 - Sliding-window rate limits are evaluated in exact integer arithmetic
   (`cur*window + prev*(window-elapsed) >= limit*window`), not float64.
 - No-op edits (same content, content type and tag set) are refused with
@@ -6780,11 +6819,28 @@ Every sentinel reservation has exactly one terminal path:
 ### 17.5. Curation, pins and flags
 - A sentinel cannot propose its own reply as accepted, and cannot dismiss
   flags on its own post (`ErrCannotCurateOwnContent`, 1919).
+- A sentinel cannot propose a reply the thread author wrote
+  (`ErrCannotCurateSelfAnswer`, 1922; `SameMember`, not checked on anonymous
+  threads). Without it one arm's-length accomplice could post a thread and
+  its answer and confirm the sentinel's proposal, farming the curation reward
+  and the accuracy ring. The author can still mark their own reply accepted
+  directly, which pays and records nothing.
 - A confirmed curation earns the DREAM reward and the upheld accuracy tick
   only when the thread author endorsed it: an author confirmation, or an
-  auto-confirm where the author was active after the proposal. At most
-  `MaxRewardedCurationsPerEpoch` (10) curations per sentinel reward epoch are
-  rewarded; past the cap the reply is still accepted.
+  auto-confirm where the author was active after the proposal. The thread
+  author must also be at arm's length from the sentinel: an ACTIVE x/rep
+  member, not the sentinel under another key (`SameMember`), and neither the
+  sentinel's inviter nor its invitee. A free non-member account or the
+  sentinel's own invitee could otherwise confirm the sentinel's proposals for
+  it. At most `MaxRewardedCurationsPerEpoch` (10) curations per sentinel
+  reward epoch are rewarded; past the cap, or without an independent
+  endorser, the reply is still accepted but nothing is minted or recorded.
+- A confirmed curation never clears the sentinel's overturn streak (x/rep
+  `UpheldKeepsStreak`): it counts in the accuracy ring, not as a verdict that
+  resets `consecutive_overturns`. A rejected proposal is reported through
+  x/rep `RecordRoleRejection`: an accuracy miss that extends no streak, starts
+  no overturn cooldown and cannot demote (an author's "no" is their say-so,
+  not a verdict on a contested action).
 - Sentinel reply pins get the moderation gates: `moderation_paused`, the
   overturn cooldown, `MaxSentinelPinsPerEpoch` (20, `ErrPinLimitExceeded`
   1571) and no self-pins (`ErrCannotPinOwnReply`). Every pin needs an ACTIVE
@@ -6848,17 +6904,24 @@ Every sentinel reservation has exactly one terminal path:
 Every EndBlocker pass walks a time-ordered index up to now: `ExpirationQueue`,
 `HideRecordExpiry`, `LockRecordExpiry` / `MoveRecordExpiry`,
 `BountiesByExpiry`, `ProposalAutoConfirmQueue` and `ReleasedStakeGc`. None
-scans a whole store.
+scans a whole store. The promotion drain reads at most
+`max_promotions_per_block` queued authors and, per author, at most the
+remaining budget of `EphemeralByAuthor` entries per block. A DELETED root
+leaves `RootsByCategory` (DELETED is terminal), so `HasPostInCategory` walks
+only roots that can still come back (ACTIVE, HIDDEN, ARCHIVED).
 
 ### 17.9. Genesis
 Genesis now carries `post_conviction_stake_list`,
-`post_conviction_stake_count`, `post_vote_list` and
-`forum_rep_epoch_counter_list`. `ArchiveMetadata` gains `last_unarchived_at`.
+`post_conviction_stake_count`, `post_vote_list`,
+`forum_rep_epoch_counter_list` and `tag_prune_queue` (each in-flight tag
+prune with its next post id; not derivable, since the registry no longer
+knows the removed tag). `ArchiveMetadata` gains `last_unarchived_at`.
 `InitGenesis` rebuilds every derived index from the records:
 `ExpirationQueue`, `PostsByRoot`, `PostsByUpvotes`, `PostsByPinned`,
 `HideRecordExpiry`, `LockRecordExpiry`, `MoveRecordExpiry`,
 `BountiesByCreator`, `BountiesByExpiry`, `ActiveBountyByThread`,
-`FollowersByThread`, `ThreadsByFollower` (and the `ThreadFollow` key is the
+`FollowersByThread`, `ThreadsByFollower`, `RootsByCategory` (DELETED roots
+skipped) (and the `ThreadFollow` key is the
 `<follower>:<thread_id>` key the handler writes), the active and released
 stake indexes, and `PostConvictionStakeSeq`.
 

@@ -291,7 +291,8 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 // the grant terminally.
 //
 // The pause time is recorded in the payload's fire_at (the time of the
-// failed attempt; MsgRetryScheduledOneshot rewrites it again) and in
+// first failed attempt since the granter last retried, first_paused_at;
+// MsgRetryScheduledOneshot rewrites fire_at again) and in
 // PausedOneshotByPauseTime under (fire_at, id), so the paused-TTL pass
 // counts from the pause, never from creation, and the index can be
 // rebuilt from the grant alone at InitGenesis. The deposit stays in
@@ -310,7 +311,13 @@ func (k Keeper) pauseUnderfundedOneshot(ctx sdk.Context, grant types.Grant, so *
 		return false, nil
 	}
 
+	// A re-pause after a grantee retry keeps the first pause time, so the
+	// paused-TTL auto-revoke still comes due (SES-104).
 	pauseUnix := ctx.BlockTime().Unix()
+	if so.FirstPausedAt > 0 {
+		pauseUnix = so.FirstPausedAt
+	}
+	so.FirstPausedAt = pauseUnix
 	so.FireAt = pauseUnix
 	grant.Payload = &types.Grant_ScheduledOneshot{ScheduledOneshot: so}
 	grant.Status = types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS

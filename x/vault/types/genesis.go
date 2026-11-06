@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"fmt"
+	"math"
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 )
@@ -57,13 +58,28 @@ func (gs GenesisState) Validate() error {
 		}
 	}
 
+	// Ids are seq+1: a sequence at the uint64 ceiling would hand out id 0
+	// (never a valid reference) and then collide with id 1.
+	if gs.VaultSeq == math.MaxUint64 {
+		return fmt.Errorf("vault_seq is at the uint64 ceiling")
+	}
+	if gs.ProposalSeq == math.MaxUint64 {
+		return fmt.Errorf("proposal_seq is at the uint64 ceiling")
+	}
+
 	return gs.Params.Validate()
 }
 
 // ValidateGenesis checks an imported vault: a positive id, the address
 // derived from that id, and the config rules of MsgCreateVault /
-// MsgUpdateVault. Personal-address and tombstone checks need x/rep state,
-// which may not be imported yet, so they are not re-run at import.
+// MsgUpdateVault, plus the invite-expiry rule the chain keeps: an accepted
+// entry carries no expiry, and an unaccepted entry that is not the vault's
+// only one carries a positive one (otherwise it could never expire and a
+// merge-freeze on it would be permanent, VLT-205). A signer-less vault (its
+// only invitees declined while it held funds or proposal records, §3.4) is
+// accepted with the signer-independent rules only. Personal-address and
+// tombstone checks need x/rep state, which may not be imported yet, so they
+// are not re-run at import.
 func (v Vault) ValidateGenesis() error {
 	if v.VaultId == 0 {
 		return fmt.Errorf("vault id must be positive")
@@ -78,12 +94,30 @@ func (v Vault) ValidateGenesis() error {
 	if !bytes.Equal(bz, VaultAddress(v.VaultId)) {
 		return fmt.Errorf("vault %d: address %s is not the vault's derived address", v.VaultId, v.Address)
 	}
+	if len(v.Signers) == 0 {
+		if v.Threshold == 0 {
+			return fmt.Errorf("vault %d: %w: must be positive", v.VaultId, ErrInvalidThreshold)
+		}
+		if err := ValidateTTLAndLabel(v.ProposalTtl, v.Label); err != nil {
+			return fmt.Errorf("vault %d: %w", v.VaultId, err)
+		}
+		return nil
+	}
 	if err := ValidateConfig(v.Signers, v.Threshold, v.ProposalTtl, v.Label); err != nil {
 		return fmt.Errorf("vault %d: %w", v.VaultId, err)
 	}
 	for _, s := range v.Signers {
 		if _, _, err := bech32.DecodeAndConvert(s.Address); err != nil {
 			return fmt.Errorf("vault %d: invalid signer %q: %w", v.VaultId, s.Address, err)
+		}
+		if s.InviteExpiresAt < 0 {
+			return fmt.Errorf("vault %d: signer %s: negative invite_expires_at", v.VaultId, s.Address)
+		}
+		if s.Accepted && s.InviteExpiresAt != 0 {
+			return fmt.Errorf("vault %d: signer %s: an accepted entry carries no invite expiry", v.VaultId, s.Address)
+		}
+		if !s.Accepted && s.InviteExpiresAt == 0 && len(v.Signers) > 1 {
+			return fmt.Errorf("vault %d: signer %s: an unaccepted entry that is not the vault's only one must carry an invite expiry", v.VaultId, s.Address)
 		}
 	}
 	return nil

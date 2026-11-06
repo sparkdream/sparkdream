@@ -100,10 +100,10 @@ func ActionKindForGovAction(t GovActionType) string {
 }
 
 // CooldownOnOverturn marks the kinds whose overturned verdicts start the
-// shared overturn cooldown. Curation-proposal rejections deliberately do
-// NOT — the cooldown is the moderation-action circuit breaker, and a
-// rejected curation proposal must not lock the role holder out of
-// moderation (the accuracy hit + demotion ratchet are the cost).
+// shared overturn cooldown. Curation-proposal rejections never reach
+// RecordRoleOutcome at all: forum reports them through RecordRoleRejection,
+// an accuracy miss with no streak, cooldown or demotion (REP-R-207), so the
+// kind is absent here on purpose.
 var CooldownOnOverturn = map[string]bool{
 	ActionKindForumHide:    true,
 	ActionKindForumLock:    true,
@@ -116,4 +116,16 @@ var CooldownOnOverturn = map[string]bool{
 	// see BondedRoleConfig.overturn_cooldown_escalates, which x/federation
 	// sets from verifier_overturn_base_cooldown.
 	ActionKindFederationVerify: true,
+}
+
+// UpheldKeepsStreak marks the kinds whose upheld outcomes leave the
+// overturn streak alone (no ConsecutiveUpheld bump, no ConsecutiveOverturns
+// reset). A confirmed curation proposal is the thread author's say-so, not a
+// verdict on a contested action, so it must not clear the streak that
+// demotes a sentinel whose hides keep being overturned (FRM-101). It still
+// counts in the accuracy ring. The mirror case, an author rejecting the
+// proposal, is RecordRoleRejection: an accuracy miss that leaves the streak
+// alone as well (REP-R-207).
+var UpheldKeepsStreak = map[string]bool{
+	ActionKindForumCuration: true,
 }

@@ -52,6 +52,15 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 	if reason == "" {
 		reason = "artifact hide appeal: " + hr.ReasonText
 	}
+	// Mark the record appealed before x/rep opens the case: x/rep reads the
+	// hiding sentinel through RepAppealTarget.GetActionSentinel to keep it
+	// off the jury, and that reports only an appealed record (COL-102). A
+	// failure below reverts the whole transaction, this write included.
+	hr.Appealed = true
+	hr.Appellant = msg.Appellant
+	if err := k.HideRecords.Set(ctx, hr.Id, hr); err != nil {
+		return nil, err
+	}
 	appealID, _, err := k.late.rep.CreateGovActionAppeal(ctx, reptypes.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE,
 		u64(hr.Id), appellant, reason)
 	if err != nil {
@@ -63,8 +72,6 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 	if err := k.HideExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)); err != nil {
 		return nil, err
 	}
-	hr.Appealed = true
-	hr.Appellant = msg.Appellant
 	hr.AppealId = appealID
 	if err := k.HideRecords.Set(ctx, hr.Id, hr); err != nil {
 		return nil, err

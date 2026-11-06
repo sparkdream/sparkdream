@@ -28,6 +28,7 @@ type Keeper struct {
 
 	// Shared DREAM token operations (delegates to repKeeper)
 	Season                  collections.Item[types.Season]
+	SeasonHistory           collections.Map[uint64, types.Season] // completed seasons by number
 	SeasonTransitionState   collections.Item[types.SeasonTransitionState]
 	TransitionRecoveryState collections.Item[types.TransitionRecoveryState]
 	NextSeasonInfo          collections.Item[types.NextSeasonInfo]
@@ -53,25 +54,26 @@ type Keeper struct {
 	VoteXpRecord              collections.Map[string, types.VoteXpRecord]
 	ForumXpCooldown           collections.Map[string, types.ForumXpCooldown]
 	DisplayNameModeration     collections.Map[string, types.DisplayNameModeration]
-	DisplayNameReportStake    collections.Map[string, types.DisplayNameReportStake]
-	DisplayNameAppealStake    collections.Map[string, types.DisplayNameAppealStake]
+	DisplayNameReportStake    *collections.IndexedMap[string, types.DisplayNameReportStake, DisplayNameReportStakeIndexes]
+	DisplayNameAppealStake    *collections.IndexedMap[string, types.DisplayNameAppealStake, DisplayNameAppealStakeIndexes]
 	NominationSeq             collections.Sequence
 	Nomination                collections.Map[uint64, types.Nomination]
-	NominationStake           collections.Map[string, types.NominationStake]            // key: "nominationId/staker"
-	RetroRewardRecord         collections.Map[string, types.RetroRewardRecord]          // key: "season/nominationId"
-	TransitionAborts          collections.Map[uint64, uint64]                           // season -> aborts so far
-	PruneCursor               collections.Map[string, string]                           // collection -> last pruned key (SEA-11)
-	NominationsBySeason       collections.KeySet[collections.Pair[uint64, uint64]]      // (season, nominationID)
-	ModerationQueue           collections.KeySet[collections.Pair[int64, string]]       // (moderated_at, member), active + unappealed only
-	AppealQueue               collections.KeySet[collections.Pair[int64, string]]       // (appealed_at, member), active + appealed only (SEA-23)
-	RetroPayoutRetry          collections.KeySet[collections.Pair[uint64, uint64]]      // (season, nominationID), failed payouts (SEA-21)
-	PendingSeasonalPoolInit   collections.Item[uint64]                                  // season whose rep pool init is owed (SEA-22)
-	UsernameOwner             collections.Map[string, string]                           // lowercase username -> member (SEA-28)
-	NominationsByRef          collections.KeySet[collections.Pair[uint64, string]]      // (season, content_ref) (SEA-20)
-	NominationCountBy         collections.Map[collections.Pair[uint64, string], uint64] // (season, nominator) -> count (SEA-20)
-	ModerationRetryQueue      collections.KeySet[collections.Pair[int64, string]]       // (auto_resolve_retry_at, member), failed auto-resolutions (SEA-09)
-	SeasonStatsCounters       collections.Map[uint64, types.SeasonStatsCounters]        // past season -> final aggregates (SEA-35)
-	CurrentSeasonStats        collections.Item[types.SeasonStatsCounters]               // current season's running aggregates (SEA-35)
+	NominationStake           *collections.IndexedMap[string, types.NominationStake, NominationStakeIndexes] // key: "nominationId/staker"
+	RetroRewardRecord         collections.Map[string, types.RetroRewardRecord]                               // key: "season/nominationId"
+	TransitionAborts          collections.Map[uint64, uint64]                                                // season -> aborts so far
+	PruneCursor               collections.Map[string, string]                                                // collection -> last pruned key (SEA-11)
+	NominationsBySeason       collections.KeySet[collections.Pair[uint64, uint64]]                           // (season, nominationID)
+	ModerationQueue           collections.KeySet[collections.Pair[int64, string]]                            // (moderated_at, member), active + unappealed only
+	AppealQueue               collections.KeySet[collections.Pair[int64, string]]                            // (appealed_at, member), active + appealed only (SEA-23)
+	RetroPayoutRetry          collections.KeySet[collections.Pair[uint64, uint64]]                           // (season, nominationID), failed payouts (SEA-21)
+	PendingSeasonalPoolInit   collections.Item[uint64]                                                       // season whose rep pool init is owed (SEA-22)
+	UsernameOwner             collections.Map[string, string]                                                // lowercase username -> member (SEA-28)
+	NominationsByRef          collections.KeySet[collections.Pair[uint64, string]]                           // (season, content_ref) (SEA-20)
+	NominationCountBy         collections.Map[collections.Pair[uint64, string], uint64]                      // (season, nominator) -> count (SEA-20)
+	ModerationRetryQueue      collections.KeySet[collections.Pair[int64, string]]                            // (auto_resolve_retry_at, member), failed auto-resolutions (SEA-09)
+	SeasonStatsCounters       collections.Map[uint64, types.SeasonStatsCounters]                             // past season -> final aggregates (SEA-35)
+	CurrentSeasonStats        collections.Item[types.SeasonStatsCounters]                                    // current season's running aggregates (SEA-35)
+	PendingVoteQuestProgress  collections.KeySet[collections.Pair[string, uint64]]                           // (member, proposal) votes not yet applied to quest objectives (SEA-103)
 
 	// Optional content-module keepers for retroactive public goods funding
 	// late holds the keepers wired after depinject (app.go Set*Keeper).
@@ -116,15 +118,15 @@ func NewKeeper(
 
 		bankKeeper: bankKeeper,
 		Params:     collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
-		Season:     collections.NewItem(sb, types.SeasonKey, "season", codec.CollValue[types.Season](cdc)), SeasonTransitionState: collections.NewItem(sb, types.SeasonTransitionStateKey, "seasonTransitionState", codec.CollValue[types.SeasonTransitionState](cdc)), TransitionRecoveryState: collections.NewItem(sb, types.TransitionRecoveryStateKey, "transitionRecoveryState", codec.CollValue[types.TransitionRecoveryState](cdc)), NextSeasonInfo: collections.NewItem(sb, types.NextSeasonInfoKey, "nextSeasonInfo", codec.CollValue[types.NextSeasonInfo](cdc)), SeasonSnapshot: collections.NewMap(sb, types.SeasonSnapshotKey, "seasonSnapshot", collections.Uint64Key, codec.CollValue[types.SeasonSnapshot](cdc)), MemberSeasonSnapshot: collections.NewMap(sb, types.MemberSeasonSnapshotKey, "memberSeasonSnapshot", collections.StringKey, codec.CollValue[types.MemberSeasonSnapshot](cdc)), MemberProfile: collections.NewMap(sb, types.MemberProfileKey, "memberProfile", collections.StringKey, codec.CollValue[types.MemberProfile](cdc)), MemberRegistration: collections.NewMap(sb, types.MemberRegistrationKey, "memberRegistration", collections.StringKey, codec.CollValue[types.MemberRegistration](cdc)), Achievement: collections.NewMap(sb, types.AchievementKey, "achievement", collections.StringKey, codec.CollValue[types.Achievement](cdc)), Title: collections.NewMap(sb, types.TitleKey, "title", collections.StringKey, codec.CollValue[types.Title](cdc)),
+		Season:     collections.NewItem(sb, types.SeasonKey, "season", codec.CollValue[types.Season](cdc)), SeasonHistory: collections.NewMap(sb, types.SeasonHistoryKey, "seasonHistory", collections.Uint64Key, codec.CollValue[types.Season](cdc)), SeasonTransitionState: collections.NewItem(sb, types.SeasonTransitionStateKey, "seasonTransitionState", codec.CollValue[types.SeasonTransitionState](cdc)), TransitionRecoveryState: collections.NewItem(sb, types.TransitionRecoveryStateKey, "transitionRecoveryState", codec.CollValue[types.TransitionRecoveryState](cdc)), NextSeasonInfo: collections.NewItem(sb, types.NextSeasonInfoKey, "nextSeasonInfo", codec.CollValue[types.NextSeasonInfo](cdc)), SeasonSnapshot: collections.NewMap(sb, types.SeasonSnapshotKey, "seasonSnapshot", collections.Uint64Key, codec.CollValue[types.SeasonSnapshot](cdc)), MemberSeasonSnapshot: collections.NewMap(sb, types.MemberSeasonSnapshotKey, "memberSeasonSnapshot", collections.StringKey, codec.CollValue[types.MemberSeasonSnapshot](cdc)), MemberProfile: collections.NewMap(sb, types.MemberProfileKey, "memberProfile", collections.StringKey, codec.CollValue[types.MemberProfile](cdc)), MemberRegistration: collections.NewMap(sb, types.MemberRegistrationKey, "memberRegistration", collections.StringKey, codec.CollValue[types.MemberRegistration](cdc)), Achievement: collections.NewMap(sb, types.AchievementKey, "achievement", collections.StringKey, codec.CollValue[types.Achievement](cdc)), Title: collections.NewMap(sb, types.TitleKey, "title", collections.StringKey, codec.CollValue[types.Title](cdc)),
 		AchievementsByRequirement: collections.NewKeySet(sb, types.AchievementsByRequirementKey, "achievementsByRequirement", collections.PairKeyCodec(collections.Int32Key, collections.StringKey)),
 		TitlesByRequirement:       collections.NewKeySet(sb, types.TitlesByRequirementKey, "titlesByRequirement", collections.PairKeyCodec(collections.Int32Key, collections.StringKey)), SeasonTitleEligibility: collections.NewMap(sb, types.SeasonTitleEligibilityKey, "seasonTitleEligibility", collections.Uint64Key, codec.CollValue[types.SeasonTitleEligibility](cdc)), Guild: collections.NewIndexedMap(sb, types.GuildKey, "guild", collections.Uint64Key, codec.CollValue[types.Guild](cdc), newGuildIndexes(sb)),
 		GuildSeq:         collections.NewSequence(sb, types.GuildCountKey, "guildSequence"),
 		GuildMemberCount: collections.NewMap(sb, types.GuildMemberCountKey, "guildMemberCount", collections.Uint64Key, collections.Uint64Value),
-		GuildMembership:  collections.NewIndexedMap(sb, types.GuildMembershipKey, "guildMembership", collections.StringKey, codec.CollValue[types.GuildMembership](cdc), newGuildMembershipIndexes(sb)), GuildInvite: collections.NewIndexedMap(sb, types.GuildInviteKey, "guildInvite", collections.StringKey, codec.CollValue[types.GuildInvite](cdc), newGuildInviteIndexes(sb)), Quest: collections.NewMap(sb, types.QuestKey, "quest", collections.StringKey, codec.CollValue[types.Quest](cdc)), MemberQuestProgress: collections.NewIndexedMap(sb, types.MemberQuestProgressKey, "memberQuestProgress", collections.StringKey, codec.CollValue[types.MemberQuestProgress](cdc), newQuestProgressIndexes(sb)), EpochXpTracker: collections.NewMap(sb, types.EpochXpTrackerKey, "epochXpTracker", collections.StringKey, codec.CollValue[types.EpochXpTracker](cdc)), VoteXpRecord: collections.NewMap(sb, types.VoteXpRecordKey, "voteXpRecord", collections.StringKey, codec.CollValue[types.VoteXpRecord](cdc)), ForumXpCooldown: collections.NewMap(sb, types.ForumXpCooldownKey, "forumXpCooldown", collections.StringKey, codec.CollValue[types.ForumXpCooldown](cdc)), DisplayNameModeration: collections.NewMap(sb, types.DisplayNameModerationKey, "displayNameModeration", collections.StringKey, codec.CollValue[types.DisplayNameModeration](cdc)), DisplayNameReportStake: collections.NewMap(sb, types.DisplayNameReportStakeKey, "displayNameReportStake", collections.StringKey, codec.CollValue[types.DisplayNameReportStake](cdc)), DisplayNameAppealStake: collections.NewMap(sb, types.DisplayNameAppealStakeKey, "displayNameAppealStake", collections.StringKey, codec.CollValue[types.DisplayNameAppealStake](cdc)),
+		GuildMembership:  collections.NewIndexedMap(sb, types.GuildMembershipKey, "guildMembership", collections.StringKey, codec.CollValue[types.GuildMembership](cdc), newGuildMembershipIndexes(sb)), GuildInvite: collections.NewIndexedMap(sb, types.GuildInviteKey, "guildInvite", collections.StringKey, codec.CollValue[types.GuildInvite](cdc), newGuildInviteIndexes(sb)), Quest: collections.NewMap(sb, types.QuestKey, "quest", collections.StringKey, codec.CollValue[types.Quest](cdc)), MemberQuestProgress: collections.NewIndexedMap(sb, types.MemberQuestProgressKey, "memberQuestProgress", collections.StringKey, codec.CollValue[types.MemberQuestProgress](cdc), newQuestProgressIndexes(sb)), EpochXpTracker: collections.NewMap(sb, types.EpochXpTrackerKey, "epochXpTracker", collections.StringKey, codec.CollValue[types.EpochXpTracker](cdc)), VoteXpRecord: collections.NewMap(sb, types.VoteXpRecordKey, "voteXpRecord", collections.StringKey, codec.CollValue[types.VoteXpRecord](cdc)), ForumXpCooldown: collections.NewMap(sb, types.ForumXpCooldownKey, "forumXpCooldown", collections.StringKey, codec.CollValue[types.ForumXpCooldown](cdc)), DisplayNameModeration: collections.NewMap(sb, types.DisplayNameModerationKey, "displayNameModeration", collections.StringKey, codec.CollValue[types.DisplayNameModeration](cdc)), DisplayNameReportStake: collections.NewIndexedMap(sb, types.DisplayNameReportStakeKey, "displayNameReportStake", collections.StringKey, codec.CollValue[types.DisplayNameReportStake](cdc), newDisplayNameReportStakeIndexes(sb)), DisplayNameAppealStake: collections.NewIndexedMap(sb, types.DisplayNameAppealStakeKey, "displayNameAppealStake", collections.StringKey, codec.CollValue[types.DisplayNameAppealStake](cdc), newDisplayNameAppealStakeIndexes(sb)),
 		NominationSeq:     collections.NewSequence(sb, types.NominationCountKey, "nominationSequence"),
 		Nomination:        collections.NewMap(sb, types.NominationKey, "nomination", collections.Uint64Key, codec.CollValue[types.Nomination](cdc)),
-		NominationStake:   collections.NewMap(sb, types.NominationStakeKey, "nominationStake", collections.StringKey, codec.CollValue[types.NominationStake](cdc)),
+		NominationStake:   collections.NewIndexedMap(sb, types.NominationStakeKey, "nominationStake", collections.StringKey, codec.CollValue[types.NominationStake](cdc), newNominationStakeIndexes(sb)),
 		RetroRewardRecord: collections.NewMap(sb, types.RetroRewardRecordKey, "retroRewardRecord", collections.StringKey, codec.CollValue[types.RetroRewardRecord](cdc)),
 		TransitionAborts:  collections.NewMap(sb, types.TransitionAbortsKey, "transitionAborts", collections.Uint64Key, collections.Uint64Value),
 		PruneCursor:       collections.NewMap(sb, types.PruneCursorKey, "pruneCursor", collections.StringKey, collections.StringValue),
@@ -146,6 +148,8 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
 		SeasonStatsCounters: collections.NewMap(sb, types.SeasonStatsCountersKey, "seasonStatsCounters", collections.Uint64Key, codec.CollValue[types.SeasonStatsCounters](cdc)),
 		CurrentSeasonStats:  collections.NewItem(sb, types.CurrentSeasonStatsKey, "currentSeasonStats", codec.CollValue[types.SeasonStatsCounters](cdc)),
+		PendingVoteQuestProgress: collections.NewKeySet(sb, types.PendingVoteQuestProgressKey, "pendingVoteQuestProgress",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 	}
 	schema, err := sb.Build()
 	if err != nil {

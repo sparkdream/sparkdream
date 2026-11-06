@@ -67,10 +67,21 @@ func (k Keeper) EndBlockProposals(ctx context.Context) error {
 			continue
 		}
 
+		// A policy change (veto, config change, narrowed permissions,
+		// renewal) since submission ends the proposal VETOED, whether it was
+		// still voting or accepted and never executed.
+		invalidated, err := k.proposalInvalidated(ctx, proposal)
+		if err != nil {
+			return err
+		}
+
 		switch proposal.Status {
 		case types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED:
 			accepted, err := k.checkThreshold(ctx, proposal)
 			switch {
+			case invalidated:
+				proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_VETOED
+				proposal.FailedReason = "policy version changed (vetoed)"
 			case err != nil:
 				// If we can't tally, reject the proposal
 				proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_REJECTED
@@ -83,8 +94,13 @@ func (k Keeper) EndBlockProposals(ctx context.Context) error {
 			}
 			k.dropProposalVoterTree(ctx, proposalID)
 		case types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED:
-			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_EXPIRED
-			proposal.FailedReason = "execution window closed"
+			if invalidated {
+				proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_VETOED
+				proposal.FailedReason = "policy version changed (vetoed)"
+			} else {
+				proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_EXPIRED
+				proposal.FailedReason = "execution window closed"
+			}
 		default:
 			continue
 		}

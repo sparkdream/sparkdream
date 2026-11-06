@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -39,11 +40,16 @@ func (h MigrationHooks) BeforeMemberMigration(ctx context.Context, from, to sdk.
 	if _, err := h.k.MemberRegistration.Get(ctx, to.String()); err == nil {
 		return fmt.Errorf("x/season: %s is already registered", to.String())
 	}
-	// SEA-29: an open display-name case (reported, maybe appealed) is tied
-	// to the old address: its stakes, queue entry and the name to restore.
-	// The member migrates once it is resolved.
-	if m, err := h.k.DisplayNameModeration.Get(ctx, from.String()); err == nil && m.Active {
-		return fmt.Errorf("x/season: %s has an unresolved display-name moderation", from.String())
+	// SEA-29: on the KEY path an open display-name case (reported, maybe
+	// appealed) waits: the member migrates once it is resolved. RECOVERY and
+	// COUNCIL are never blocked by from-side state (REP-R-101): anyone can
+	// file a report, so a veto here let a thief or griefer burn the victim's
+	// recovery commitments one by one. On those paths the open case moves to
+	// the new address in AfterMemberMigration.
+	if path == reptypes.MigrationPath_MIGRATION_PATH_KEY {
+		if m, err := h.k.DisplayNameModeration.Get(ctx, from.String()); err == nil && m.Active {
+			return fmt.Errorf("x/season: %s has an unresolved display-name moderation", from.String())
+		}
 	}
 	if _, err := h.k.DisplayNameModeration.Get(ctx, to.String()); err == nil {
 		return fmt.Errorf("x/season: %s already has a display-name moderation record", to.String())
@@ -155,16 +161,13 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		}
 	}
 
-	// A closed display-name record carries the member's blocked names
-	// (SEA-23); it follows the member. An open one vetoed the migration.
-	if m, err := k.DisplayNameModeration.Get(ctx, fromStr); err == nil && !m.Active {
-		if err := k.DisplayNameModeration.Remove(ctx, fromStr); err != nil {
-			return err
-		}
-		m.Member = toStr
-		if err := k.SetDisplayNameModeration(ctx, toStr, m); err != nil {
-			return err
-		}
+	// The display-name record follows the member: a closed one carries the
+	// blocked names (SEA-23), an open one (RECOVERY / COUNCIL only; KEY
+	// vetoed it) its queue entries and the report stake, which is keyed by
+	// the member's address. The appeal stake stays keyed by its challenge id
+	// and is released through the alias.
+	if err := k.moveDisplayNameModeration(ctx, fromStr, toStr); err != nil {
+		return err
 	}
 
 	// Open-epoch XP tracker ("<addr>:<epoch>") and quest progress
@@ -211,4 +214,40 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		sdk.NewAttribute("guild_id", fmt.Sprintf("%d", guildID)),
 	))
 	return nil
+}
+
+// moveDisplayNameModeration re-keys from's display-name moderation record to
+// to, with its queue entries and, for an open case, the report stake.
+func (k Keeper) moveDisplayNameModeration(ctx context.Context, from, to string) error {
+	m, err := k.DisplayNameModeration.Get(ctx, from)
+	if errors.Is(err, collections.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if m.Active {
+		oldID := fmt.Sprintf("dn:%s:%d", m.Member, m.ModeratedAt)
+		if stake, sErr := k.DisplayNameReportStake.Get(ctx, oldID); sErr == nil {
+			if err := k.DisplayNameReportStake.Remove(ctx, oldID); err != nil {
+				return err
+			}
+			stake.ChallengeId = fmt.Sprintf("dn:%s:%d", to, m.ModeratedAt)
+			if err := k.DisplayNameReportStake.Set(ctx, stake.ChallengeId, stake); err != nil {
+				return err
+			}
+		} else if !errors.Is(sErr, collections.ErrNotFound) {
+			return sErr
+		}
+	}
+	// Writing an inactive placeholder drops from's queue entries; then the
+	// record itself goes.
+	if err := k.SetDisplayNameModeration(ctx, from, types.DisplayNameModeration{Member: from}); err != nil {
+		return err
+	}
+	if err := k.DisplayNameModeration.Remove(ctx, from); err != nil {
+		return err
+	}
+	m.Member = to
+	return k.SetDisplayNameModeration(ctx, to, m)
 }

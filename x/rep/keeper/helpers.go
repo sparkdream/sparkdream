@@ -283,6 +283,7 @@ func (k Keeper) GetReputationForTags(ctx context.Context, memberAddr sdk.AccAddr
 // IncrementMemberCompletedInterims increments the cached completed interims count for a member.
 // This is called when an interim is completed to maintain the O(1) lookup for trust level calculations.
 func (k Keeper) IncrementMemberCompletedInterims(ctx context.Context, memberAddr sdk.AccAddress) error {
+	memberAddr = k.resolveMember(ctx, memberAddr) // value update resolves the alias (REP-E-202)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return err
@@ -296,6 +297,7 @@ func (k Keeper) IncrementMemberCompletedInterims(ctx context.Context, memberAddr
 // IncrementMemberCompletedInitiatives increments the cached completed initiatives count for a member.
 // This is called when an initiative is completed to maintain the O(1) lookup.
 func (k Keeper) IncrementMemberCompletedInitiatives(ctx context.Context, memberAddr sdk.AccAddress) error {
+	memberAddr = k.resolveMember(ctx, memberAddr) // value update resolves the alias (REP-E-202)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return err

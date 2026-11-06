@@ -10,8 +10,13 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-// ProposalFeeDecorator enforces the minimum proposal fee for MsgSubmitProposal.
-// All permission and term-expiration checks are handled in the message server.
+// ProposalFeeDecorator floors the tx fee of every top-level MsgSubmitProposal
+// that owes the proposal fee (N such proposals need N times proposal_fee in
+// tx fees) and records what it floored as per-proposer credits on the
+// context, so the handler charges only the submissions that reached it
+// another way (nested in an x/vault proposal, for instance). See
+// x/commons/keeper/proposal_fee.go. All permission and term-expiration
+// checks are handled in the message server.
 type ProposalFeeDecorator struct {
 	commonsKeeper keeper.Keeper
 }
@@ -24,45 +29,23 @@ func NewProposalFeeDecorator(ck keeper.Keeper) ProposalFeeDecorator {
 
 func (ad ProposalFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// Every fee-requiring proposal in the tx pays the fee: N proposals in
-	// one tx need N times proposal_fee.
+	// one tx need N times proposal_fee. Signaling proposals (no inner
+	// messages) pay too; proposals made only of emergency actions are
+	// exempt (keeper.ProposalRequiresFee).
 	feeCount := int64(0)
+	credits := map[string]int{}
 
 	for _, msg := range tx.GetMsgs() {
 		submitMsg, ok := msg.(*types.MsgSubmitProposal)
-		if !ok {
+		if !ok || !ad.commonsKeeper.ProposalRequiresFee(submitMsg) {
 			continue
 		}
-
-		// Determine if this proposal requires a fee. Signaling proposals
-		// (no inner messages) pay the fee too — they still consume proposal
-		// storage and voter attention, so making them free would invite
-		// cheap spam.
-		requiresFee := len(submitMsg.Messages) == 0
-		for _, anyMsg := range submitMsg.Messages {
-			var sdkMsg sdk.Msg
-			if err := ad.commonsKeeper.Codec().UnpackAny(anyMsg, &sdkMsg); err != nil {
-				continue
-			}
-			typeURL := sdk.MsgTypeURL(sdkMsg)
-
-			// Emergency actions are fee-exempt
-			if typeURL != "/sparkdream.commons.v1.MsgEmergencyCancelGovProposal" &&
-				typeURL != "/sparkdream.commons.v1.MsgVetoGroupProposals" {
-				requiresFee = true
-			}
-		}
-
-		if requiresFee {
-			feeCount++
-		}
+		feeCount++
+		credits[submitMsg.Proposer]++
 	}
 
 	if feeCount > 0 {
-		params, err := ad.commonsKeeper.Params.Get(ctx)
-		if err != nil {
-			return ctx, err
-		}
-		fee, err := sdk.ParseCoinsNormalized(params.ProposalFee)
+		fee, err := ad.commonsKeeper.ProposalFee(ctx)
 		if err != nil {
 			return ctx, err
 		}
@@ -77,6 +60,9 @@ func (ad ProposalFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 					"Commons Council requires min fee %s for %d proposal(s)", minFee, feeCount)
 			}
 		}
+		// The floored submissions are paid: the handler must not charge
+		// them again.
+		ctx = keeper.WithProposalFeeCredits(ctx, credits)
 	}
 
 	return next(ctx, tx, simulate)

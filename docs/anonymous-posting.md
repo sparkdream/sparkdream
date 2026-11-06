@@ -124,7 +124,7 @@ A single Groth16 circuit (BN254) proving membership and minimum trust level with
 3. **Merkle proof:** Computed root from leaf + path must equal `MerkleRoot`
 4. **Trust level range:** `trustLevel >= MinTrustLevel` (range check)
 5. **Nullifier:** `nullifier = MiMC_hash(secretKey, Scope)` where `Scope = MiMC_hash(domain, rawScope)` is computed outside the circuit (by the prover and, independently, by the chain)
-6. **Rate limit nullifier:** `rateLimitNullifier = MiMC_hash(secretKey, MaxUint64, rateLimitEpoch)`
+6. **Rate limit nullifier:** `rateLimitNullifier = MiMC_hash(secretKey, MaxUint64, rateLimitEpoch)`, where the chain supplies `rateLimitEpoch` = the shield epoch, or for a group-tree (secret-ballot) exec `MiMC_hash(Scope, epoch)` so votes are not linkable through it
 7. **Path index binary:** All `pathIndices[i] in {0, 1}`
 
 **Verification key:** Stored on-chain in x/shield state by circuit ID (`shield_v1`). Set at genesis; changed only by a chain upgrade (no message sets it).
@@ -158,7 +158,7 @@ All nullifiers are stored centrally in x/shield (not per-module), keyed by `(dom
 |--------|--------|--------|-------|--------|
 | `1` | x/blog | Anonymous post | EPOCH (window 12) | One anonymous post per member per 12 epochs (~1 hour) |
 | `2` | x/blog | Anonymous reply | MESSAGE_FIELD (`post_id`) | One anonymous reply per member per post |
-| `8` | x/blog | Anonymous reaction | MESSAGE_FIELD (`reply_id\|post_id`: `(1 << 56) \| reply_id` on a reply, else `post_id`) | One anonymous reaction per member per post, and per reply |
+| `8` | x/blog | Anonymous reaction | MESSAGE_FIELD (`reply_id\|post_id`: `(1 << 56) \| reply_id` on a reply, else `post_id`) | One anonymous reaction per member per post, and per reply (independent of the member's open reaction, so one open plus one anonymous reaction per member per target can both count) |
 | `11` | x/forum | Anonymous post or reply | EPOCH (window 3) | One anonymous post or reply per member per 3 epochs (~15 minutes) |
 | `12` | x/forum | Anonymous upvote or downvote | MESSAGE_FIELD (`post_id`) | One anonymous vote (up or down) per member per post |
 | `21` | x/collect | Anonymous collection | EPOCH (window 288) | One anonymous collection per member per 288 epochs (~1 day) |

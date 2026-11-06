@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 
+	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
+
 	"sparkdream/x/federation/types"
 )
 
@@ -51,4 +53,19 @@ func (k Keeper) SetPendingChallengeForTest(ctx context.Context, c types.PendingI
 // on a send error use this for a send that succeeds or fails on demand.
 func (k Keeper) SetSendPacketOverrideForTest(fn func(ctx context.Context, peerID string, data []byte) (uint64, error)) {
 	k.late.sendPacketOverride = fn
+}
+
+// FindPeerByChannelForTest wraps findPeerByChannel for the channel index
+// tests (FED-101).
+func (k Keeper) FindPeerByChannelForTest(ctx context.Context, channelID string) (string, error) {
+	return k.findPeerByChannel(ctx, channelID)
+}
+
+// IBCKeeperForTest returns the late-wired IBC keeper so tests can open the
+// channels a Spark Dream peer's activation requires (FED-106).
+func (k Keeper) IBCKeeperForTest() *ibckeeper.Keeper {
+	if k.late == nil || k.late.ibcKeeperFn == nil {
+		return nil
+	}
+	return k.late.ibcKeeperFn()
 }

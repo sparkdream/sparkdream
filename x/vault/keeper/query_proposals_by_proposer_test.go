@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"cosmossdk.io/collections"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,8 @@ func TestProposalsByProposer(t *testing.T) {
 		{ProposalId: 3, VaultId: 1, Proposer: bob, Status: pending},
 	} {
 		require.NoError(t, f.keeper.VaultProposal.Set(f.ctx, p.ProposalId, p))
+		require.NoError(t, f.keeper.ProposalsByProposer.Set(f.ctx, collections.Join(p.Proposer, p.ProposalId)))
+		require.NoError(t, f.keeper.ProposalsByVault.Set(f.ctx, collections.Join(p.VaultId, p.ProposalId)))
 	}
 	ids := func(ps []types.VaultProposal) []uint64 {
 		out := []uint64{}

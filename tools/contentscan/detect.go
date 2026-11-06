@@ -101,7 +101,7 @@ var ErrIncompleteExtraction = errors.New("contentscan: body holds data URIs that
 // ExtractDataURIs decodes every data URI in text into a blob, skipping any it
 // cannot decode. Use ExtractDataURIsStrict before signing a verdict.
 func ExtractDataURIs(text []byte, maxBytes int64) []Blob {
-	blobs, _ := extractDataURIs(text, maxBytes)
+	blobs, _ := extractDataURIs(text, maxBytes, 0)
 	return blobs
 }
 
@@ -109,14 +109,18 @@ func ExtractDataURIs(text []byte, maxBytes int64) []Blob {
 // ErrIncompleteExtraction when a payload doesn't decode or when fewer blobs
 // come out than the chain's labelling rule counts data URIs.
 func ExtractDataURIsStrict(text []byte, maxBytes int64) ([]Blob, error) {
-	blobs, failed := extractDataURIs(text, maxBytes)
+	blobs, failed := extractDataURIs(text, maxBytes, 0)
 	if failed > 0 || len(blobs) < datauri.Count(string(text)) {
 		return blobs, ErrIncompleteExtraction
 	}
 	return blobs, nil
 }
 
-func extractDataURIs(text []byte, maxBytes int64) (out []Blob, failed int) {
+// maxNestedDataURIDepth bounds how deep extraction follows a data URI whose
+// decoded payload (an HTML or SVG document, say) holds data URIs of its own.
+const maxNestedDataURIDepth = 3
+
+func extractDataURIs(text []byte, maxBytes int64, depth int) (out []Blob, failed int) {
 	normalized := datauri.Normalize(string(text))
 	for _, m := range dataURIRe.FindAllStringSubmatch(normalized, -1) {
 		mediaType := strings.TrimSpace(m[1])
@@ -144,12 +148,37 @@ func extractDataURIs(text []byte, maxBytes int64) (out []Blob, failed int) {
 		if maxBytes > 0 && int64(len(data)) > maxBytes {
 			data = data[:maxBytes]
 		}
-		if mediaType == "" {
-			mediaType = http.DetectContentType(data)
-		}
+		// The declared type is the author's claim; a browser picks the
+		// image decoder by sniffing the bytes. Classify by what they are.
+		mediaType = EffectiveMediaType(mediaType, data)
 		out = append(out, Blob{Data: data, MediaType: mediaType, Source: "data-uri"})
+		// A decoded document can carry data URIs of its own
+		// (data:text/html,<img src="data:image/png;...">). Follow them a few
+		// levels; past the cap, nested markers count as unextracted.
+		if n := datauri.Count(string(data)); n > 0 {
+			if depth >= maxNestedDataURIDepth {
+				failed += n
+				continue
+			}
+			nested, nestedFailed := extractDataURIs(data, maxBytes, depth+1)
+			out = append(out, nested...)
+			failed += nestedFailed
+		}
 	}
 	return out, failed
+}
+
+// EffectiveMediaType is the type a blob is judged as: the sniffed type when
+// the declared one is empty or not media but the bytes are, else the declared
+// type. An image declared as text/plain or application/json is still an image.
+func EffectiveMediaType(declared string, data []byte) string {
+	if IsMedia(declared) && declared != "" {
+		return declared
+	}
+	if sniffed := http.DetectContentType(data); declared == "" || IsMedia(sniffed) {
+		return sniffed
+	}
+	return declared
 }
 
 // urlRe finds media URLs a renderer would load: HTML src/poster/srcset
@@ -311,7 +340,7 @@ func (d Detector) Judge(ctx context.Context, blobs []Blob) (verdict, category st
 	}
 	held := ""
 	for _, b := range blobs {
-		if !IsMedia(b.MediaType) {
+		if !IsMedia(EffectiveMediaType(b.MediaType, b.Data)) {
 			continue
 		}
 		if d.Classifier == nil {

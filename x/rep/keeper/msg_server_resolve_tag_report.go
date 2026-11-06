@@ -16,7 +16,12 @@ import (
 //   - 0 (dismiss): burn reporter bonds (an unfounded report costs its bond),
 //     tag untouched
 //   - 1 (remove):  delete the tag (and forum references), refund bonds
-//   - 2 (reserve): create a ReservedTag entry, refund bonds
+//   - 2 (reserve): create a ReservedTag entry, refund bonds. reserve_authority
+//     is empty or a bech32 address (a council policy, the gov module
+//     account, a member); anything else is refused before state changes
+//   - 3 (restore): release a reserved tag back to public use, refund bonds;
+//     refused for a tag that is not reserved. Works whether or not the tag
+//     still has a Tag row (ReportTag accepts a bare reservation, REP-R-203)
 //
 // A tag that no longer exists (garbage-collected while the report was open,
 // on state written before ExpireTags learned to wait for reports) does not
@@ -36,9 +41,19 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 
 	// Reject unknown actions before touching state: the report (and every
 	// reporter's locked bond) must survive a malformed resolution.
-	if msg.Action > 2 {
+	if msg.Action > 3 {
 		return nil, errorsmod.Wrapf(types.ErrInvalidTagReportAction,
-			"action %d is not one of 0 (dismiss), 1 (remove), 2 (reserve)", msg.Action)
+			"action %d is not one of 0 (dismiss), 1 (remove), 2 (reserve), 3 (restore)", msg.Action)
+	}
+
+	if msg.Action == 2 && msg.ReserveAuthority != "" {
+		// Stored as-is and shown to clients deciding who may use the tag, so
+		// a typo would reserve the tag for nobody. Refused before the report
+		// is touched.
+		if _, err := k.addressCodec.StringToBytes(msg.ReserveAuthority); err != nil {
+			return nil, errorsmod.Wrapf(types.ErrInvalidTagReportAction,
+				"reserve_authority %q is not an address: %v", msg.ReserveAuthority, err)
+		}
 	}
 
 	report, err := k.TagReport.Get(ctx, msg.TagName)
@@ -84,6 +99,24 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 		}
 		if err := k.SetReservedTag(ctx, reservedTag); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to create reserved tag")
+		}
+		if err := refundTagReportBonds(ctx, k.Keeper, report.Reporters, totalBond); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+		}
+
+	case 3:
+		// Restore releases a reserved tag back to public use (the report
+		// said the reservation was wrong); the reporters are refunded. A
+		// removed tag cannot come back this way: its references are gone.
+		reserved, err := k.IsReservedTag(ctx, msg.TagName)
+		if err != nil {
+			return nil, errorsmod.Wrapf(err, "failed to check reservation of %q", msg.TagName)
+		}
+		if !reserved {
+			return nil, errorsmod.Wrapf(types.ErrInvalidTagReportAction, "restore: %q is not a reserved tag", msg.TagName)
+		}
+		if err := k.RemoveReservedTag(ctx, msg.TagName); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to release reserved tag")
 		}
 		if err := refundTagReportBonds(ctx, k.Keeper, report.Reporters, totalBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")

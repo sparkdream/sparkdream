@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"sort"
 
 	"sparkdream/x/rep/types"
 
@@ -81,9 +82,79 @@ func (k Keeper) IterateInitiativesByStatuses(ctx context.Context, statuses []typ
 
 // Interim Index Management
 
-// AddInterimToStatusIndex adds an interim to the status index
+// isLiveInterimStatus reports whether an interim is still open: PENDING or
+// IN_PROGRESS, the two statuses the pending sweeps and the per-member caps
+// look at.
+func isLiveInterimStatus(s types.InterimStatus) bool {
+	return s == types.InterimStatus_INTERIM_STATUS_PENDING ||
+		s == types.InterimStatus_INTERIM_STATUS_IN_PROGRESS
+}
+
+// AddInterimToStatusIndex adds an interim to the status index and, when it
+// is live, to the per-assignee index and the deadline due queue
+// (due_queue.go). Called at creation and for every imported interim at
+// InitGenesis, so both derived indexes are rebuilt from the primary record.
 func (k Keeper) AddInterimToStatusIndex(ctx context.Context, interim types.Interim) error {
+	if isLiveInterimStatus(interim.Status) {
+		if err := enqueueDue(ctx, k.InterimDeadlineDue, interim.Deadline, interim.Id); err != nil {
+			return err
+		}
+		if err := k.syncInterimAssigneeIndex(ctx, types.Interim{}, interim); err != nil {
+			return err
+		}
+	}
 	return k.InterimsByStatus.Set(ctx, collections.Join(int32(interim.Status), interim.Id))
+}
+
+// syncInterimAssigneeIndex brings InterimsByAssignee in line with a write of
+// the interim: every assignee of a live interim has an entry, nobody else
+// does. Removals are idempotent, so a half-indexed record is repaired by the
+// next write.
+func (k Keeper) syncInterimAssigneeIndex(ctx context.Context, before, after types.Interim) error {
+	if !isLiveInterimStatus(after.Status) {
+		for _, a := range append(append([]string{}, before.Assignees...), after.Assignees...) {
+			if err := k.InterimsByAssignee.Remove(ctx, collections.Join(a, after.Id)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, a := range before.Assignees {
+		if !AddressesMatch(after.Assignees, a) {
+			if err := k.InterimsByAssignee.Remove(ctx, collections.Join(a, after.Id)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, a := range after.Assignees {
+		if err := k.InterimsByAssignee.Set(ctx, collections.Join(a, after.Id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LiveInterimIDsForAddresses returns, in ascending id order without
+// duplicates, every live interim on which any of the addresses is an
+// assignee. One prefix walk per address: the cost is the member's own
+// interims, not the chain's.
+func (k Keeper) LiveInterimIDsForAddresses(ctx context.Context, addrs []string) ([]uint64, error) {
+	seen := map[uint64]struct{}{}
+	var ids []uint64
+	for _, a := range addrs {
+		rng := collections.NewPrefixedPairRange[string, uint64](a)
+		if err := k.InterimsByAssignee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+			if _, dup := seen[key.K2()]; !dup {
+				seen[key.K2()] = struct{}{}
+				ids = append(ids, key.K2())
+			}
+			return false, nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids, nil
 }
 
 // RemoveInterimFromStatusIndex removes an interim from the status index
@@ -98,6 +169,13 @@ func (k Keeper) UpdateInterimStatusIndex(ctx context.Context, oldStatus, newStat
 	}
 	if err := k.RemoveInterimFromStatusIndex(ctx, oldStatus, id); err != nil {
 		if !isNotFoundError(err) {
+			return err
+		}
+	}
+	// Re-entering a live status (not a path the module takes today): queue a
+	// deadline check at once; the sweep re-queues it at the real deadline.
+	if isLiveInterimStatus(newStatus) && !isLiveInterimStatus(oldStatus) {
+		if err := enqueueDue(ctx, k.InterimDeadlineDue, 0, id); err != nil {
 			return err
 		}
 	}
@@ -327,9 +405,37 @@ func (k Keeper) IterateChallengesByStatus(ctx context.Context, status types.Chal
 
 // Project Index Management
 
-// AddProjectToStatusIndex adds a project to the status index.
+// AddProjectToStatusIndex adds a project to the status index and, for a
+// PROPOSED project, to the per-creator index and the expiry due queue
+// (due_queue.go). Called at creation and at InitGenesis.
 func (k Keeper) AddProjectToStatusIndex(ctx context.Context, project types.Project) error {
+	if project.Status == types.ProjectStatus_PROJECT_STATUS_PROPOSED {
+		if err := enqueueDue(ctx, k.ProjectExpiryDue, project.ExpiryBlockHeight, project.Id); err != nil {
+			return err
+		}
+		if err := k.ProposedProjectsByCreator.Set(ctx, collections.Join(project.Creator, project.Id)); err != nil {
+			return err
+		}
+	}
 	return k.ProjectsByStatus.Set(ctx, collections.Join(int32(project.Status), project.Id))
+}
+
+// CountProposedProjectsForCreator returns how many PROPOSED projects the
+// member behind creator holds, under the address they sign with today and
+// any recent alias (a project keeps the creator address it was proposed
+// under).
+func (k Keeper) CountProposedProjectsForCreator(ctx context.Context, creator string) (uint32, error) {
+	var count uint32
+	for _, a := range k.RecentAddressesOf(ctx, creator) {
+		rng := collections.NewPrefixedPairRange[string, uint64](a)
+		if err := k.ProposedProjectsByCreator.Walk(ctx, rng, func(collections.Pair[string, uint64]) (bool, error) {
+			count++
+			return false, nil
+		}); err != nil {
+			return 0, err
+		}
+	}
+	return count, nil
 }
 
 // RemoveProjectFromStatusIndex removes a project from the status index.
@@ -346,6 +452,25 @@ func (k Keeper) UpdateProjectStatusIndex(ctx context.Context, oldStatus, newStat
 	}
 	if err := k.RemoveProjectFromStatusIndex(ctx, oldStatus, id); err != nil {
 		if !isNotFoundError(err) {
+			return err
+		}
+	}
+	// The per-creator index holds PROPOSED projects only. Callers persist
+	// the project before updating its index, so the record is readable here.
+	if oldStatus == types.ProjectStatus_PROJECT_STATUS_PROPOSED || newStatus == types.ProjectStatus_PROJECT_STATUS_PROPOSED {
+		project, err := k.Project.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		key := collections.Join(project.Creator, id)
+		if newStatus == types.ProjectStatus_PROJECT_STATUS_PROPOSED {
+			if err := enqueueDue(ctx, k.ProjectExpiryDue, 0, id); err != nil {
+				return err
+			}
+			if err := k.ProposedProjectsByCreator.Set(ctx, key); err != nil {
+				return err
+			}
+		} else if err := k.ProposedProjectsByCreator.Remove(ctx, key); err != nil {
 			return err
 		}
 	}

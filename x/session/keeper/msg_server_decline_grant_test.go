@@ -19,6 +19,7 @@ func TestDeclineGrant_SessionKey(t *testing.T) {
 
 	granter := testAddr("granter", f.addressCodec)
 	grantee := testAddr("grantee", f.addressCodec)
+	allowGranter(t, f, grantee, granter)
 
 	resp, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
 		Granter:   granter,

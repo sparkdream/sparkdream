@@ -8,6 +8,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -197,10 +198,10 @@ func (k Keeper) penaliseAbandonedSeat(ctx context.Context, juryReview types.Jury
 //
 // Below MinJurySeatingsForWeighting seatings there is no meaningful record and
 // the juror is drawn at full weight.
-func (k Keeper) JurorResponsivenessWeight(ctx context.Context, juror string) float64 {
+func (k Keeper) JurorResponsivenessWeight(ctx context.Context, juror string) math.LegacyDec {
 	p, err := k.JuryParticipation.Get(ctx, juror)
 	if err != nil {
-		return 1
+		return math.LegacyOneDec()
 	}
 
 	// Both knobs are governance/committee tunable, and both were guesses when
@@ -215,21 +216,20 @@ func (k Keeper) JurorResponsivenessWeight(ctx context.Context, juror string) flo
 			minSeatings = params.MinJurySeatingsForWeighting
 		}
 		if !params.MinJurorSelectionWeight.IsNil() && params.MinJurorSelectionWeight.IsPositive() {
-			if f, fErr := params.MinJurorSelectionWeight.Float64(); fErr == nil {
-				floor = f
-			}
+			floor = params.MinJurorSelectionWeight
 		}
 	}
 
 	if p.TotalAssigned < minSeatings {
-		return 1
+		return math.LegacyOneDec()
 	}
 	answered := p.TotalVoted + p.TotalDeclined
 	if answered >= p.TotalAssigned {
-		return 1
+		return math.LegacyOneDec()
 	}
-	weight := float64(answered) / float64(p.TotalAssigned)
-	if weight < floor {
+	weight := math.LegacyNewDecFromInt(math.NewIntFromUint64(answered)).
+		Quo(math.LegacyNewDecFromInt(math.NewIntFromUint64(p.TotalAssigned)))
+	if weight.LT(floor) {
 		return floor
 	}
 	return weight

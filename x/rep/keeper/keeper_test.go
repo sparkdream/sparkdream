@@ -21,7 +21,13 @@ import (
 type mockCommonsKeeper struct {
 	IsCommitteeMemberFn     func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	GetCommitteeGroupInfoFn func(ctx context.Context, council string, committee string) (interface{}, error)
-	IsCouncilAuthorizedFn   func(ctx context.Context, addr string, council string, committee string) bool
+	// ListCommitteeMembersFn overrides the default (no committee has any
+	// member), so a budget-backed project proposal opens no review interim
+	// unless a test seeds the Operations Committee.
+	ListCommitteeMembersFn func(ctx context.Context, council string, committee string) ([]string, error)
+	// HasVotedFn overrides the default (nobody has voted on any proposal).
+	HasVotedFn            func(ctx context.Context, proposalID uint64, voter string) bool
+	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
 	// IsGroupPolicyAddressFn overrides the default (no address is a group
 	// policy). The default used to be permissive; since IsPersonalAddress
 	// gates every invitation, a stub that calls every invitee a policy would
@@ -45,6 +51,20 @@ func (m mockCommonsKeeper) GetCommitteeGroupInfo(ctx context.Context, council st
 		return m.GetCommitteeGroupInfoFn(ctx, council, committee)
 	}
 	return nil, nil
+}
+
+func (m mockCommonsKeeper) ListCommitteeMembers(ctx context.Context, council string, committee string) ([]string, error) {
+	if m.ListCommitteeMembersFn != nil {
+		return m.ListCommitteeMembersFn(ctx, council, committee)
+	}
+	return nil, nil
+}
+
+func (m mockCommonsKeeper) HasVoted(ctx context.Context, proposalID uint64, voter string) bool {
+	if m.HasVotedFn != nil {
+		return m.HasVotedFn(ctx, proposalID, voter)
+	}
+	return false
 }
 
 func (m mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
@@ -84,8 +104,6 @@ func (m mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr 
 	}
 	return false
 }
-
-func (m mockCommonsKeeper) MaxLiveVotingPeriodSeconds(ctx context.Context) int64 { return 0 }
 
 // mockIdentityKeeper implements types.IdentityKeeper for unit tests.
 // Unit-test fixtures use the legacy denoms; e2e suites exercise the real

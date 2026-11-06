@@ -50,11 +50,16 @@ func (k Keeper) initPollsGenesis(ctx context.Context, gs types.GenesisState) err
 			return err
 		}
 	}
+	for _, c := range gs.PollOpenCounts {
+		if err := k.PollOpenCounts.Set(ctx, c.Creator, c); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// exportPollsGenesis exports polls, open votes, the poll sequence and the
-// voter snapshots of ballots still open.
+// exportPollsGenesis exports polls, open votes, the poll sequence, the
+// voter snapshots of ballots still open and the per-creator opening buckets.
 func (k Keeper) exportPollsGenesis(ctx context.Context, gs *types.GenesisState) error {
 	if err := k.Polls.Walk(ctx, nil, func(_ uint64, p types.Poll) (bool, error) {
 		gs.Polls = append(gs.Polls, p)
@@ -79,8 +84,14 @@ func (k Keeper) exportPollsGenesis(ctx context.Context, gs *types.GenesisState) 
 	}); err != nil {
 		return err
 	}
-	return k.PollVoterTrees.Walk(ctx, nil, func(id uint64, t types.VoterTree) (bool, error) {
+	if err := k.PollVoterTrees.Walk(ctx, nil, func(id uint64, t types.VoterTree) (bool, error) {
 		gs.PollVoterTrees = append(gs.PollVoterTrees, types.PollVoterTreeEntry{PollId: id, Tree: t})
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	return k.PollOpenCounts.Walk(ctx, nil, func(_ string, c types.PollOpenCount) (bool, error) {
+		gs.PollOpenCounts = append(gs.PollOpenCounts, c)
 		return false, nil
 	})
 }

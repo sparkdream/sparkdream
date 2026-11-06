@@ -8,6 +8,12 @@ import (
 
 // InitGenesis initializes the module's state from a provided genesis state.
 func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) error {
+	// The module manager does not call ValidateGenesis before InitGenesis;
+	// re-check here so a hand-edited share (zero weight, over the
+	// aggregate cap, bad address) never reaches the store.
+	if err := genState.Validate(); err != nil {
+		return err
+	}
 	for _, elem := range genState.ShareMap {
 		if err := k.Share.Set(ctx, elem.Address, elem); err != nil {
 			return err

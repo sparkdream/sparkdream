@@ -17,7 +17,7 @@ import (
 // allows that is not the granter.
 func (e *simEnv) buildPull(g types.Grant) (*types.MsgPullAllowance, string) {
 	sa := g.GetSpendingAllowance()
-	if sa == nil || !pending(g) || !g.ExpiresAt.After(e.ctx.BlockTime()) {
+	if sa == nil || !actionable(g) || !g.ExpiresAt.After(e.ctx.BlockTime()) {
 		return nil, "allowance is not pullable"
 	}
 	minPull, ok := math.NewIntFromString(e.params.MinPullAmount)
@@ -79,7 +79,7 @@ func SimulateMsgPullAllowance(
 	label := &types.MsgPullAllowance{}
 	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		allowances, err := e.grants(func(g types.Grant) bool {
-			return g.Type == types.GrantType_GRANT_TYPE_SPENDING_ALLOWANCE && pending(g)
+			return g.Type == types.GrantType_GRANT_TYPE_SPENDING_ALLOWANCE && actionable(g)
 		})
 		if err != nil {
 			return noOpErr(label, err)

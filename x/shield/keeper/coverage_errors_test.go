@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	any "github.com/cosmos/gogoproto/types/any"
 	"github.com/stretchr/testify/require"
@@ -125,6 +126,35 @@ func TestExecuteInnerMessageRejections(t *testing.T) {
 				return innerAny(t, &types.MsgTriggerDkg{Authority: authtypes.NewModuleAddress("gov").String()})
 			},
 			wantIs: types.ErrInvalidInnerMessageSigner,
+		},
+		{
+			// SHD-104: every signer is checked, not only the first. The
+			// second input of a MsgMultiSend is a second signer.
+			name: "second inner signer is not the shield module",
+			setup: func(f *fixture) {
+				f.keeper.SetRouter(eventRouter{})
+				f.keeper.RegisterShieldAwareModule("/cosmos.bank.v1beta1.", &mockShieldAware{compatible: true})
+			},
+			inner: func(t *testing.T) *any.Any {
+				return innerAny(t, &banktypes.MsgMultiSend{Inputs: []banktypes.Input{
+					{Address: authtypes.NewModuleAddress(types.ModuleName).String(), Coins: sdk.NewCoins(sdk.NewInt64Coin("uspark", 1))},
+					{Address: authtypes.NewModuleAddress("aurora").String(), Coins: sdk.NewCoins(sdk.NewInt64Coin("uspark", 1))},
+				}})
+			},
+			wantIs: types.ErrInvalidInnerMessageSigner,
+		},
+		{
+			// Control for the case above: with both signers the module, the
+			// signer loop passes and the next gate (ShieldAware) is reached.
+			name:  "every inner signer is the shield module",
+			setup: func(f *fixture) { f.keeper.SetRouter(eventRouter{}) },
+			inner: func(t *testing.T) *any.Any {
+				return innerAny(t, &banktypes.MsgMultiSend{Inputs: []banktypes.Input{
+					{Address: authtypes.NewModuleAddress(types.ModuleName).String(), Coins: sdk.NewCoins(sdk.NewInt64Coin("uspark", 1))},
+					{Address: authtypes.NewModuleAddress(types.ModuleName).String(), Coins: sdk.NewCoins(sdk.NewInt64Coin("uspark", 1))},
+				}})
+			},
+			wantIs: types.ErrIncompatibleOperation,
 		},
 		{
 			name:   "no ShieldAware registered",

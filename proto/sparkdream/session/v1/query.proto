@@ -58,8 +58,23 @@ service Query {
   rpc AllowedMsgTypes(QueryAllowedMsgTypesRequest) returns (QueryAllowedMsgTypesResponse) {
     option (google.api.http).get = "/sparkdream/session/v1/allowed_msg_types";
   }
-}
 
+  // AllowedGranters lists the granters a grantee has allowed: their
+  // access-class grants (session keys, sign-ins) are ACTIVE at creation
+  // instead of waiting as PENDING for the grantee's acceptance.
+  rpc AllowedGranters(QueryAllowedGrantersRequest) returns (QueryAllowedGrantersResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/allowed_granters/{grantee}";
+  }
+
+  // PendingGrantsForGrantee lists the PENDING access-class grants (session
+  // keys, sign-ins) that name a grantee and await its acceptance (spec
+  // §31.6). These grants are on no other grantee-keyed index, so this is
+  // the grantee's discovery path to the grant id MsgAcceptGrant or
+  // MsgDeclineGrant needs. Query-only: no on-chain consumer walks it.
+  rpc PendingGrantsForGrantee(QueryPendingGrantsForGranteeRequest) returns (QueryPendingGrantsForGranteeResponse) {
+    option (google.api.http).get = "/sparkdream/session/v1/pending_grants_for_grantee/{grantee}";
+  }
+}
 message QueryParamsRequest {}
 
 message QueryParamsResponse {
@@ -134,4 +149,24 @@ message QueryAllowedMsgTypesRequest {}
 message QueryAllowedMsgTypesResponse {
   repeated string max_allowed_msg_types = 1;
   repeated string allowed_msg_types = 2;
+}
+
+message QueryAllowedGrantersRequest {
+  string grantee = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryAllowedGrantersResponse {
+  repeated string granters = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryPendingGrantsForGranteeRequest {
+  string grantee = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message QueryPendingGrantsForGranteeResponse {
+  repeated Grant grants = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

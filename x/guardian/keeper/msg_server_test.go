@@ -2,9 +2,10 @@ package keeper_test
 
 import (
 	"context"
-	abci "github.com/cometbft/cometbft/abci/types"
 	"testing"
 	"time"
+
+	abci "github.com/cometbft/cometbft/abci/types"
 
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
@@ -511,7 +512,8 @@ func TestExecRejectsShortVotingPeriod(t *testing.T) {
 	ctx, k := setupGuardian(t, guardianDeps{})
 	ms := guardiankeeper.NewMsgServerImpl(k)
 	p := validGovParams()
-	short := 1 * time.Hour
+	// Just under the build's floor (per network, see network_bounds.go).
+	short := k.NetworkBounds().GovVotingPeriodFloor - time.Minute
 	p.VotingPeriod = &short
 	any, _ := codectypes.NewAnyWithValue(&govtypesv1.MsgUpdateParams{Params: p})
 	_, err := ms.Exec(ctx, &guardiantypes.MsgExec{Authority: govAuth(), Inner: any})

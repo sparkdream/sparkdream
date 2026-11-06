@@ -502,6 +502,22 @@ CURRENT_CC_STATUS=$($BINARY query rep get-content-challenge "$CONTENT_CHALLENGE_
     | jq -r '.content_challenge.status // ""')
 echo "  Challenge #$CONTENT_CHALLENGE_ID status now: ${CURRENT_CC_STATUS:-unknown}"
 
+# A review still IN_JURY_REVIEW can be resolved by the timeout sweep at any
+# block, which would free the slot between this check and the duplicate tx
+# below (a race, not a guard failure). Wait for it to resolve, bounded by the
+# review window, then hold the slot deterministically with a fresh challenge.
+if [ "$CURRENT_CC_STATUS" = "CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW" ]; then
+    REVIEW_WAIT=$(( $(echo "$PARAMS" | jq -r '.params.default_review_period_epochs // "1"') * $(echo "$PARAMS" | jq -r '.params.epoch_blocks // "10"') + 15 ))
+    echo "  Waiting up to $REVIEW_WAIT s for the jury review on #$CONTENT_CHALLENGE_ID to resolve..."
+    for i in $(seq 1 "$REVIEW_WAIT"); do
+        CURRENT_CC_STATUS=$($BINARY query rep get-content-challenge "$CONTENT_CHALLENGE_ID" --output json 2>/dev/null \
+            | jq -r '.content_challenge.status // ""')
+        [ "$CURRENT_CC_STATUS" != "CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW" ] && break
+        sleep 1
+    done
+    echo "  Challenge #$CONTENT_CHALLENGE_ID status after wait: ${CURRENT_CC_STATUS:-unknown}"
+fi
+
 DUP_TARGET_ID="$BONDED_POST_ID"
 if [ "$CURRENT_CC_STATUS" != "CONTENT_CHALLENGE_STATUS_ACTIVE" ] \
    && [ "$CURRENT_CC_STATUS" != "CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW" ]; then

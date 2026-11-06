@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -220,6 +221,29 @@ func (q queryServer) IdentityRateLimit(ctx context.Context, req *types.QueryIden
 		MaxCount:  params.MaxExecsPerIdentityPerEpoch,
 		Remaining: remaining,
 	}, nil
+}
+
+// Beacon returns the randomness beacon value of an epoch (epoch 0 = the
+// latest closed epoch) with its status.
+func (q queryServer) Beacon(ctx context.Context, req *types.QueryBeaconRequest) (*types.QueryBeaconResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
+	current := q.k.GetCurrentEpoch(ctx)
+	epoch := req.Epoch
+	if epoch == 0 && current > 0 {
+		epoch = current - 1
+	}
+	resp := &types.QueryBeaconResponse{
+		Epoch:        epoch,
+		Status:       q.k.BeaconStatus(ctx, epoch),
+		CurrentEpoch: current,
+	}
+	if dk, found := q.k.GetShieldEpochDecryptionKeyVal(ctx, epoch); found && len(dk.DecryptionKey) > 0 {
+		resp.KeyHex = hex.EncodeToString(dk.DecryptionKey)
+		resp.ReconstructedAtHeight = dk.ReconstructedAtHeight
+	}
+	return resp, nil
 }
 
 func (q queryServer) DKGState(ctx context.Context, req *types.QueryDKGStateRequest) (*types.QueryDKGStateResponse, error) {

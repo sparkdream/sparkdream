@@ -16,7 +16,7 @@ func TestUnlinkIdentity(t *testing.T) {
 	registerTestPeer(t, f, ms, "unlink-peer")
 	peer, _ := f.keeper.Peers.Get(f.ctx, "unlink-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "unlink-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	userStr := testAddr(t, f, "unlink-user")
 	_, err := ms.LinkIdentity(f.ctx, &types.MsgLinkIdentity{

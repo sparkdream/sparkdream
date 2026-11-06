@@ -16,6 +16,7 @@ import (
 // semantics those rebuilds take on trust.
 func (gs GenesisState) validateRecords() error {
 	peers := make(map[string]struct{}, len(gs.Peers))
+	channels := make(map[string]string, len(gs.Peers))
 	for _, p := range gs.Peers {
 		if p.Id == "" {
 			return fmt.Errorf("peer with empty id")
@@ -28,6 +29,22 @@ func (gs GenesisState) validateRecords() error {
 		}
 		if _, ok := PeerStatus_name[int32(p.Status)]; !ok {
 			return fmt.Errorf("peer %s: unknown status %d", p.Id, p.Status)
+		}
+		if err := ValidatePeerInfo(p.DisplayName, p.Metadata); err != nil {
+			return fmt.Errorf("peer %s: %w", p.Id, err)
+		}
+		// a Spark Dream peer is pinned to the chain behind its federation
+		// channel (FED-106); other peer types have no chain to pin
+		if err := ValidateExpectedChainID(p.Type, p.ExpectedChainId); err != nil {
+			return fmt.Errorf("peer %s: %w", p.Id, err)
+		}
+		// a federation channel is bound to at most one live peer; the
+		// channel index InitGenesis rebuilds would otherwise keep only one
+		if p.IbcChannelId != "" && p.Status != PeerStatus_PEER_STATUS_REMOVED {
+			if other, dup := channels[p.IbcChannelId]; dup {
+				return fmt.Errorf("peers %s and %s share ibc channel %s", other, p.Id, p.IbcChannelId)
+			}
+			channels[p.IbcChannelId] = p.Id
 		}
 		peers[p.Id] = struct{}{}
 	}

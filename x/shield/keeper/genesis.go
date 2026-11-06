@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 
 	"sparkdream/x/shield/types"
 )
@@ -181,6 +182,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// Fees paid in the current shield epoch
 	if !genState.EpochFeeLedger.Paid.IsNil() && genState.EpochFeeLedger.Paid.IsPositive() {
 		if err := k.EpochFeeLedger.Set(ctx, genState.EpochFeeLedger); err != nil {
+			return err
+		}
+	}
+
+	// Fees paid per identity in the current shield epoch
+	for _, e := range genState.IdentityEpochFees {
+		if err := k.IdentityEpochFees.Set(ctx, collections.Join(e.Epoch, e.RateLimitNullifierHex), e.Paid); err != nil {
 			return err
 		}
 	}
@@ -413,6 +421,16 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	// Fees paid in the current shield epoch
 	if ledger, err := k.EpochFeeLedger.Get(ctx); err == nil {
 		genesis.EpochFeeLedger = ledger
+	}
+
+	// Fees paid per identity in the current shield epoch
+	if err := k.IdentityEpochFees.Walk(ctx, nil, func(key collections.Pair[uint64, string], paid math.Int) (bool, error) {
+		genesis.IdentityEpochFees = append(genesis.IdentityEpochFees, types.IdentityEpochFeeEntry{
+			Epoch: key.K1(), RateLimitNullifierHex: key.K2(), Paid: paid,
+		})
+		return false, nil
+	}); err != nil {
+		return nil, err
 	}
 
 	// Retired nullifier domains

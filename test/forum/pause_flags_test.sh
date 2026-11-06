@@ -315,6 +315,22 @@ TX_RES=$($BINARY tx forum move-thread \
 expect_tx_failure "$TX_RES" "forum is paused" "ForumPaused blocks thread moving"
 
 # ========================================================================
+# TEST 3b: ForumPaused blocks sentinel hide (FRM-104)
+# ========================================================================
+echo "--- TEST 3b: ForumPaused blocks sentinel hide ---"
+
+TX_RES=$($BINARY tx forum hide-post \
+    "$PAUSE_TEST_POST_ID" 1 "spam" \
+    --from sentinel1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+
+expect_tx_failure "$TX_RES" "forum is paused" "ForumPaused blocks sentinel hide"
+
+# ========================================================================
 # RESTORE: Unpause forum
 # ========================================================================
 echo "--- RESTORE: Unpausing forum ---"

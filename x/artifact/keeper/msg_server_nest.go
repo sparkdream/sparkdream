@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -61,6 +62,21 @@ func (k msgServer) Nest(ctx context.Context, msg *types.MsgNest) (*types.MsgNest
 	if childClass.IsHarberger() {
 		return nil, errorsmod.Wrap(types.ErrNestNotAllowed, "harberger tokens cannot be nested")
 	}
+	if root.Lock == types.TokenLock_TOKEN_LOCK_RENTED {
+		// The renter pinned the tree they rented; a child that burns
+		// before the rental ends would vanish from under them (ART-207).
+		r, err := k.Rentals.Get(ctx, collections.Join(root.ClassId, root.Id))
+		if err != nil {
+			return nil, err
+		}
+		exp, err := k.treeExpiry(ctx, child)
+		if err != nil {
+			return nil, err
+		}
+		if exp != 0 && exp < r.ExpiresAt {
+			return nil, errorsmod.Wrap(types.ErrNestNotAllowed, "the child would expire before the tree's rental ends")
+		}
+	}
 	for _, a := range chain {
 		if a.ClassId == child.ClassId && a.Id == child.Id {
 			return nil, errorsmod.Wrap(types.ErrNestCycle, "the parent sits inside the child")
@@ -90,6 +106,14 @@ func (k msgServer) Nest(ctx context.Context, msg *types.MsgNest) (*types.MsgNest
 	}
 	if err := k.clearRentalOffer(ctx, child.ClassId, child.Id, "nested"); err != nil {
 		return nil, err
+	}
+	// The signer acts for both owners, so they are one migrated member
+	// under two addresses. A tree has a single stored owner: the child
+	// (and its subtree) takes the receiving tree's (ART-102).
+	if child.Owner != parent.Owner {
+		if err := k.reownSubtree(ctx, &child, parent.Owner); err != nil {
+			return nil, err
+		}
 	}
 	if err := k.nest(ctx, &child, parent); err != nil {
 		return nil, err

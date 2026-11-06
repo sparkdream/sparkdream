@@ -8,6 +8,8 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // mockDREAMKeeper records calls for verification.
@@ -164,4 +166,41 @@ func TestOps_SettleStakesBurnsTheLoserLock(t *testing.T) {
 	require.Equal(t, math.NewInt(10), mock.unlocked["phoenix"])
 	require.Equal(t, math.NewInt(25), mock.unlocked["zenith"], "loser lock released")
 	require.Equal(t, math.NewInt(25), mock.burned["zenith"])
+}
+
+// errDREAMKeeper fails every call with err.
+type errDREAMKeeper struct{ err error }
+
+func (e errDREAMKeeper) LockDREAM(context.Context, sdk.AccAddress, math.Int) error   { return e.err }
+func (e errDREAMKeeper) UnlockDREAM(context.Context, sdk.AccAddress, math.Int) error { return e.err }
+func (e errDREAMKeeper) BurnDREAM(context.Context, sdk.AccAddress, math.Int) error   { return e.err }
+func (e errDREAMKeeper) BurnLockedDREAM(context.Context, sdk.AccAddress, math.Int) error {
+	return e.err
+}
+
+// A lock x/rep reports as gone (zeroed or missing member) settles as
+// "nothing released"; any other failure is returned (SEA-101).
+func TestOps_OrGoneTolerance(t *testing.T) {
+	ctx := context.Background()
+	for _, gone := range []error{reptypes.ErrInsufficientStake, reptypes.ErrMemberNotFound} {
+		ops := NewOps(errDREAMKeeper{err: fmt.Errorf("wrapped: %w", gone)}, mockAddressCodec{})
+		released, err := ops.UnlockOrGone(ctx, "alice", 10)
+		require.NoError(t, err)
+		require.False(t, released)
+		burned, err := ops.BurnLockedOrGone(ctx, "alice", 10)
+		require.NoError(t, err)
+		require.False(t, burned)
+		require.NoError(t, ops.SettleStakesOrGone(ctx, "alice", 10, "bob", 5))
+	}
+
+	other := NewOps(errDREAMKeeper{err: fmt.Errorf("store failure")}, mockAddressCodec{})
+	_, err := other.UnlockOrGone(ctx, "alice", 10)
+	require.Error(t, err)
+	_, err = other.BurnLockedOrGone(ctx, "alice", 10)
+	require.Error(t, err)
+
+	ok := NewOps(newMockDREAMKeeper(), mockAddressCodec{})
+	released, err := ok.UnlockOrGone(ctx, "alice", 10)
+	require.NoError(t, err)
+	require.True(t, released)
 }

@@ -24,11 +24,13 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // TagReport defines the TagReport message.
 type TagReport struct {
-	TagName       string   `protobuf:"bytes,1,opt,name=tag_name,json=tagName,proto3" json:"tag_name,omitempty"`
-	TotalBond     string   `protobuf:"bytes,2,opt,name=total_bond,json=totalBond,proto3" json:"total_bond,omitempty"`
-	FirstReportAt int64    `protobuf:"varint,3,opt,name=first_report_at,json=firstReportAt,proto3" json:"first_report_at,omitempty"`
-	UnderReview   bool     `protobuf:"varint,4,opt,name=under_review,json=underReview,proto3" json:"under_review,omitempty"`
-	Reporters     []string `protobuf:"bytes,5,rep,name=reporters,proto3" json:"reporters,omitempty"`
+	TagName       string `protobuf:"bytes,1,opt,name=tag_name,json=tagName,proto3" json:"tag_name,omitempty"`
+	TotalBond     string `protobuf:"bytes,2,opt,name=total_bond,json=totalBond,proto3" json:"total_bond,omitempty"`
+	FirstReportAt int64  `protobuf:"varint,3,opt,name=first_report_at,json=firstReportAt,proto3" json:"first_report_at,omitempty"`
+	// True while the report is open (set when the first reporter files it; the
+	// record is removed on resolution).
+	UnderReview bool     `protobuf:"varint,4,opt,name=under_review,json=underReview,proto3" json:"under_review,omitempty"`
+	Reporters   []string `protobuf:"bytes,5,rep,name=reporters,proto3" json:"reporters,omitempty"`
 }
 
 func (m *TagReport) Reset()         { *m = TagReport{} }

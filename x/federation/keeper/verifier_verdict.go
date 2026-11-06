@@ -356,7 +356,7 @@ func (k Keeper) refundChallengeFee(ctx context.Context, record types.Verificatio
 		return fmt.Errorf("refund challenge fee: %w", err)
 	}
 	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), record.EscrowedChallengeFee))
-	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, challengerAddr, coins); err != nil {
+	if err := k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, challengerAddr, coins); err != nil {
 		sdkCtx.Logger().Warn("refund challenge fee: bank send failed",
 			"challenger", record.Challenger, "amount", record.EscrowedChallengeFee.String(), "error", err)
 		return fmt.Errorf("refund challenge fee: %w", err)
@@ -384,7 +384,7 @@ func (k Keeper) disburseChallengeFeeOnRejected(ctx context.Context, record types
 	if verifierShare.IsPositive() && record.Verifier != "" {
 		if verifierAddr, addrErr := sdk.AccAddressFromBech32(record.Verifier); addrErr == nil {
 			coins := sdk.NewCoins(sdk.NewCoin(bondDenom, verifierShare))
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, verifierAddr, coins); err != nil {
+			if err := k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, verifierAddr, coins); err != nil {
 				sdkCtx.Logger().Warn("disburse challenge fee: bank send to verifier failed",
 					"verifier", record.Verifier, "amount", verifierShare.String(), "error", err)
 				errs = append(errs, fmt.Errorf("pay verifier fee share: %w", err))
@@ -395,7 +395,7 @@ func (k Keeper) disburseChallengeFeeOnRejected(ctx context.Context, record types
 	// Burn the rest from the module account.
 	if burnShare.IsPositive() {
 		coins := sdk.NewCoins(sdk.NewCoin(bondDenom, burnShare))
-		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
+		if err := k.BankKeeper().BurnCoins(ctx, types.ModuleName, coins); err != nil {
 			sdkCtx.Logger().Warn("disburse challenge fee: burn failed",
 				"amount", burnShare.String(), "error", err)
 			errs = append(errs, fmt.Errorf("burn fee share: %w", err))
@@ -595,7 +595,7 @@ func (k Keeper) splitChallengeFeeNoFinding(ctx context.Context, record types.Ver
 	if refund.IsPositive() && record.Challenger != "" {
 		if challengerAddr, addrErr := sdk.AccAddressFromBech32(record.Challenger); addrErr == nil {
 			coins := sdk.NewCoins(sdk.NewCoin(bondDenom, refund))
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, challengerAddr, coins); err != nil {
+			if err := k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, challengerAddr, coins); err != nil {
 				sdkCtx.Logger().Warn("no-finding: refund half-fee to challenger failed",
 					"challenger", record.Challenger, "amount", refund.String(), "error", err)
 				errs = append(errs, fmt.Errorf("refund half challenge fee: %w", err))
@@ -606,7 +606,7 @@ func (k Keeper) splitChallengeFeeNoFinding(ctx context.Context, record types.Ver
 	}
 	if burn.IsPositive() {
 		coins := sdk.NewCoins(sdk.NewCoin(bondDenom, burn))
-		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
+		if err := k.BankKeeper().BurnCoins(ctx, types.ModuleName, coins); err != nil {
 			sdkCtx.Logger().Warn("no-finding: burn half-fee failed",
 				"amount", burn.String(), "error", err)
 			errs = append(errs, fmt.Errorf("burn half challenge fee: %w", err))
@@ -653,7 +653,7 @@ func (k Keeper) disposeEscalationFee(
 	if overturned {
 		if esc.Escalator == "" {
 			// Defensive — burn rather than misroute.
-			if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
+			if err := k.BankKeeper().BurnCoins(ctx, types.ModuleName, coins); err != nil {
 				sdkCtx.Logger().Warn("dispose escalation fee: burn fallback failed",
 					"amount", esc.EscrowedEscalationFee.String(), "error", err)
 				return fmt.Errorf("burn escalation fee: %w", err)
@@ -666,7 +666,7 @@ func (k Keeper) disposeEscalationFee(
 				"escalator", esc.Escalator, "error", err)
 			return fmt.Errorf("refund escalation fee: %w", err)
 		}
-		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, escalatorAddr, coins); err != nil {
+		if err := k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, escalatorAddr, coins); err != nil {
 			sdkCtx.Logger().Warn("dispose escalation fee: refund to escalator failed",
 				"escalator", esc.Escalator, "amount", esc.EscrowedEscalationFee.String(), "error", err)
 			return fmt.Errorf("refund escalation fee: %w", err)
@@ -678,7 +678,7 @@ func (k Keeper) disposeEscalationFee(
 		))
 		return nil
 	}
-	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
+	if err := k.BankKeeper().BurnCoins(ctx, types.ModuleName, coins); err != nil {
 		sdkCtx.Logger().Warn("dispose escalation fee: burn failed",
 			"amount", esc.EscrowedEscalationFee.String(), "error", err)
 		return fmt.Errorf("burn escalation fee: %w", err)

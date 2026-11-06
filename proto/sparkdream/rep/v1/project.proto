@@ -37,6 +37,20 @@ message Project {
   // for permissionless projects (no expiry — ACTIVE on creation) and cleared
   // when the project transitions out of PROPOSED.
   int64 expiry_block_height = 19;
+
+  // Id of the PROJECT_APPROVAL or BUDGET_REVIEW interim opened for the
+  // Commons Operations Committee when a budget-backed project is proposed.
+  // Zero when none was opened (permissionless project, or the committee had
+  // no members). The interim is system-settled: paid when the project is
+  // approved, expired unpaid when the proposal is cancelled or expires.
+  uint64 approval_interim_id = 20;
+
+  // What the proposal asked for. MsgApproveProjectBudget may approve at most
+  // these amounts: the review interim's type (PROJECT_APPROVAL or
+  // BUDGET_REVIEW) is priced from the request, so an approval above it would
+  // have been reviewed at the wrong rate. Zero on permissionless projects.
+  string requested_budget = 21 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string requested_spark = 22 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 enum ProjectCategory {

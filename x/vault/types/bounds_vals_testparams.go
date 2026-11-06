@@ -7,4 +7,5 @@ package types
 const (
 	MinProposalTTL    int64 = 10
 	ProposalRetention int64 = 60
+	InviteTTL         int64 = 45
 )

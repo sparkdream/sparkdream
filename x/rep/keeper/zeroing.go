@@ -57,7 +57,74 @@ func (k Keeper) terminateEscrowsForZeroing(ctx context.Context, member string) e
 	if err := k.dropMemberReportBonds(ctx, addrs); err != nil {
 		return err
 	}
+	if err := k.expireInterimsForZeroing(ctx, addrs); err != nil {
+		return err
+	}
 	return k.zeroBondedRoles(ctx, member)
+}
+
+// expireInterimsForZeroing ends the member's claim on every open interim
+// they are assigned to (REP-E-104). A zeroed member keeps no claim on pay for
+// work opened before the zeroing; the payout paths also skip inactive
+// assignees (payableInterimAssignees). An interim the member held alone
+// (their own work, an expert invitation) is EXPIRED; one shared with other
+// assignees (a committee review, co-signed work) loses only the zeroed seat
+// and stays live for the rest (REP-E-203), who split the budget over the
+// seats left when it settles. Interims hold no escrow, so these are record changes
+// only. Reads the per-assignee index, so a zeroing costs the member's own
+// interims, not the chain's. A system ADJUDICATION interim is assigned to
+// the module authority, never a member, and is untouched.
+func (k Keeper) expireInterimsForZeroing(ctx context.Context, addrs []string) error {
+	ids, err := k.LiveInterimIDsForAddresses(ctx, addrs)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		interim, err := k.Interim.Get(ctx, id)
+		if err != nil || !isLiveInterimStatus(interim.Status) || k.isSystemAdjudication(interim) {
+			continue
+		}
+		if err := k.dropInterimAssignees(ctx, interim, addrs, "assignee zeroed"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropInterimAssignees removes every assignee in addrs from a live interim.
+// With no assignee left the interim is EXPIRED with the reason as its notes;
+// otherwise it stays live for the remaining assignees. Emits
+// interim_assignee_removed per removed seat and interim_expired when the
+// interim ends.
+func (k Keeper) dropInterimAssignees(ctx context.Context, interim types.Interim, addrs []string, reason string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	kept := make([]string, 0, len(interim.Assignees))
+	for _, a := range interim.Assignees {
+		if AddressesMatch(addrs, a) {
+			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+				"interim_assignee_removed",
+				sdk.NewAttribute("interim_id", fmt.Sprintf("%d", interim.Id)),
+				sdk.NewAttribute("assignee", a),
+				sdk.NewAttribute("reason", reason),
+			))
+			continue
+		}
+		kept = append(kept, a)
+	}
+	if len(kept) == len(interim.Assignees) {
+		return nil
+	}
+	interim.Assignees = kept
+	if len(kept) == 0 {
+		interim.Status = types.InterimStatus_INTERIM_STATUS_EXPIRED
+		interim.CompletionNotes = reason
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"interim_expired",
+			sdk.NewAttribute("interim_id", fmt.Sprintf("%d", interim.Id)),
+			sdk.NewAttribute("reason", reason),
+		))
+	}
+	return k.UpdateInterim(ctx, interim)
 }
 
 // forfeitChallengesForZeroing rejects every open initiative challenge the

@@ -3,6 +3,8 @@
 package types
 
 import (
+	"time"
+
 	"cosmossdk.io/math"
 )
 
@@ -123,8 +125,17 @@ func getMigrationTimings() migrationTimings {
 // x/season horizon validator. Production is 240.
 func getAliasDedupHorizonEpochs() int64 { return 1 << 40 }
 
-// getVotingPeriodCapEnabled is off in the test build: the e2e suites register
-// groups with hour-long voting periods while the ZK key activation delay is
-// shortened to two epochs so the activation path can be exercised in minutes.
-// The cap itself is covered by unit tests (x/commons and x/rep).
-func getVotingPeriodCapEnabled() bool { return false }
+// getMaxAnonymousActionWindow is this network's ceiling on any window in
+// which one anonymous member may act once per item against the live member
+// tree (today the federation arbiter vote). The ZK key activation delay must
+// cover it, see Params.Validate. no bound: e2e suites run second-scale windows against a 2-epoch delay.
+func getMaxAnonymousActionWindow() time.Duration { return 0 }
+
+// getJuryBeaconWaitEpochs is how many shield epochs a queued jury draw waits
+// for its beacon value before falling back to the block-hash seed. The seed
+// epoch is the one after the epoch current at queueing, so its key arrives
+// up to two epoch intervals plus a block or two later. With batch mode on,
+// an epoch holding a batch under min_batch_size is not demanded until
+// max_pending_epochs (6) have passed, so seven intervals keep an honest
+// beacon from ever forcing a fallback. The e2e shield epoch is 10 blocks, so this is ~70 blocks; the e2e snapshots carry no TLE key set, so their draws never wait at all.
+func getJuryBeaconWaitEpochs() uint64 { return 7 }

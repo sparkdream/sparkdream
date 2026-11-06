@@ -22,6 +22,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 # Get existing test keys (genesis members)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -113,6 +114,7 @@ PROJECT_RES=$($BINARY tx rep propose-project \
   "Technical Council" \
   "100000000" \
   "10000000" \
+  --gas 400000 \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -148,8 +150,9 @@ fi
 echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Approve project with 100 DREAM budget (100000000 micro-DREAM)
-$BINARY tx rep approve-project-budget $PROJECT_ID "100000000" "10000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
-sleep 1
+# A member cannot approve their own project alone (REP-E-105): alice's
+# projects are approved by an Operations Committee proposal.
+ops_approve_project_budget "$PROJECT_ID" "100000000" "10000000" > /dev/null 2>&1
 
 # Create initiatives
 echo "Creating initiatives for conviction testing..."

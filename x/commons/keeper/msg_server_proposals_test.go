@@ -530,6 +530,7 @@ func TestExecuteProposal_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
+	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_EXECUTED, resp.Status)
 
 	proposal, err := k.Proposals.Get(ctx, proposalID)
 	require.NoError(t, err)
@@ -602,11 +603,13 @@ func TestExecuteProposal_PolicyVersionChanged_Vetoed(t *testing.T) {
 		PolicyVersion: 3, // Stale version
 	}))
 
-	_, err := msgServer.ExecuteProposal(ctx, &types.MsgExecuteProposal{
+	resp, err := msgServer.ExecuteProposal(ctx, &types.MsgExecuteProposal{
 		Executor: sdk.AccAddress([]byte("executor____________")).String(), ProposalId: proposalID,
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalidated by a policy version change")
+	// CMN-108: the tx succeeds so the VETOED status persists, and the
+	// response carries it.
+	require.NoError(t, err)
+	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_VETOED, resp.Status)
 
 	// Verify status is VETOED
 	proposal, err := k.Proposals.Get(ctx, proposalID)

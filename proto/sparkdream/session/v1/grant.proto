@@ -28,6 +28,11 @@ enum GrantType {
 // GrantStatus is the state-machine label for a grant. Terminal states
 // (REVOKED, DECLINED, COMPLETED, FIRED) are absorbing — once entered, the
 // grant is never re-activated; the granter must create a new grant.
+// PENDING is the pre-consent state of an access-class grant (SESSION_KEY,
+// SIGN_IN) from a granter the grantee has not allowed yet: it waits for
+// the grantee's MsgAcceptGrant (or, for a session key, the grantee's first
+// MsgExecSession) and becomes ACTIVE, or it is revoked, declined or expires
+// without ever reaching the grantee's indexes.
 enum GrantStatus {
   GRANT_STATUS_UNSPECIFIED = 0;
   GRANT_STATUS_ACTIVE = 1;
@@ -36,6 +41,7 @@ enum GrantStatus {
   GRANT_STATUS_REVOKED = 4;
   GRANT_STATUS_COMPLETED = 5;
   GRANT_STATUS_FIRED = 6;
+  GRANT_STATUS_PENDING = 7;
 }
 
 // Grant is the unified record for every delegated-authorization primitive
@@ -57,14 +63,14 @@ message Grant {
     (gogoproto.stdtime) = true
   ];
   // Human-readable purpose (256-char cap enforced at validation time).
-  string note = 9;
+  string note = 8;
 
   oneof payload {
-    SessionKeyPayload session_key = 20 [(amino.oneof_name) = "sparkdream/session/SessionKeyPayload"];
-    RecurringPullPayload recurring_pull = 21 [(amino.oneof_name) = "sparkdream/session/RecurringPullPayload"];
-    SpendingAllowancePayload spending_allowance = 22 [(amino.oneof_name) = "sparkdream/session/SpendingAllowancePayload"];
-    ScheduledOneshotPayload scheduled_oneshot = 23 [(amino.oneof_name) = "sparkdream/session/ScheduledOneshotPayload"];
-    SignInPayload sign_in = 24 [(amino.oneof_name) = "sparkdream/session/SignInPayload"];
+    SessionKeyPayload session_key = 9 [(amino.oneof_name) = "sparkdream/session/SessionKeyPayload"];
+    RecurringPullPayload recurring_pull = 10 [(amino.oneof_name) = "sparkdream/session/RecurringPullPayload"];
+    SpendingAllowancePayload spending_allowance = 11 [(amino.oneof_name) = "sparkdream/session/SpendingAllowancePayload"];
+    ScheduledOneshotPayload scheduled_oneshot = 12 [(amino.oneof_name) = "sparkdream/session/ScheduledOneshotPayload"];
+    SignInPayload sign_in = 13 [(amino.oneof_name) = "sparkdream/session/SignInPayload"];
   }
 }
 
@@ -127,9 +133,14 @@ message ScheduledOneshotPayload {
     OneshotTransfer transfer = 1 [(amino.oneof_name) = "sparkdream/session/OneshotTransfer"];
     OneshotExec exec = 2 [(amino.oneof_name) = "sparkdream/session/OneshotExec"];
   }
-  int64 fire_at = 10;
+  int64 fire_at = 3;
   // Captured failure reason if execution failed at fire time (Exec only).
-  string fire_error = 11;
+  string fire_error = 4;
+  // Unix seconds of the first underfunded pause, kept across grantee
+  // retries that pause again so paused_oneshot_ttl_seconds counts from it
+  // (a grantee cannot keep a paused oneshot alive by retrying). Cleared
+  // by a granter retry. 0 = never paused.
+  int64 first_paused_at = 5;
 }
 
 // OneshotTransfer dispatches a simple bank SendCoins(granter, recipient,

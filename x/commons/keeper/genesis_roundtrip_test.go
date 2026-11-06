@@ -50,6 +50,9 @@ func TestGenesis_ProductionRoundTrip(t *testing.T) {
 	require.NoError(t, k.AnonVoteTallies.Set(ctx, 7, types.AnonVoteTally{YesCount: 3, NoCount: 1}))
 	day := ctx.BlockTime().Unix() / 86400
 	require.NoError(t, k.AnonProposalCount.Set(ctx, collections.Join("Aurora Guild", day), 4))
+	// CMN-107: the per-creator poll-opening bucket rides along too.
+	pollBucket := types.PollOpenCount{Creator: "cosmos1pollcreator", UtcDay: day, Count: 3}
+	require.NoError(t, k.PollOpenCounts.Set(ctx, pollBucket.Creator, pollBucket))
 
 	out, err := k.ExportGenesis(ctx)
 	require.NoError(t, err)
@@ -122,6 +125,10 @@ func TestGenesis_ProductionRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, out.AnonVoteTallies, out2.AnonVoteTallies)
 	require.Equal(t, out.AnonProposalCounts, out2.AnonProposalCounts)
+	gotBucket, err := k2.PollOpenCounts.Get(ctx2, pollBucket.Creator)
+	require.NoError(t, err)
+	require.Equal(t, pollBucket, gotBucket)
+	require.Equal(t, []types.PollOpenCount{pollBucket}, out2.PollOpenCounts)
 }
 
 // CMN-15: an export of records stored with an empty Index (as every group

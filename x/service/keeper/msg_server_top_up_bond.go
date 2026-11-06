@@ -111,6 +111,11 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 	sdkCtx.EventManager().EmitEvent(types.NewOperatorToppedUpEvent(
 		opStr, op.ServiceType, additionalBond, sdk.NewCoin(bondDenom, op.BondAmount),
 	))
+	if transitionedToActive {
+		sdkCtx.EventManager().EmitEvent(types.NewOperatorRefundedEvent(
+			opStr, op.ServiceType, sdk.NewCoin(bondDenom, op.BondAmount), sdk.NewCoin(bondDenom, cfg.MinBondAmount),
+		))
+	}
 
 	// Hook fire AFTER state writes so consumers iterating live indexes
 	// (e.g. federation's BindingsByOperator) see the post-transition

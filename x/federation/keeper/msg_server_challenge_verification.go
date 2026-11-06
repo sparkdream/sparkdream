@@ -103,7 +103,7 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 	effectiveFee := sdk.NewCoin(k.BondDenom(ctx), effectiveFeeAmount)
 	challengerAddr, _ := k.addressCodec.StringToBytes(msg.Creator)
 	feeCoins := sdk.NewCoins(effectiveFee)
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, challengerAddr, types.ModuleName, feeCoins); err != nil {
+	if err := k.BankKeeper().SendCoinsFromAccountToModule(ctx, challengerAddr, types.ModuleName, feeCoins); err != nil {
 		return nil, errorsmod.Wrapf(err, "failed to escrow challenge fee %s", effectiveFee)
 	}
 

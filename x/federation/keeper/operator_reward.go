@@ -50,7 +50,7 @@ func OperatorRewardPoolAddress() sdk.AccAddress {
 
 // GetOperatorRewardPool returns the pool's current balance.
 func (k Keeper) GetOperatorRewardPool(ctx context.Context) math.Int {
-	return k.bankKeeper.GetBalance(ctx, OperatorRewardPoolAddress(), k.BondDenom(ctx)).Amount
+	return k.BankKeeper().GetBalance(ctx, OperatorRewardPoolAddress(), k.BondDenom(ctx)).Amount
 }
 
 // utcDayOf buckets a block time into a UTC day index.
@@ -380,7 +380,7 @@ func (k Keeper) payoutOperatorReward(
 		return fmt.Errorf("invalid operator address %q: %w", c.binding.Address, err)
 	}
 	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), amount))
-	if err := k.bankKeeper.SendCoins(ctx, OperatorRewardPoolAddress(), addr, coins); err != nil {
+	if err := k.BankKeeper().SendCoins(ctx, OperatorRewardPoolAddress(), addr, coins); err != nil {
 		return err
 	}
 
@@ -435,11 +435,11 @@ func (k Keeper) BurnOperatorRewardPoolOverflow(ctx context.Context) error {
 	// BaseAccount there and the BurnCoins below then panics resolving it as a
 	// module account.
 	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), burnAmount))
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, OperatorRewardPoolAddress(),
+	if err := k.BankKeeper().SendCoinsFromAccountToModule(ctx, OperatorRewardPoolAddress(),
 		types.ModuleName, coins); err != nil {
 		return fmt.Errorf("move operator overflow to module account: %w", err)
 	}
-	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {
+	if err := k.BankKeeper().BurnCoins(ctx, types.ModuleName, coins); err != nil {
 		return fmt.Errorf("burn operator reward pool overflow: %w", err)
 	}
 

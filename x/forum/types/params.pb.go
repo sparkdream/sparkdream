@@ -620,9 +620,10 @@ type ForumOperationalParams struct {
 	// sentinel, as an enum name (e.g. "TRUST_LEVEL_ESTABLISHED"). Empty = no
 	// trust-level gate.
 	MinSentinelTrustLevel string `protobuf:"bytes,29,opt,name=min_sentinel_trust_level,json=minSentinelTrustLevel,proto3" json:"min_sentinel_trust_level,omitempty"`
-	// min_sentinel_age_blocks is enforced by forum at action time (the sentinel
-	// must have been bonded for this many blocks before taking an action). Zero
-	// = no age gate.
+	// min_sentinel_age_blocks is projected into the sentinel's x/rep
+	// BondedRoleConfig.min_age_blocks and enforced at action time by x/rep's
+	// EligibleForRole (the sentinel must have been bonded for this many blocks
+	// before taking an action). Zero = no age gate.
 	MinSentinelAgeBlocks int64 `protobuf:"varint,30,opt,name=min_sentinel_age_blocks,json=minSentinelAgeBlocks,proto3" json:"min_sentinel_age_blocks,omitempty"`
 	// sentinel_demotion_cooldown is the number of seconds a DEMOTED sentinel
 	// must wait before re-bonding.

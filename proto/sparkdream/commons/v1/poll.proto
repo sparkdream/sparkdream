@@ -41,3 +41,13 @@ message Poll {
   // closed_at is when the poll closed or was cancelled (0 while open).
   int64 closed_at = 13;
 }
+
+// PollOpenCount is a member's poll-opening bucket for the per-creator rate
+// limit: the polls the creator opened on utc_day (block time in unix
+// seconds divided by 86400). One record per creator, reset when the day
+// changes; cancelling a poll never decrements it.
+message PollOpenCount {
+  string creator = 1;
+  int64 utc_day = 2;
+  uint64 count = 3;
+}

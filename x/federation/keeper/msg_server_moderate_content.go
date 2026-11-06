@@ -7,6 +7,7 @@ import (
 
 	"sparkdream/x/federation/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -84,6 +85,26 @@ func (k msgServer) ModerateContent(ctx context.Context, msg *types.MsgModerateCo
 		return nil, err
 	}
 
+	// 4b. A verification restored to VERIFIED while its commitment is
+	//     still held gets a full challenge window from now: while HIDDEN
+	//     nobody could challenge it (FED-104).
+	if msg.NewStatus == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED {
+		if err := k.restartChallengeWindow(ctx, msg.ContentId); err != nil {
+			return nil, err
+		}
+	}
+
+	// 4c. A reject takes the content out of the challengeable state, so a
+	//     verification still PENDING on it is settled now as OVERTURNED
+	//     without accuracy credit (FED-202): the verifier's commitment is
+	//     released, the window entry dropped, and the record can neither
+	//     lapse into an unchallenged confirmation nor be restored.
+	if msg.NewStatus == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_REJECTED {
+		if err := k.settleRejectedVerification(ctx, msg.ContentId); err != nil {
+			return nil, err
+		}
+	}
+
 	// 5. Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
@@ -95,6 +116,30 @@ func (k msgServer) ModerateContent(ctx context.Context, msg *types.MsgModerateCo
 	)
 
 	return &types.MsgModerateContentResponse{}, nil
+}
+
+// restartChallengeWindow moves the challenge window of a verification
+// whose commitment is still held (outcome PENDING) to now +
+// challenge_window. No-op when the record is missing or already settled.
+func (k Keeper) restartChallengeWindow(ctx context.Context, contentID uint64) error {
+	record, err := k.VerificationRecords.Get(ctx, contentID)
+	if err != nil || record.Outcome != types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING {
+		return nil
+	}
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if record.ChallengeWindowEnds > 0 {
+		if err := k.ChallengeWindow.Remove(ctx, collections.Join(record.ChallengeWindowEnds, contentID)); err != nil {
+			return err
+		}
+	}
+	record.ChallengeWindowEnds = sdk.UnwrapSDKContext(ctx).BlockTime().Unix() + int64(params.ChallengeWindow.Seconds())
+	if err := k.VerificationRecords.Set(ctx, contentID, record); err != nil {
+		return err
+	}
+	return k.ChallengeWindow.Set(ctx, collections.Join(record.ChallengeWindowEnds, contentID))
 }
 
 // restoreStatus is the status a moderated record goes back to. IBC content

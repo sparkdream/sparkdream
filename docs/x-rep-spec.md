@@ -226,7 +226,12 @@ x/rep (`keeper/forum_rep.go`), wired into x/forum's `RepKeeper` interface:
 On **season transition**, `ArchiveSeasonalReputation` (in
 `keeper/season_integration.go`) folds `forum_rep_per_tag` into
 `lifetime_forum_rep_per_tag` per tag, then clears `forum_rep_per_tag` —
-mirroring the `reputation_scores` → `lifetime_reputation` archive. The lifetime
+mirroring the `reputation_scores` → `lifetime_reputation` archive. On that
+archive, x/season's `baseline_reputation` restarts only the tags an ACTIVE
+member held with a positive score; a tag deducted to zero, and every tag of a
+ZEROED or INACTIVE member, is cleared instead (REP-E-204: a zeroed member keeps
+their tag keys at 0 and must not be handed baseline reputation in each of
+them by the rollover). The lifetime
 forum map is display-only and is never read by the trust ladder, so forum rep
 accrued in an early season cannot be ridden into TRUSTED/CORE in a later one.
 The `reputation_archived` event gains a `forum_tags_archived` attribute.
@@ -394,8 +399,8 @@ enum InvitationStatus {
 
 Projects come in two flavors:
 
-- **Budget-backed**: Created via `MsgProposeProject` with `requested_budget > 0` or `requested_spark > 0`. Requires Operations Committee approval before becoming ACTIVE. Initiatives draw from the approved budget allocation.
-- **Permissionless**: Created via `MsgProposeProject` with zero budget. Creator burns a protocol fee (`ProjectCreationFee`) and the project becomes ACTIVE immediately — no committee approval needed. Initiatives under permissionless projects are capped at STANDARD tier and their rewards are minted on conviction completion (no pre-allocated budget).
+- **Budget-backed**: Created via `MsgProposeProject` with `requested_budget > 0` or `requested_spark > 0`. Requires Operations Committee approval before becoming ACTIVE. Initiatives draw from the approved budget allocation. The creator must be an ACTIVE member, burns the same `ProjectCreationFee` as the permissionless path, and may hold at most `max_proposed_projects_per_creator` (default 3) proposals in PROPOSED at once, counted across their recent aliases (`ErrTooManyProposedProjects`, 2423): each proposal opens a paid review interim for the picked council's Operations Committee (see Project Review Interims), so proposing was never free work for the committee. The requested amounts are stored (`requested_budget`, `requested_spark`) and bound the approval.
+- **Permissionless**: Created via `MsgProposeProject` with zero budget. Creator (ACTIVE, ESTABLISHED+) burns the protocol fee (`ProjectCreationFee`) and the project becomes ACTIVE immediately — no committee approval needed. Initiatives under permissionless projects are capped at STANDARD tier and their rewards are minted on conviction completion (no pre-allocated budget).
 
 ```protobuf
 message Project {
@@ -422,6 +427,21 @@ message Project {
   // Permissionless projects skip committee approval.
   // Zero budget, APPRENTICE/STANDARD initiatives only, rewards minted on completion.
   bool permissionless = 18;
+
+  // Block height at which a PROPOSED project is expired by the EndBlocker
+  // (creation height + proposed_project_expiry_blocks); zero for
+  // permissionless projects and once the project leaves PROPOSED.
+  int64 expiry_block_height = 19;
+
+  // Id of the PROJECT_APPROVAL / BUDGET_REVIEW interim opened for the
+  // picked council's Operations Committee; zero when none was opened.
+  uint64 approval_interim_id = 20;
+
+  // What the proposal asked for. MsgApproveProjectBudget may approve at most
+  // these amounts (ErrApprovedBudgetExceedsRequested): the review interim's
+  // type is priced from the request. Zero on permissionless projects.
+  string requested_budget = 21 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string requested_spark = 22 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 enum ProjectCategory {
@@ -437,6 +457,9 @@ enum ProjectStatus {
   PROJECT_STATUS_ACTIVE = 1;
   PROJECT_STATUS_COMPLETED = 2;
   PROJECT_STATUS_CANCELLED = 3;
+  // Set by the EndBlocker when a PROPOSED project was not approved before
+  // its expiry_block_height. Terminal; kept for the audit trail.
+  PROJECT_STATUS_EXPIRED = 4;
 }
 
 message VerificationPolicy {
@@ -737,9 +760,9 @@ Committee members receive fixed-rate DREAM compensation for the following interi
 | Interim Type | Description | Typical Complexity |
 |--------------|-------------|-------------------|
 | `JURY_DUTY` | Not created any more: jurors are paid per vote by `RewardJurors` at the tally (see Juror Pay) | n/a |
-| `EXPERT_TESTIMONY` | Testifying as an expert witness a juror called (`MsgInviteExpertWitness`); paid when the testimony is submitted | COMPLEX (400 DREAM) |
-| `PROJECT_APPROVAL` | Reviewing project proposals | STANDARD (150 DREAM) |
-| `BUDGET_REVIEW` | Evaluating large budget requests | COMPLEX (400 DREAM) |
+| `EXPERT_TESTIMONY` | Testifying as an expert witness a juror called (`MsgInviteExpertWitness`) and a second juror endorsed (`MsgEndorseExpertWitness`); system-only, paid when the review reaches its verdict if the endorsed expert testified | COMPLEX (400 DREAM) |
+| `PROJECT_APPROVAL` | Reviewing a budget-backed project proposal; system-only, opened by `MsgProposeProject` for the picked council's Operations Committee, paid by `MsgApproveProjectBudget` to the members who took part in the approval (see Project Review Interims) | STANDARD (150 DREAM) |
+| `BUDGET_REVIEW` | Same, for a proposal whose requested DREAM is at or above `budget_review_threshold` (default 5,000 DREAM) | COMPLEX (400 DREAM) |
 | `CONTRIBUTION_REVIEW` | Reviewing founder contributions | STANDARD (150 DREAM) |
 
 **Compensation Budgets by Complexity:**
@@ -753,7 +776,8 @@ Committee members receive fixed-rate DREAM compensation for the following interi
   micro-DREAM, 0.0025 DREAM, while granting 100 reputation.)
 - Solo Expert Bonus: +50% (when single assignee handles expert-level work)
 
-**Who pays an interim.** Every interim except ADJUDICATION is paid only through
+**Who pays an interim.** Every interim except ADJUDICATION, EXPERT_TESTIMONY
+and the two project reviews is paid only through
 `MsgApproveInterim`, signed by the Commons Operations Committee policy address
 (an executed committee proposal), the Commons Council policy or x/gov, never by
 a single committee member (`ErrNotGovAuthority`); an approver that is one of the
@@ -761,17 +785,90 @@ assignees is refused (`ErrSelfApproval`, 2404). `MsgCompleteInterim` settles ADJ
 interims only and refuses every other type (`ErrInterimNeedsApproval`, 2403). A
 member may still propose paid work for themselves with `MsgCreateInterim` and
 submit it with `MsgSubmitInterimWork`; the committee decides whether it is paid.
-The ADJUDICATION and JURY_DUTY types are module-only: `MsgCreateInterim` refuses
+The ADJUDICATION, JURY_DUTY, EXPERT_TESTIMONY, PROJECT_APPROVAL and
+BUDGET_REVIEW types are module-only: `MsgCreateInterim` refuses
 them (`ErrInterimTypeSystemOnly`, 2401), refuses a deadline that is not after
-the current height (`ErrInterimDeadlineInvalid`, 2402), and requires an ACTIVE
-member. An ADJUDICATION interim resolves a challenge (on completion or on
+the current height (`ErrInterimDeadlineInvalid`, 2402; a deadline of 0 asks for
+the default, `interim_deadline_epochs × epoch_blocks` from now), and requires an
+ACTIVE member. An ADJUDICATION interim resolves a challenge (on completion or on
 expiry) only when the module raised it: its only assignee is the module
 authority. Before this, a member could create an ADJUDICATION interim naming a
 challenged initiative with a past deadline and force-reject the challenge on the
 next EndBlock, or create an EXPERT interim and collect 1,500 DREAM (and EPIC
 reputation up the trust ladder) by completing it in the next transaction.
 `MsgAbandonInterim` accepts only PENDING or IN_PROGRESS non-ADJUDICATION
-interims and emits `interim_abandoned`.
+interims and emits `interim_abandoned`; on a project review it drops only the
+signer's own seat (see Project Review Interims), on any other interim it
+expires the whole interim.
+
+**What counts against `max_active_interims_per_member`.** Only the member's
+own live interims (`MsgCreateInterim` work, every non-system type). System
+interims — a PROJECT_APPROVAL / BUDGET_REVIEW seat, an EXPERT_TESTIMONY
+invitation, ADJUDICATION, JURY_DUTY — are work the module gave the member,
+not work they took, and never count (REP-E-201: counting committee seats let
+anyone fill the whole Operations Committee's cap with cheap proposals and
+refuse every `MsgCreateInterim` and `MsgInviteExpertWitness` naming a
+member of it). The count reads the `InterimsByAssignee` index (one prefix
+walk per recent alias), not the pending set.
+
+#### Project Review Interims
+
+A budget-backed `MsgProposeProject` (`requested_budget > 0` or
+`requested_spark > 0`) asks the Operations Committee of the council it is
+pointed at (`project.council`, the committee that approves it) to review it,
+and that review is paid through one system-settled interim whose id is stored
+on `project.approval_interim_id`:
+
+- **Opened at proposal time**, assigned to every current member of that
+  council's Operations Committee (`ListCommitteeMembers(project.council,
+  "operations")`); `reference_type = "project"`, `reference_id` = project id,
+  `committee = "<council>_operations"`, deadline = the proposal's
+  `expiry_block_height` (the review lives exactly as long as the proposal, so
+  a decision anywhere in the window pays; `interim_deadline_epochs` backs
+  only a record with no expiry). The type is `PROJECT_APPROVAL` (STANDARD
+  budget), or `BUDGET_REVIEW` (COMPLEX budget) when `requested_budget >=
+  budget_review_threshold` (governance-only param, default 5,000 DREAM). A
+  committee seat is not a choice the member makes per interim, so
+  `max_active_interims_per_member` is not applied to the assignees and the
+  seat does not count against their cap. An empty committee skips the interim
+  (`project_approval_interim_skipped`); any other failure is logged and
+  emitted (`project_approval_interim_failed`) and never fails the proposal,
+  which is the member's action, not the committee's pay.
+- **Paid by `MsgApproveProjectBudget`, to the members who decided.** The
+  approval is the committee's work, and only the assignees who took part in
+  it are paid (each `budget / len(assignees)`; an unpaid seat's share is not
+  redistributed and not minted): the ACTIVE assignees who voted (any option)
+  on the council or committee proposal that executed the approval (x/commons
+  marks the executing proposal on the context, `ExecutingProposalID`; rep asks
+  `HasVoted` for each of the assignee's recent aliases; a secret ballot
+  reports every member as a voter), or, for a small-budget approval signed by
+  a single committee member, that member alone. The project's own creator is
+  never paid, even when they sit on the committee (`SameMember`). Each skipped
+  seat emits `interim_assignee_skipped` with its reason. The payout goes
+  through the same path every interim uses (season cap
+  `max_interim_rewards_per_season`, `treasury_funds_interims`, reputation,
+  completed count); the interim becomes COMPLETED and
+  `project_approval_interim_settled` (`paid_assignees`) is emitted. An
+  approval nobody on the committee took part in (the gov authority) ends the
+  interim EXPIRED unpaid. A refused payout (season cap reached, store error)
+  is logged and emitted (`project_approval_interim_settlement_failed`) and
+  never fails the approval; the interim stays live and the deadline sweep
+  expires it unpaid.
+- **A seat can be given up, the review cannot be voided.** `MsgAbandonInterim`
+  by an assignee drops only that assignee's seat (`interim_assignee_removed`);
+  the review stays live for the rest and the budget is split over the seats
+  left at settlement. Only the last seat abandoning expires it. Zeroing an
+  assignee drops their seat the same way (see Zeroing).
+- **Ends unpaid without an approval**: a proposal cancelled by its creator or
+  a council body (`MsgCancelProject`) or expired by the EndBlocker
+  (`proposed_project_expiry_blocks`) moves its live review interim to EXPIRED
+  (`project_approval_interim_cancelled`). A review that reached no decision
+  earns nothing. The interim deadline sweep (`ExpireInterim`) expiring the
+  review first changes nothing on the project: a later approval still goes
+  through, and the expired review is not paid.
+- **Members never settle one**: `MsgCreateInterim`, `MsgSubmitInterimWork`,
+  `MsgApproveInterim` and `MsgCompleteInterim` all refuse the two types
+  (`ErrInterimTypeSystemOnly`, 2401).
 
 #### Uncompensated Work (Civic Duty)
 
@@ -1006,7 +1103,11 @@ them; `GiftRecordEntry` (field 44) carries the per-recipient gift cooldowns, and
 the long-present pool fields 17-19 are finally populated. Without this an import
 was not a partial restore but a different economy: zero treasury, zero season
 counters (re-opening every per-season cap mid-season), a reset mint allowance,
-and a decay clock that re-applied an extra epoch.
+and a decay clock that re-applied an extra epoch. The decay pass in flight
+(`decay_pass_epoch`, `decay_pass_member_cursor`, `decay_pass_stake_phase`,
+`decay_pass_stake_cursor`, EconomicState fields 16-19) travels too, so an
+export taken mid-pass resumes it instead of decaying the already-visited stake
+records a second time (REP-E-108); `Validate` refuses cursors without a pass.
 
 It also made `InitGenesis`'s "only seed an uninitialised pool" guard dead code —
 `SeasonalPoolRemaining` always read zero on import, so every import refilled a
@@ -1370,6 +1471,17 @@ message JuryReview {
   int64 deadline = 12;
   Verdict verdict = 13;
   string reasoning = 14;
+  // ... (content_challenge_id = 15 through pending_seats = 20; the queued
+  // draw itself is PendingJuryDraw{jury_review_id, seed_epoch,
+  // queued_at_height}, see "Jury Selection")
+  // The EXPERT_TESTIMONY interim each invitation opened, parallel to
+  // expert_witnesses; the verdict settles exactly these ids.
+  repeated uint64 expert_interim_ids = 21;
+  // The seat that issued each invitation and the seat that endorsed it
+  // ("" while unendorsed), both parallel to expert_witnesses. Only an
+  // endorsed invitation testifies or is paid (REP-E-103).
+  repeated string expert_inviters = 22;
+  repeated string expert_endorsers = 23;
 }
 
 message JurorVote {
@@ -1521,7 +1633,7 @@ message BondedRoleConfig {
   string   min_bond                    = 2;  // math.Int string, udream
   uint64   min_rep_tier                = 3;  // 0 = no rep-tier gate
   string   min_trust_level             = 4;  // enum name; empty = no trust gate
-  int64    min_age_blocks              = 5;  // enforced by the owning module at action time
+  int64    min_age_blocks              = 5;  // enforced by EligibleForRole at action time (ErrRoleTooNew, 2422)
   int64    demotion_cooldown           = 6;  // seconds a DEMOTED role waits before re-bonding
   string   demotion_threshold          = 7;  // RECOVERY -> DEMOTED floor
   int64    unbond_cooldown             = 8;  // seconds bond stays locked and slashable after unbond
@@ -1594,7 +1706,7 @@ message RoleActivity {
 | `forum_lock` | forum MsgLockThread | yes | 0.05 | yes |
 | `forum_move` | forum MsgMoveThread | yes | 0.03 | yes |
 | `forum_pin` | forum MsgPinReply | yes | 0 | yes |
-| `forum_curation` | forum proposal confirm/reject | yes | 0.02 | **no** — a rejected curation proposal must not lock the sentinel out of moderation |
+| `forum_curation` | forum proposal confirm/reject | yes | 0.02 | **n/a** — a rejection arrives via `RecordRoleRejection` (accuracy miss only); it never reaches the cooldown or the streaks |
 | `collect_hide` | collect MsgHideContent | yes | 0.01 | yes |
 | `collect_curation` | collect challenge resolution | — | — | — |
 | `federation_verify` | federation MsgVerifyContent + challenge resolution | yes | **none** — verifier pay is flat plus a contested-accuracy bonus, never per verification | yes, and it **escalates** (see below) |
@@ -1608,6 +1720,19 @@ depart from the moderation defaults, written through by the owning module:
 | `upheld_to_reset_overturns` | 1 — one good call wipes the slate | 3 — the streak is sticky, so alternating wrong/right cannot hold a holder permanently one overturn short of demotion |
 | `overturn_base_cooldown` | `DefaultRoleOverturnCooldown` (24h) | `verifier_overturn_base_cooldown` |
 | `overturn_cooldown_escalates` | off — flat lockout per overturn | on — `base * 2^(streak-1)`, capped at `MaxRoleOverturnCooldown` (7 days) |
+
+**Upheld verdicts that keep the streak (`UpheldKeepsStreak`).** An upheld
+`forum_curation` outcome (a confirmed accepted-reply proposal) counts in the
+accuracy ring and the per-kind upheld counter, but does not bump
+`consecutive_upheld` and never clears `consecutive_overturns`. A confirmation
+is the thread author's say-so, not a verdict on a contested action; letting it
+reset the streak would let a sentinel undo every overturned hide with one
+confirmed curation. The mirror case is not a verdict either: an author
+rejecting the proposal is reported through `RecordRoleRejection`, which books
+an accuracy-ring miss, `epoch_appeals_resolved` and the per-kind overturned
+counter but moves neither streak, starts no overturn cooldown and never
+demotes (REP-R-207). Routine rejection still lowers the sentinel's reward
+accuracy; it cannot cost them the role the way three overturned hides do.
 
 The verifier's departure is not incidental: an overturned hide is a contested
 judgment call, while an overturned verification means the holder attested to a
@@ -1784,8 +1909,8 @@ message GovActionAppeal {
 // appeal entry points (MsgAppealPost, MsgAppealThreadLock, MsgAppealThreadMove,
 // MsgDisputePin), x/collect MsgAppealHide and x/artifact MsgAppealHide are
 // facades that call CreateGovActionAppeal; it charges the
-// refundable appeal bond and seats a jury (selectModerationAppealJury — parties
-// excluded). Resolution runs applyGovActionAppealVerdict, reached either:
+// refundable appeal bond and queues a jury draw (parties recorded in
+// excluded_jurors; DrawPendingJuries seats the jury at the end of the block). Resolution runs applyGovActionAppealVerdict, reached either:
 //   - automatically by JURY VERDICT — TallyJuryVotes when a supermajority of
 //     votes is cast, or at the deadline via TimeoutExpiredAppeals (which tallies
 //     if a quorum of the seated jury voted, else TIMEOUT); the no-quorum guard
@@ -1824,6 +1949,21 @@ member ever held:
   credit back, event `invitation_forfeited`);
 - **drops** its review-bounty contributions, tag-report bonds and open
   member-report bonds, and empties its bonded-role bonds (status DEMOTED);
+- **ends its claim on every open interim it is assigned to** (read through
+  the `InterimsByAssignee` index, so the cost is the member's own interims):
+  an interim it held alone (member work awaiting approval, an expert
+  witness's testimony interim) is expired (event `interim_expired`, reason
+  `assignee zeroed`); one shared with other assignees (a project review
+  seat, co-signed work) loses only the zeroed seat (`interim_assignee_removed`)
+  and stays live for the rest, who split the budget over the seats left when
+  it settles (REP-E-203). So a zeroed member is not paid for work opened
+  before the zeroing (REP-E-104). Both payout paths (`ApproveInterim`,
+  `CompleteInterimDirectly`) also skip an assignee whose member is not ACTIVE
+  (event `interim_assignee_skipped`), `reissueDREAM` (review bounties, author
+  bond restores) refuses a non-ACTIVE recipient (REP-E-208: a zeroed
+  reviewer's bounty share goes back to the funders, a zeroed author's bond is
+  not restored, `author_bond_restore_skipped`), and a zeroed expert cannot
+  testify;
 - releases its stake records (author bonds included) through the by-staker
   index, and drops its initiative-bounty contributions and self-assign bonds,
   as before.
@@ -1835,10 +1975,29 @@ stays zero.
 
 Modules that hold their own lock records drop the zeroed member's through
 `MemberZeroingHook.AfterMemberZeroed(ctx, member, addresses)`, registered in
-app.go with `AddMemberZeroingHook`: x/reveal drops its stakes on tranches still
-STAKING (adjusting the tranche total), x/season drops its nomination stakes
-(recomputing the nominations). Each hook runs in its own cache context; an
-error is logged and never blocks the zeroing.
+app.go with `AddMemberZeroingHook`. The contract: a hook drops **every** lock
+record the module holds for `addresses`, without an unlock, and closes or
+cancels whatever the record backed. A record left behind is unsafe both ways:
+while the zeroing stands its unlock fails, and after an OVERTURNED appeal,
+which re-mints the burned balance as liquid DREAM and does not restore
+`staked_dream`, its unlock succeeds against whatever the member locked since
+and releases an unrelated lock. x/reveal drops all of the member's stakes
+(a STAKING tranche's total is adjusted, a BACKED+ tranche keeps the weight)
+and cancels the member's own PROPOSED/IN_PROGRESS contributions; x/season
+drops nomination stakes (recomputing the nominations) and display-name report
+and appeal stakes (the case stays open and settles only the other side);
+x/forum closes post-conviction stakes; x/name closes the disputes the member
+filed (returning a contesting owner's stake) and zeroes the member's contest
+stakes (the dispute stays with the council and settles only the claimant).
+Each hook runs in its own cache
+context; an error is logged and never blocks the zeroing. Release paths keep
+a fallback for a record a hook missed: x/reveal's `unlockOrGone`, and
+`internal/dreamutil` `Ops.UnlockOrGone` / `BurnLockedOrGone` /
+`SettleStakesOrGone` for modules on the shared DREAM ops, treat x/rep's
+`ErrInsufficientStake` / `ErrMemberNotFound` as "lock already gone".
+`app.TestZeroingClosesEveryModulesLocks` zeroes a member holding locks in
+season, reveal and name through the real keepers and drives each resolution path,
+including the overturn.
 
 ## Messages
 
@@ -1991,6 +2150,10 @@ the **recipient**.
 | `max_tips_sent_per_epoch` | 50 DREAM | Per sender, by **amount** (replaces the count-based `max_tips_per_epoch`) |
 | `max_gift_per_invitee` | 500 DREAM | Lifetime total from an inviter to each of their invitees |
 
+Both sides of a tip or gift must be ACTIVE members: a ZEROED sender is refused
+with `ErrMemberNotActive`, a ZEROED recipient with `ErrRecipientNotActive`
+(REP-E-109).
+
 The guarantee this buys: accumulating a founder-sized position (5,000 DREAM)
 through transfers takes at least five seasons, about two years, **however many
 senders cooperate** — and whatever is done with it in the meantime is slow and
@@ -2104,22 +2267,37 @@ message MsgCompleteProject {
 | `requested_budget > 0` OR `requested_spark > 0` | **Budget-backed** | PROPOSED → awaits `MsgApproveProjectBudget` |
 
 **Permissionless path** handler logic:
-1. Validate creator is ESTABLISHED+ trust level (`ErrInsufficientTrustLevel`)
+1. Validate creator is an ACTIVE member of ESTABLISHED+ trust level (`ErrMemberNotActive`, `ErrInsufficientTrustLevel`)
 2. Burn `ProjectCreationFee` DREAM from creator's balance (`ErrInsufficientBalance` if short)
 3. Create project with `permissionless = true`, `status = ACTIVE`, all budget fields zero
 4. No `PROJECT_APPROVAL` interim is created — committee is not involved
 5. Emit `project_created` event (distinct from `project_proposed`)
 
-**Budget-backed path** (existing behavior, unchanged):
-1. Validate creator is a member
-2. Create project with `status = PROPOSED`
-3. Trigger `PROJECT_APPROVAL` interim for Operations Committee
-4. Await `MsgApproveProjectBudget` → transitions to ACTIVE
+**Budget-backed path**:
+1. Validate creator is an ACTIVE member (`ErrMemberNotActive`)
+2. Refuse when the creator already holds `max_proposed_projects_per_creator`
+   PROPOSED projects across their recent aliases
+   (`ErrTooManyProposedProjects`, 2423; `ProposedProjectsByCreator` index)
+3. Burn `ProjectCreationFee` DREAM from the creator's balance
+   (`ErrInsufficientCreationFee` if short) — the same fee as the
+   permissionless path
+4. Create project with `status = PROPOSED`, `requested_budget` /
+   `requested_spark` stored, `expiry_block_height` set
+5. Open a `PROJECT_APPROVAL` interim (STANDARD) for the picked council's
+   Operations Committee, or a `BUDGET_REVIEW` one (COMPLEX) when
+   `requested_budget >= budget_review_threshold`; its id is stored on
+   `project.approval_interim_id`. Skipped when the committee has no members;
+   never fails the proposal (see Project Review Interims)
+6. Await `MsgApproveProjectBudget` → transitions to ACTIVE and pays the review
+   interim; a cancelled or expired proposal ends it unpaid
 
 #### Approving a Project Budget
 
 `MsgApproveProjectBudget` moves a `PROPOSED` project to `ACTIVE` with the
-approved DREAM and SPARK budgets. Authority is resolved against
+approved DREAM and SPARK budgets. Neither may exceed what the proposal
+requested (`ErrApprovedBudgetExceedsRequested`, 2424): the review interim was
+priced from the request (`budget_review_threshold`), so a larger approval
+would have been reviewed at the wrong rate. Authority is resolved against
 `project.council` (a member or policy of another council's committee is
 refused):
 
@@ -2129,7 +2307,10 @@ refused):
   proposal). The message is on the `AllowedMessages` of the Commons, Technical
   and Ecosystem Operations Committees.
 - **Budget ≤ `large_project_budget_threshold`**: a single member of the
-  project council's Operations Committee may also approve directly.
+  project council's Operations Committee may also approve directly, unless
+  they created the project (`SameMember`, so a migrated creator too): a
+  creator's own project needs a committee or council proposal at any budget
+  (`ErrUnauthorized`, REP-E-105).
 - **Budget > `large_project_budget_threshold`**: a single member is refused
   with `ErrLargeProjectNeedsCouncil`; the approval must come through a
   committee or council proposal (or gov).
@@ -2698,12 +2879,109 @@ too small is **not** in that class, and must not be added.
 > viability the right outcome is that it loses the power to decide — see the
 > quorum floor below — not that a conscript loses the power to leave.
 
+#### Jury Selection
+
+Every jury (initiative challenge, content challenge, gov-action appeal,
+migration objection, external `CreateSeatedAppeal` case) is drawn by one
+routine, `SelectJury(ctx, review, seats)`, under two rules (REP-R-102,
+REP-E-102):
+
+- **No draw inside a party's transaction, and no seed anyone can choose.**
+  The transaction that opens a review (the assignee's `MsgRespondToChallenge`,
+  the author's content response, an appeal, `MsgObjectMigration`, an external
+  case) or frees a seat (`MsgDeclineJuryDuty`) only records `pending_seats`
+  and queues a `PendingJuryDraw{jury_review_id, seed_epoch, queued_at_height}`
+  in `PendingJuryDraws`. The seed is the x/shield **randomness beacon**
+  (`docs/x-shield-spec.md` "Randomness beacon"): `seed_epoch` is the shield
+  epoch after the one open when the seats were queued, and its beacon value
+  (the epoch's TLE key, a threshold BLS signature over the epoch number) does
+  not exist until that epoch has closed and a threshold of validators has
+  released their shares. Neither the sender, nor the proposer of any block,
+  nor any validator coalition below the threshold knows it when the review
+  opens, and the value is unique, so nobody can bias it either. A coalition
+  holding `threshold` DKG shares can compute every future epoch's value
+  ahead of time (inherent to a threshold-BLS beacon; x/shield "Randomness
+  beacon", trust assumption), so the draw's unpredictability rests on the
+  same honest-threshold assumption as TLE secrecy: such a coalition could
+  know a seed in advance, never choose it.
+  `DrawPendingJuries` runs in the EndBlocker (after the unanswered-seat sweep)
+  and, per queued draw, asks the beacon (`BeaconStatus(seed_epoch)`):
+  `AVAILABLE` seats the review with SHA-256 over the domain
+  `sparkdream/jury-draw/beacon/v1`, the beacon key and the review id (a pure
+  function of key and review: two reviews seeded from one epoch do not share
+  a stream); `PENDING` leaves the draw queued for a later block; `UNAVAILABLE`
+  (beacon off, no DKG, a re-key retired the epoch, liveness judged without a
+  key) falls back at once. A draw still `PENDING`
+  `JuryBeaconWaitBlocks` after `queued_at_height` (compiled: 7 shield epoch
+  intervals, one more than `max_pending_epochs` so a sub-minimum batch holding
+  the key never forces a fallback; `JuryBeaconWaitEpochs` in `params_vals_*.go`, read against
+  shield's `shield_epoch_interval`) falls back too. The fallback seed is the
+  floor every draw had before the beacon: SHA-256 over a domain tag, the hash
+  of the block being finalized (`HeaderHash`), the previous app hash, the
+  height and the review id, which the sender cannot know when signing but the
+  block proposer can bias. A review queued while no beacon value is in
+  prospect (x/shield unwired, no DKG yet, beacon disabled) records
+  `seed_epoch = 0` and takes that floor in the next EndBlocker, so a chain
+  that has not run its DKG (every e2e snapshot) seats juries exactly as
+  before, in the same block. The old seed (`AppHash XOR id`, drawn in the
+  transaction) was known a block ahead, so the assignee or objector could
+  simulate the draw and send only when it seated accomplices. The pool is
+  still checked in the opening transaction (`MinSeatedJurors` for an
+  initiative challenge, a full jury for a content challenge) so the escalation
+  paths keep working. A `jury_seated` event (`jury_review_id`, `drawn`,
+  `jurors`, `seats_requested`, `seed_source: beacon|block_hash`) lists the
+  seats; every fallback emits `jury_seed_fallback` (`jury_review_id`,
+  `seed_epoch`, `reason: unavailable|wait_exceeded`); `jury_review_created`
+  carries `seats_pending` instead of the jurors. A refill on a review already
+  queued joins the waiting draw and keeps its seed epoch. Seats queued by a
+  module whose EndBlocker runs after x/rep's are drawn in the next block.
+  Genesis exports `pending_jury_draw_list`; a review with `pending_seats` and
+  no entry is queued with `seed_epoch = 0` at `InitGenesis`. An imported
+  entry is clamped to the chain it lands on (REP-R-206): a `queued_at_height`
+  ahead of the import height becomes the import height, and a `seed_epoch`
+  past the next beacon epoch is re-pointed at the next epoch (0 when that
+  epoch yields no beacon), so a draw exported from a longer-running chain
+  cannot sit unseated until the new chain catches up. The beacon is
+  late-wired (`SetBeaconSource` in `app.go`, since x/shield depends on
+  x/rep); a chain without it keeps the block-hash floor. With batch mode on,
+  an epoch carrying a batch under `min_batch_size` releases its value only
+  when the batch is demanded (at most `max_pending_epochs`), so a draw seeded
+  from such an epoch may wait longer or fall back.
+- **The case decides who is excluded, never the caller.** `SelectJury` derives
+  the exclusions from the review: everyone seated, the expert witnesses, the
+  initiative challenger and every initiative affiliate (assignee, apprentice,
+  creator, project creator), a content challenge's challenger and author, and
+  `excluded_jurors`, which holds the parties recorded when an appeal-style
+  case opened (appellant, action target, hiding sentinel; migration from/to;
+  an external case's parties) plus every juror who declined or was vacated for
+  silence. All are compared as canonical members. Every draw (the first one,
+  a decline refill, a sweep redraw) therefore excludes the same people, and
+  `InviteExpertWitness` refuses anyone on the same list. The redraw paths used
+  to pass only the current seats, so one decline could seat the challenger on
+  their own jury.
+
+Weights are integers (REP-R-107): a candidate's reputation total times
+`JurorResponsivenessWeight` (both `LegacyDec`), taken as the decimal's
+18-digit integer, and the draw picks `r` uniformly in `[0, total)` with
+`big.Int.Rand` on the seeded PRNG. No floating point is involved.
+
 #### Replacing Unanswered Seats
 
 `SweepUnansweredJurySeats` runs each block. For a `PENDING` review past its
 `acceptance_deadline`, every juror who neither accepted nor voted loses the
-seat, the silence is charged to their participation record, and a replacement is
-drawn.
+seat, the silence is charged to their participation record, the juror joins
+`excluded_jurors`, and a replacement is queued for the draw later in the same
+EndBlocker.
+
+**The window counts from the seating.** `acceptance_deadline` is first set
+when the review opens, but the seats are filled by a later EndBlocker draw,
+with the beacon pending up to `JuryBeaconWaitBlocks` later. Whenever the draw
+seats at least one juror on an initiative jury that still has redraws left,
+it restarts the window from that block (`restartAcceptanceWindow`, clamped
+strictly inside the vote deadline). Before this (REP-R-201) a window shorter
+than the draw latency elapsed with nobody seated, the sweep found no silent
+juror and stood the clock down for good, and the jurors seated afterwards
+were never swept: a no-show jury ran to its vote deadline and INCONCLUSIVE.
 
 > **Replacement, not reinforcement.** Quorum is `len(jurors)/2 + 1` and
 > `required_votes` is `jury_super_majority × len(jurors)`, both computed from
@@ -2786,9 +3064,11 @@ not to react to a block.
 - **A decline refills immediately.** It is the earliest vacancy signal there is
   and therefore the one with the most review time left to act on; it used to
   vacate and draw nobody, waiting for a sweep that at `jury_size = 3` never ran.
-  `refillJurySeats` draws a replacement on the spot when the pool allows, and
-  the quorum floor covers the case where it does not. The `jury_duty_declined`
-  event now carries `replacements` and the resulting `seated` count.
+  The decline queues the replacement and the EndBlocker of the same block draws
+  it when the pool allows (never inside the decliner's own transaction, see
+  "Jury Selection" below); the quorum floor covers the case where it does not.
+  The `jury_duty_declined` event carries `seats_pending` and the resulting
+  `seated` count; the replacements appear on that block's `jury_seated` event.
 - **The acceptance window is now a fraction of the review period.**
   `jury_acceptance_window_ratio` (Params-only, default **0.25**) replaces the
   fixed `JuryAcceptanceWindowBlocks` constant, clamped into
@@ -2800,16 +3080,18 @@ not to react to a block.
   `MaxJuryRedraws` drops to **1** at that width, so redraw rounds cannot consume
   the time replacement jurors need to read the work. Discovery already supports
   the wider window: `jury-reviews-by-juror` and the juror addresses on the
-  `jury_review_created` event.
+  `jury_seated` event.
 - **Jury candidates come from a reputation index.** `Member` is an
   `IndexedMap` with a `MaxRep` multi-index keyed by the integer part of the
   member's highest tag reputation, maintained on every member write.
-  `SelectJury`, `SelectContentJury` and the moderation-appeal draw (also used
-  by `CreateSeatedAppeal`) read it in descending order down to
+  `SelectJury` (the one draw every review type uses) reads it in descending
+  order down to
   `floor(MinJurorReputation)`, at most 1,000 candidates (`maxJurorCandidates`,
   the most reputable), sort them by address and then apply the exact
   eligibility rule and the weighted draw as before. No draw walks the whole
-  member store (REP-E-10).
+  member store (REP-E-10). Only `MEMBER_STATUS_ACTIVE` records are seated;
+  the status check is a belt over the index (a zeroed member's cleared
+  scores already drop them below the floor, a tombstone has no row).
 - **Jury selection shrinks to fit instead of refusing outright.** `SelectJury`
   used to error whenever the eligible pool was smaller than `jury_size`, so a
   pool one juror short produced *no* jury at all and escalated to the committee
@@ -2905,30 +3187,73 @@ vote.
 #### Expert Witnesses
 
 A juror seated on a pending initiative jury review can call an expert witness
-with `MsgInviteExpertWitness`. Jurors are drawn by lot and often lack the domain
-knowledge a deliverable needs; the expert supplies it, and the jurors still
-decide.
+with `MsgInviteExpertWitness`, and a second juror must endorse the call with
+`MsgEndorseExpertWitness` before it becomes an engagement. Jurors are drawn by
+lot and often lack the domain knowledge a deliverable needs; the expert
+supplies it, and the jurors still decide.
 
 - **Who invites**: any juror seated on the review (`ErrNotSeatedJuror`). The
   review must be an initiative review (not a content challenge or moderation
   appeal, which carry no tags to measure expertise against), still `PENDING`
   and before its deadline (`ErrNotInitiativeReview`).
+- **Who endorses**: a *different* juror seated on the same review who has
+  answered the summons, meaning they accepted jury duty or already voted (the
+  same definition the redraw sweep uses for an answered seat), while the review
+  is still `PENDING` and before its deadline. The inviting juror can never
+  endorse their own invitation, a silent seat cannot endorse, and an invitation
+  is endorsed at most once (`ErrInvalidEndorsement`; a non-juror gets
+  `ErrNotSeatedJuror`). The review records both seats (`expert_inviters`,
+  `expert_endorsers`, parallel to `expert_witnesses`; the endorser is `""`
+  while pending) and emits `expert_witness_endorsed`. Until endorsed, the
+  invitation is **pending**: the expert's testimony is refused
+  (`ErrExpertNotEndorsed`), and when the review reaches its verdict or is
+  voided the invitation's interim is expired unpaid. This is what closes
+  REP-E-103's residual: expert pay needs two jurors, so a lone juror can no
+  longer mint 400 DREAM to an accomplice. A review always seats at least
+  `MinSeatedJurors` (3) jurors, so a second juror exists; if every other juror
+  stays silent, declines or is vacated, the invitation simply expires unpaid
+  with the verdict and the jurors decide without the expert. Pending
+  invitations count against the per-review cap below: an unendorsed call still
+  occupies a slot until the review closes, so a juror cannot fill the review
+  with speculative calls either way.
 - **Who can testify**: an active `ESTABLISHED`+ member with positive reputation
   in at least one of the initiative's tags, who is not the challenger, anyone
   affiliated with the initiative (assignee, apprentice, creator, project
-  creator) or a juror on the review, and is not already listed
-  (`ErrExpertIneligible`).
+  creator), a juror on the review or a juror who declined or was vacated
+  (`juryExclusions`, the list jury draws use), nor an **invitation neighbour**
+  (inviter or invitee) of anyone on that list, the inviting juror included
+  (`excludedAsExpert`), and is not already listed (`ErrExpertIneligible`). The
+  neighbour rule is expert-only: one juror directs this pay, while jury draws
+  are random.
 - **How many**: at most `MaxExpertWitnessesPerReview` (2, a compiled constant)
-  per review (`ErrTooManyExpertWitnesses`): each invitation is paid work.
+  per review, endorsed and pending invitations together
+  (`ErrTooManyExpertWitnesses`): each invitation is potential paid work.
+- **Testimony**: once per endorsed expert, while the review is still
+  `PENDING`, by an expert who is still an active member. The opinion is
+  `MinExpertOpinionLength`..`MaxExpertOpinionLength` bytes (64..4096,
+  whitespace-trimmed) and the reasoning at most `MaxExpertReasoningLength`
+  (4096) bytes (`ErrInvalidTestimony`): the floor makes the paid work
+  non-trivial, the ceilings bound the review record every vote re-encodes.
 - **Pay**: the invitation opens an `EXPERT_TESTIMONY` interim assigned to the
   expert (COMPLEX budget, `reference_id` = the review id, deadline = the review
-  deadline), subject to the expert's `max_active_interims_per_member` cap.
-  `MsgSubmitExpertTestimony` completes it and pays the budget (charged to the
-  season's interim reward cap like any interim). A payment failure never blocks
-  the testimony: it is reported as an `expert_testimony_unpaid` event and the
-  interim expires with the review. An expert who never testifies is never paid.
-
-Each expert testifies once, while the review is still `PENDING`.
+  deadline), subject to the expert's `max_active_interims_per_member` cap
+  (counted over the expert's own interims; system seats do not count), and
+  records its id on the review (`expert_interim_ids`, parallel to
+  `expert_witnesses`). `EXPERT_TESTIMONY` is system-only: `MsgCreateInterim`
+  refuses it, and `MsgApproveInterim` refuses to approve it. Testifying pays
+  nothing. When the review reaches its verdict (`TallyJuryVotes`, any verdict)
+  each expert's own interim, looked up by that id, is settled: completed and
+  paid (charged to the season's interim reward cap like any interim) if the
+  invitation was endorsed and the expert testified, expired if not (the
+  settlement re-checks the endorsement, so a testimony on record never pays an
+  unendorsed invitation). A review voided before its verdict (the
+  challenge voided with its project, or its challenger zeroed) expires every
+  expert interim unpaid. A payment failure never blocks the verdict: it is
+  reported as an `expert_testimony_unpaid` event and the interim is expired.
+  The EndBlocker's interim deadline sweep skips an expert interim while its
+  review is still `PENDING`, so a deadline tally deferred by the per-block cap
+  still pays. An expert who abandons the interim (`MsgAbandonInterim`)
+  forfeits the pay.
 
 #### Juror Accountability
 
@@ -3064,10 +3389,14 @@ fields are for:
 | `requires_creator_approval` | the project creator must sign off as well |
 | `review_period_epochs` / `challenge_period_epochs` | per-project windows |
 
-A reviewer qualifies for a given initiative when they hold the role at `NORMAL`
-status past `min_age_blocks`, clear the reputation bar, and are **independent of
-the work** — the same `InitiativeAffiliates` plus one-invitation-hop test that
-gates external conviction, reused rather than reinvented.
+A reviewer qualifies for a given initiative when they pass the shared
+`EligibleForRole` gate (tombstone, `min_age_blocks`, status, staying bond,
+demotion cooldown; `QualifiedReviewer` does not re-implement any of it,
+REP-R-204) **and** hold the role at `NORMAL` status (RECOVERY and UNBONDING
+pass the shared gate but back no new liability), clear the reputation bar,
+and are **independent of the work** — the same `InitiativeAffiliates` plus
+one-invitation-hop test that gates external conviction, reused rather than
+reinvented.
 
 **A staker on an initiative may not review it.** Holding conviction on the
 outcome is the conflict this whole role exists to remove; permitting it would
@@ -3268,6 +3597,17 @@ is the same shape x/forum uses for the sentinel and x/collect for the curator.
 Before it, the reviewer was the one bonded role no module owned: its config was
 whatever genesis seeded, reachable only by editing genesis or shipping an
 upgrade. It is now council-tunable like every other role's.
+
+**No verdict-streak knobs, by design (REP-R-106).** The projection writes the
+streak-policy fields (`upheld_to_reset_overturns`, `overturn_base_cooldown`,
+`overturn_cooldown_escalates`) as zero, which `RecordRoleOutcome` reads as the
+moderation defaults (one upheld verdict clears an overturn streak; a kind that
+sets an overturn cooldown uses `DefaultRoleOverturnCooldown`, not escalating): a
+reviewer's approval or rejection is a contested judgment call, like a
+sentinel's hide, not an assertion of fact like a federation verifier's, and rep
+params carry no reviewer-specific streak knobs. Any value seeded in genesis is
+overwritten by the next sync. A reviewer overturn cooldown would need new
+params (and a `ReviewerBondPolicy` field each) before it can be set.
 
 The write-through is a **straight projection** — no field is defaulted on the
 way across. Reading a zero as "unset" would put the params and the enforced
@@ -3573,10 +3913,14 @@ verdict), which outweighs their share of a 5% fee pool.
 
 DREAM lives on the member record rather than in bank, so the escrow is a lock on
 the funder's own balance plus the claim recorded against it, the same shape as a
-challenge stake. Payout draws the total down from the funders and mints the same
-amount to the reviewers: supply is unchanged, and it never routes through the
-transfer tax, which exists to throttle peer-to-peer gifting rather than to skim
-earned pay.
+challenge stake. Payout draws the total down from the funders and reissues the
+same amount to the reviewers (`reissueDREAM`): supply is unchanged, and it never
+routes through the transfer tax, which exists to throttle peer-to-peer gifting
+rather than to skim earned pay. The reissue counts in the season's minted total
+(the draw counted as a burn) but, unlike `MintDREAM`, is outside the per-epoch
+mint ceiling (a net-zero move must not fail a completion) and pays no referral
+reward to the reviewer's inviter (REP-E-107). Restoring a slashed author bond
+after a reversal (`RestoreAuthorBond`) reissues the same way.
 
 **Gated permissionless initiatives must escrow a minimum** —
 `permissionless_min_review_bounty_rate` (default 10%) of budget, in existing
@@ -4178,10 +4522,11 @@ message MsgSubmitJurorVote {
 // MsgInviteExpertWitness lets a juror seated on a pending initiative jury
 // review call an expert witness. The expert must be an active ESTABLISHED+
 // member with reputation in one of the initiative's tags and no stake in the
-// dispute (not the challenger, assignee, initiative creator or a juror). The
-// invitation opens an EXPERT_TESTIMONY interim that pays the expert when they
-// testify and expires with the review. At most MaxExpertWitnessesPerReview
-// experts per review.
+// dispute (not the challenger, assignee, initiative creator or a juror, nor an
+// invitation neighbour of any of them). The invitation opens an
+// EXPERT_TESTIMONY interim, bound to it by id, that the review's verdict pays
+// if the expert testified and expires otherwise. At most
+// MaxExpertWitnessesPerReview experts per review.
 message MsgInviteExpertWitness {
   option (cosmos.msg.v1.signer) = "juror";
   option (amino.name) = "sparkdream/x/rep/MsgInviteExpertWitness";
@@ -4196,9 +4541,26 @@ message MsgInviteExpertWitnessResponse {
   uint64 interim_id = 1;
 }
 
+// MsgEndorseExpertWitness endorses a pending expert invitation. The signer
+// must be a juror seated on the review who has answered the summons
+// (accepted jury duty or already voted) and is not the inviting juror; an
+// invitation is endorsed once. Until endorsed the expert cannot testify and
+// the invitation is never paid.
+message MsgEndorseExpertWitness {
+  option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgEndorseExpertWitness";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+  string expert = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+message MsgEndorseExpertWitnessResponse {}
+
 // An expert listed on the review's expert_witnesses (seated by
-// MsgInviteExpertWitness) testifies once, while the review is still PENDING.
-// Testifying completes and pays the expert's EXPERT_TESTIMONY interim.
+// MsgInviteExpertWitness and endorsed by a second juror through
+// MsgEndorseExpertWitness) testifies once, while the review is still PENDING.
+// The opinion is 64..4096 bytes, the reasoning at most 4096. Testifying pays
+// nothing by itself: the verdict pays the expert's EXPERT_TESTIMONY interim.
 message MsgSubmitExpertTestimony {
   option (cosmos.msg.v1.signer) = "expert";
   string expert = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -4317,7 +4679,17 @@ message MsgReportTag {
 }
 message MsgReportTagResponse {}
 
-// Authority-only. `action` selects one of: ignore / reserve / remove / restore.
+// Authority-only. `action` is 0 ignore (reporters' bonds forfeited), 1 remove,
+// 2 reserve, 3 restore (release a reserved tag back to public use; refused
+// for a tag that is not reserved). Actions 1-3 refund the reporters' bonds.
+// For action 2, reserve_authority is empty or a bech32 address (a council
+// policy, the gov account, a member); anything else is refused before the
+// report is touched (ErrInvalidTagReportAction). MsgReportTag accepts a tag
+// that has a Tag row OR a reservation, so a reserved tag without a row (seeded
+// at genesis, or reserved after its row expired) can be reported and then
+// restored (REP-R-203). A TagReport is under_review from the first report
+// until it is resolved; the flag is constant while the record exists and is
+// only echoed by the query.
 // On REMOVE, the handler calls ForumKeeper.PruneTagReferences, which queues
 // the tag; the forum EndBlocker strips it from posts in capped batches.
 message MsgResolveTagReport {
@@ -5012,6 +5384,10 @@ type Keeper struct {
     // Secondary indexes (avoid full table scans in EndBlocker)
     InitiativesByStatus  collections.KeySet[collections.Pair[int32, uint64]]    // (status, id)
     InterimsByStatus     collections.KeySet[collections.Pair[int32, uint64]]    // (status, id)
+    InterimsByAssignee   collections.KeySet[collections.Pair[string, uint64]]   // (assignee, id), live interims only
+    ProposedProjectsByCreator collections.KeySet[collections.Pair[string, uint64]] // (creator, id), PROPOSED only
+    InterimDeadlineDue   collections.KeySet[collections.Pair[int64, uint64]]    // (due height, id) sweep hints
+    ProjectExpiryDue     collections.KeySet[collections.Pair[int64, uint64]]    // (due height, id) sweep hints
     JuryReviewsByVerdict collections.KeySet[collections.Pair[int32, uint64]]    // (verdict, id)
     StakesByTarget       collections.KeySet[collections.Triple[int32, uint64, uint64]] // (targetType, targetID, stakeID)
     ChallengesByStatus   collections.KeySet[collections.Pair[int32, uint64]]    // (status, id)
@@ -5066,23 +5442,23 @@ The permissionless model removes this bottleneck for zero-budget work. Members b
 
 ## Interim Creation Triggers
 
-Interims are created automatically by the system in response to events. Only
-the ADJUDICATION and EXPERT_TESTIMONY rows are built today (the other system
-triggers are not wired; see the completeness notes), and JURY_DUTY interims are
-no longer created at all: jurors are paid by `RewardJurors` for the votes they
-cast.
+Interims are created automatically by the system in response to events. The
+ADJUDICATION, EXPERT_TESTIMONY, PROJECT_APPROVAL and BUDGET_REVIEW rows are
+built today (the other system triggers are not wired; see the completeness
+notes), and JURY_DUTY interims are no longer created at all: jurors are paid by
+`RewardJurors` for the votes they cast.
 
 | Trigger | Interim Type | Assignees | Reference |
 |---------|-------------------|-----------|-----------|
 | JuryReview created | ~~JURY_DUTY~~ (not created) | n/a | n/a |
 | Juror calls an expert (`MsgInviteExpertWitness`) | EXPERT_TESTIMONY | Invited expert | JuryReview ID |
-| Budget-backed project proposed | PROJECT_APPROVAL | Operations committee | Project ID |
-| Large budget request | BUDGET_REVIEW | Operations committee | Project ID |
+| Budget-backed project proposed (`requested_budget < budget_review_threshold`) | PROJECT_APPROVAL | Picked council's Operations Committee members | Project ID (settled by `MsgApproveProjectBudget`, paid to the members who took part) |
+| Large budget request (`requested_budget >= budget_review_threshold`) | BUDGET_REVIEW | Picked council's Operations Committee members | Project ID (settled by `MsgApproveProjectBudget`, paid to the members who took part) |
 | *(Permissionless projects skip PROJECT_APPROVAL — no interim created)* | | | |
 | Tranche revealed | TRANCHE_VERIFICATION | Tranche stakers | Tranche ID |
 | Founder contribution proposed | CONTRIBUTION_REVIEW | Operations committee | Contribution ID |
 | Dispute filed | DISPUTE_MEDIATION | Assigned mediator | Dispute ID |
-| Inconclusive jury verdict | ADJUDICATION | Technical operations committee | Challenge ID |
+| Inconclusive jury verdict | ADJUDICATION | Technical operations committee | Initiative ID (the challenge is the one on that initiative still `IN_JURY_REVIEW`) |
 
 ## EndBlocker Logic
 
@@ -5176,16 +5552,23 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         }
     }
 
-    // 7. Process assigned initiative deadlines (interims). ExpireInterim is
-    // itself cache-wrapped: expiry and the adjudication resolution it triggers
-    // commit together or not at all, so a failed resolution leaves the interim
-    // PENDING for the next block.
-    k.IteratePendingInterims(ctx, func(index int64, interim types.Interim) bool {
-        if sdkCtx.BlockHeight() >= interim.Deadline {
-            _ = k.ExpireInterim(ctx, interim.Id)
-        }
-        return false
-    })
+    // 7. Expire interims past their deadline (SweepDueInterimDeadlines) from
+    // the InterimDeadlineDue queue, same model as step 3: at most 100 per
+    // block, entry written at creation (and at InitGenesis) at the deadline.
+    // The walk over every live interim this replaced grew with every
+    // budget-backed proposal (REP-E-201). An EXPERT_TESTIMONY interim whose
+    // review is still PENDING is re-queued at the review's deadline: the
+    // verdict settles it. ExpireInterim is itself cache-wrapped: expiry and
+    // the adjudication resolution it triggers commit together or not at all,
+    // so a failed resolution leaves the interim PENDING and re-queued for the
+    // next block.
+    k.SweepDueInterimDeadlines(ctx)
+
+    // 7b. Expire PROPOSED projects past expiry_block_height
+    // (SweepDueProjectExpiries) from the ProjectExpiryDue queue, same model;
+    // ExpireProject ends the review interim unpaid and runs in a child cache
+    // context, retried next block on failure.
+    k.SweepDueProjectExpiries(ctx)
 
     // 8. Distribute staking rewards from seasonal pool.
     // Rewards are pro-rata from MaxStakingRewardsPerSeason, split across
@@ -5444,7 +5827,13 @@ impossible or ignored on those paths:
   paths the dispute follows the name to `B`), a live x/service operator on `A`
   (forced into UNBONDING instead, above), a vault co-signed by `A` and `B`
   (x/vault's `Tally` counts the merged member once, at its largest entry
-  weight). Target-side checks apply on every path.
+  weight, and a threshold the merge puts out of reach is clamped to the
+  reachable weight), an open x/season display-name moderation on `A` (on the other paths
+  it moves to `B` with its report stake, REP-R-101). Target-side checks apply
+  on every path. `TestMigrationHooksNeverBlockRecoveryOrCouncil`
+  (app/migration_hooks_guard_test.go) walks every wired hook: each must have an
+  entry naming its from-side vetoes, each veto must trip on KEY, and none may
+  trip on RECOVERY or COUNCIL.
 
 **Season maintenance.** No migration finalizes while x/season is in
 maintenance mode (archiving or resetting reputation and XP): the season walk
@@ -5583,13 +5972,29 @@ cleared the key, which still waits out the delay. After `MsgClearZkPublicKey`
 first-registration path: it goes through the activation delay and still honours
 the season cap, so a member who already used their change stays without a key
 until the next season rather than gaining an instant swap. Activation consumes
-the flag. The delay must exceed every
-`MESSAGE_FIELD` action window: x/commons refuses a `voting_period` longer than
-`zk_key_activation_delay * epoch_blocks * 6s` on `MsgRegisterGroup` and
-`MsgUpdateGroupConfig`, and `MsgUpdateParams` refuses to lower the delay below
-the longest live voting period. Both checks are on in the network builds and off
-in the test build (`VotingPeriodCapEnabled`), whose e2e suites register
-hour-long windows against a two-epoch delay.
+the flag.
+
+The delay exists because an activated new key yields a fresh nullifier: on
+any anonymous "once per item" action proven against the live member tree,
+a member could act with the old key and again with the new one if the
+item's window were still open when the new key activates. The delay must
+therefore outlast every such window. Today the only one with a closing
+window is x/federation's arbiter vote (`arbiter_resolution_window`); the
+bound is the build-tagged `MaxAnonymousActionWindow` (mainnet 7 d, testnet
+1 d, devnet 6 h, none in the test build): x/federation refuses an arbiter
+window above it, and `Params.Validate` refuses a `zk_key_activation_delay`
+whose wall time (`delay * epoch_blocks * 6 s`) is under it.
+`TestZkKeyDelayOutlastsArbiterWindow` checks every shipped network
+genesis. Anonymous forum, collect and blog votes and reactions have no
+closing window, so no delay can cover them; they carry no reputation, DREAM,
+XP or promotion weight, and the once-per-season limit on key changes bounds
+the excess at one extra vote per member per season. Council voting periods
+are not tied to the delay: x/commons secret ballots vote against a voter
+snapshot taken when the ballot opens, so a key change during a window adds
+no voter. (An earlier cap, which refused commons voting periods longer than
+the delay and refused `MsgUpdateParams` lowering it below the longest one,
+was removed: it protected nothing once ballots used snapshots, and the
+genesis bootstrap's own windows broke it on every network build, CMN-101.)
 
 ### Personal addresses
 
@@ -5766,7 +6171,6 @@ var DefaultParams = Params{
     // Initiative rewards
     CompleterShare:          math.LegacyNewDecWithPrec(90, 2), // 90%
     TreasuryShare:           math.LegacyNewDecWithPrec(10, 2), // 10%
-    MinReputationMultiplier: math.LegacyNewDecWithPrec(10, 2), // 10%
 
     // Initiative tiers
     ApprenticeTier: TierConfig{
@@ -5856,16 +6260,9 @@ var DefaultParams = Params{
     SoloExpertBonusRate:      math.LegacyNewDecWithPrec(50, 2),   // 50%
     InterimDeadlineEpochs:    7,                                    // ~1 week
 
-    // Rate limits
-    MaxActiveChallengesPerCommittee: 3,
-    MaxNewChallengesPerEpoch:        2,
-    ChallengeQueueMaxSize:           10,
 
     // Slashing
-    MinorSlashPenalty:    math.LegacyNewDecWithPrec(5, 2),  // 5%
-    ModerateSlashPenalty: math.LegacyNewDecWithPrec(15, 2), // 15%
     SevereSlashPenalty:   math.LegacyNewDecWithPrec(30, 2), // 30%
-    ZeroingSlashPenalty:  math.LegacyOneDec(),               // 100%
 
     // Extended staking (project/member/tag)
     // Project staking draws from the same seasonal reward pool (no separate APY)
@@ -5960,10 +6357,18 @@ full operational-params update does, is accepted.
 
 **Governance-only fields** (NOT in RepOperationalParams):
 - `ApprenticeTier`, `StandardTier`, `ExpertTier`, `EpicTier`
-- `MinorSlashPenalty`, `ModerateSlashPenalty`, `SevereSlashPenalty`, `ZeroingSlashPenalty`
+- `SevereSlashPenalty` (the one reputation slash rate: lost challenge, demotion; the former minor/moderate/zeroing tiers were removed as unused, and zeroing burns everything regardless)
 - `TrustLevelConfig`
 - `CompleterShare`, `TreasuryShare`
 - `PermissionlessMinTrustLevel`, `PermissionlessMaxTier` (structural access control — governance only)
+- `BudgetReviewThreshold` (requested DREAM at or above which a project proposal opens a BUDGET_REVIEW interim instead of a PROJECT_APPROVAL one; it prices the committee's own review work, so a committee must not set it)
+- `MaxProposedProjectsPerCreator` (uint32, default 3, must be positive: how many budget-backed proposals one member may hold in PROPOSED at once across their recent aliases; each opens a paid committee review interim)
+
+**Validation shared by both sets.** `interim_deadline_epochs` must be in
+`[1, MaxInterimDeadlineEpochs]` (3650) and `interim_deadline_epochs ×
+epoch_blocks` must fit a block height (REP-E-205): 0 made every
+default-deadline `MsgCreateInterim` fail, and an overflowing product wrapped
+the deadline negative so the interim expired on the next block.
 
 **Operational fields** (council-tunable, included in RepOperationalParams):
 - `ProjectCreationFee`, `InitiativeCreationFeeApprentice`, `InitiativeCreationFeeStandard` (fee amounts are tuning knobs)
@@ -6260,8 +6665,7 @@ type ModuleInputs struct {
 | 2332 | `ErrTombstoneMsgForbidden` | Message not allowed from a tombstoned signer |
 | 2340 | `ErrZkKeyCooldown` | ZK key changed once per season |
 | 2341 | `ErrZkKeyPending` | ZK key change already waiting for activation |
-| 2342 | `ErrVotingPeriodExceedsZkDelay` | ZK delay cannot go below a live voting period |
-| 2401 | `ErrInterimTypeSystemOnly` | ADJUDICATION and JURY_DUTY interims are created by the module only |
+| 2401 | `ErrInterimTypeSystemOnly` | ADJUDICATION, JURY_DUTY, EXPERT_TESTIMONY, PROJECT_APPROVAL and BUDGET_REVIEW interims are created by the module only; the two project reviews are also refused by `MsgSubmitInterimWork`, `MsgApproveInterim` and `MsgCompleteInterim` (settled by `MsgApproveProjectBudget`) |
 | 2402 | `ErrInterimDeadlineInvalid` | Interim deadline must be after the current height |
 | 2403 | `ErrInterimNeedsApproval` | Only ADJUDICATION interims complete through MsgCompleteInterim; others are paid by MsgApproveInterim |
 | 2404 | `ErrSelfApproval` | An assignee cannot approve their own interim |
@@ -6279,3 +6683,9 @@ type ModuleInputs struct {
 | 2416 | `ErrNotInitiativeReview` | Expert witnesses can be called only on a pending initiative jury review |
 | 2417 | `ErrTooManyExpertWitnesses` | Jury review already has the maximum number of expert witnesses |
 | 2418 | `ErrExpertIneligible` | Expert witness must be an active ESTABLISHED+ member with reputation in the initiative's tags and no stake in the dispute |
+| 2419 | `ErrInvalidTestimony` | Expert testimony opinion or reasoning is outside its length bounds |
+| 2420 | `ErrExpertNotEndorsed` | Expert invitation has not been endorsed by a second juror (`MsgSubmitExpertTestimony`) |
+| 2421 | `ErrInvalidEndorsement` | Expert invitation can be endorsed only once, by a juror who answered the summons and is not the inviter (`MsgEndorseExpertWitness`) |
+| 2422 | `ErrRoleTooNew` | A bonded role acted before its config's `min_age_blocks` had passed since registration (`EligibleForRole`, every bonded role) |
+| 2423 | `ErrTooManyProposedProjects` | Creator already holds `max_proposed_projects_per_creator` budget-backed projects in PROPOSED, across their recent aliases (`MsgProposeProject`) |
+| 2424 | `ErrApprovedBudgetExceedsRequested` | `MsgApproveProjectBudget` approved more DREAM or SPARK than the proposal requested |

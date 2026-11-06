@@ -95,6 +95,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "rate_limit_nullifier_hex"}},
 				},
 				{
+					RpcMethod:      "Beacon",
+					Use:            "beacon [epoch]",
+					Short:          "Query the randomness beacon value of a shield epoch (0 = latest closed epoch)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "epoch"}},
+				},
+				{
 					RpcMethod: "DKGState",
 					Use:       "dkg-state",
 					Short:     "Query the current DKG ceremony state",

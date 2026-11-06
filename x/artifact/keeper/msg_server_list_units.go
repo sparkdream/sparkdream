@@ -46,7 +46,10 @@ func (k msgServer) ListUnits(ctx context.Context, msg *types.MsgListUnits) (*typ
 	}
 	// The listing names the address that holds the units (a predecessor of
 	// the seller after a key migration) so later unlock/debit find them.
-	seller := k.balanceHolder(ctx, c.Id, e.Id, msg.Seller)
+	seller, err := k.balanceHolder(ctx, c.Id, e.Id, msg.Seller)
+	if err != nil {
+		return nil, err
+	}
 	if err := k.lockUnits(ctx, &e, seller, msg.Quantity, false); err != nil {
 		return nil, err
 	}

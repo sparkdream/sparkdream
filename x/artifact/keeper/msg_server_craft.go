@@ -90,6 +90,7 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 		}
 		emit(ctx, types.EventBurned, classAttr(t.ClassId), tokenAttr(t.Id),
 			sdk.NewAttribute("owner", msg.Crafter), sdk.NewAttribute("refund", t.Deposit.String()),
+			sdk.NewAttribute("refund_to", depositRefundee(t, msg.Crafter)),
 			sdk.NewAttribute("reveal_overdue", "false"), sdk.NewAttribute("via", "craft"))
 	}
 	// Burn the edition inputs.
@@ -101,7 +102,11 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 		if err != nil {
 			return nil, err
 		}
-		if err := k.debit(ctx, &e, k.balanceHolder(ctx, e.ClassId, e.Id, msg.Crafter), in.Quantity, false); err != nil {
+		holder, err := k.balanceHolder(ctx, e.ClassId, e.Id, msg.Crafter)
+		if err != nil {
+			return nil, err
+		}
+		if err := k.debit(ctx, &e, holder, in.Quantity, false); err != nil {
 			return nil, err
 		}
 		e.Supply -= in.Quantity
@@ -128,7 +133,7 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 		if err := checkUnitSupply(e, r.OutputQuantity); err != nil {
 			return nil, err
 		}
-		if err := k.credit(ctx, &e, msg.Crafter, r.OutputQuantity, crafter, false, math.Int{}, ""); err != nil {
+		if err := k.credit(ctx, &e, msg.Crafter, r.OutputQuantity, crafter, false, math.Int{}, "", ""); err != nil {
 			return nil, err
 		}
 		if e.Supply, err = types.AddUnits(e.Supply, r.OutputQuantity); err != nil {

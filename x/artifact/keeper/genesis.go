@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"errors"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
@@ -23,7 +24,10 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 	if err := k.HideSeq.Set(ctx, gs.HideSeq); err != nil {
 		return err
 	}
+	// Media labels are recomputed under the current rules rather than
+	// trusted from the file (docs/content-scanning.md).
 	for _, c := range gs.Classes {
+		c.MediaFlags, c.MediaRulesVersion = types.LabelClass(c), commontypes.MediaRulesVersion
 		if err := k.Classes.Set(ctx, c.Id, c); err != nil {
 			return err
 		}
@@ -35,6 +39,7 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 		}
 	}
 	for _, t := range gs.Tokens {
+		t.MediaFlags, t.MediaRulesVersion = types.LabelTokenAll(t), commontypes.MediaRulesVersion
 		if err := k.Tokens.Set(ctx, collections.Join(t.ClassId, t.Id), t); err != nil {
 			return err
 		}
@@ -170,6 +175,7 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 // and the inbox counters.
 func (k Keeper) initWave34Genesis(ctx context.Context, gs types.GenesisState, bump func(origin, to string) error) error {
 	for _, e := range gs.Editions {
+		e.MediaFlags, e.MediaRulesVersion = types.LabelToken(e.Metadata), commontypes.MediaRulesVersion
 		if err := k.Editions.Set(ctx, collections.Join(e.ClassId, e.Id), e); err != nil {
 			return err
 		}

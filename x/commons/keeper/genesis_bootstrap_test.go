@@ -131,7 +131,11 @@ func TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs(t *testing.T) {
 		}
 		body, err := os.ReadFile(filepath.Join(keeperDir, e.Name()))
 		require.NoError(t, err)
-		if !strings.Contains(string(body), "IsCouncilOrCommitteePolicy") {
+		// Handlers gate on the commons helper directly or through
+		// federation's isCouncilPolicy wrapper (keeper_helpers.go), which
+		// is the same check: a wrapper must not hide a gated handler.
+		if !strings.Contains(string(body), "IsCouncilOrCommitteePolicy") &&
+			!strings.Contains(string(body), "isCouncilPolicy(") {
 			continue
 		}
 		m := msgRe.FindStringSubmatch(string(body))
@@ -239,6 +243,33 @@ func TestOpsCommitteeCanExecutePolicyGatedRepMsgs(t *testing.T) {
 	} {
 		require.Contains(t, committeeBlock, `"`+typeURL+`"`)
 	}
+}
+
+// x/service accepts a tier-2 REDUCE verdict or a dissolve only from the
+// Commons Operations Committee or Commons Council policy (SVC-201), and
+// x/session gates its operational params on the same committee policy.
+// Either keeper gate is dead without the matching allowlist entry.
+func TestCouncilBodiesCanExecutePolicyGatedServiceAndSessionMsgs(t *testing.T) {
+	bootstrap, err := os.ReadFile("genesis_bootstrap.go")
+	require.NoError(t, err)
+	src := string(bootstrap)
+	block := func(name, endMarker string) string {
+		start := strings.Index(src, `Name:        "`+name+`"`)
+		require.NotEqual(t, -1, start, "%s block not found", name)
+		end := strings.Index(src[start:], endMarker)
+		require.NotEqual(t, -1, end, "end of %s block not found", name)
+		return src[start : start+end]
+	}
+	council := block("Commons Council", "VetoPermissions")
+	ops := block("Commons Operations Committee", "MaxSpendPerEpoch")
+	for _, body := range []string{council, ops} {
+		require.Contains(t, body, `"/sparkdream.service.v1.MsgResolveReportByJury"`)
+	}
+	require.Contains(t, ops, `"/sparkdream.session.v1.MsgUpdateOperationalParams"`)
+	// FED-203: the stranded-peer recipe is one committee proposal that
+	// suspends and removes the peer.
+	require.Contains(t, ops, `"/sparkdream.federation.v1.MsgSuspendPeer"`)
+	require.Contains(t, ops, `"/sparkdream.federation.v1.MsgRemovePeer"`)
 }
 
 // A project's council can be any of the three, and x/rep accepts budget

@@ -62,17 +62,28 @@ func (k msgServer) redeemWinning(goCtx context.Context, ctx sdk.Context, market 
 	if market.Status == "RESOLVED_YES" {
 		winner = "yes"
 	}
+	loser := "yes"
+	if winner == "yes" {
+		loser = "no"
+	}
 	shareDenom := fmt.Sprintf("f/%d/%s", marketID, winner)
+	loserDenom := fmt.Sprintf("f/%d/%s", marketID, loser)
 
 	balance := k.bankKeeper.GetBalance(ctx, userAddr, shareDenom)
 	if balance.Amount.IsZero() {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInsufficientFunds, "you have no winning shares (%s)", shareDenom)
 	}
+	// Losing shares are worth nothing and would otherwise sit in the
+	// wallet forever as dust: burn them in the same redemption.
+	toBurn := sdk.NewCoins(balance)
+	if loserBal := k.bankKeeper.GetBalance(ctx, userAddr, loserDenom); loserBal.Amount.IsPositive() {
+		toBurn = toBurn.Add(loserBal)
+	}
 
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, userAddr, types.ModuleName, sdk.NewCoins(balance)); err != nil {
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, userAddr, types.ModuleName, toBurn); err != nil {
 		return nil, err
 	}
-	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(balance)); err != nil {
+	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, toBurn); err != nil {
 		return nil, err
 	}
 
@@ -81,7 +92,7 @@ func (k msgServer) redeemWinning(goCtx context.Context, ctx sdk.Context, market 
 		return nil, err
 	}
 
-	emitRedeemEvent(ctx, marketID, userAddr, sdk.NewCoins(balance), payout.Amount)
+	emitRedeemEvent(ctx, marketID, userAddr, toBurn, payout.Amount)
 	return &types.MsgRedeemResponse{}, nil
 }
 

@@ -388,7 +388,12 @@ message MsgExecuteProposal {
 }
 
 // MsgExecuteProposalResponse defines the response for ExecuteProposal.
-message MsgExecuteProposalResponse {}
+message MsgExecuteProposalResponse {
+  // status is the proposal's status after the call: EXECUTED, or the
+  // terminal VETOED / FAILED it was closed with when it can never run.
+  // An execution that may succeed on retry is a tx error instead.
+  ProposalStatus status = 1;
+}
 
 // MsgSubmitAnonymousProposal creates a proposal through the x/shield module.
 // The proposer field must be the shield module account address, verified by

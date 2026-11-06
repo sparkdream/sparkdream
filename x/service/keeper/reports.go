@@ -328,6 +328,7 @@ func (k Keeper) applySlashToBond(
 		newBondAmount = sdkmath.ZeroInt()
 	}
 	op.BondAmount = newBondAmount
+	clampPendingWithdrawal(op)
 
 	// UNDERFUNDED transition: bond < min_bond AND status was ACTIVE.
 	if op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
@@ -713,13 +714,31 @@ func juryVotingDeadline(currentHeight int64, params types.Params) int64 {
 }
 
 // slashCaseParties lists the addresses kept off a service.slash jury: the
-// operator, the reporter and the operator's controller.
+// operator, the reporter, the operator's controller and every member of
+// the controller group.
 func (k Keeper) slashCaseParties(ctx context.Context, report types.Report) []string {
 	parties := []string{report.OperatorAddress, report.Reporter}
 	if opBytes, err := k.addrBytes(report.OperatorAddress); err == nil {
 		if op, ok := k.GetOperator(ctx, opBytes, report.ServiceType); ok {
-			parties = append(parties, op.Controller)
+			parties = append(parties, k.groupParties(ctx, op.Controller)...)
 		}
 	}
 	return parties
+}
+
+// groupParties returns a controller group's policy address followed by its
+// members. A policy address is never a juror, so excluding only it would
+// let the members who voted a decision sit on the jury reviewing it
+// (SVC-102); x/rep then keeps every address of each member off the jury.
+func (k Keeper) groupParties(ctx context.Context, policyAddr string) []string {
+	out := []string{policyAddr}
+	if policyAddr == "" || k.commonsKeeper() == nil {
+		return out
+	}
+	members, err := k.commonsKeeper().GroupPolicyMembers(ctx, policyAddr)
+	if err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("groupParties: GroupPolicyMembers failed", "policy", policyAddr, "err", err)
+		return out
+	}
+	return append(out, members...)
 }

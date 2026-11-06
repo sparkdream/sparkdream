@@ -272,10 +272,23 @@ func (e *simEnv) grants(keep func(types.Grant) bool) ([]types.Grant, error) {
 	return out, err
 }
 
-// pending reports whether a grant can still be acted on (not terminal).
-func pending(g types.Grant) bool {
+// actionable reports whether a grant can still be acted on (not terminal):
+// active, paused, or PENDING grantee consent (revocable, declinable, and for
+// a session key accepted by the grantee's first exec).
+func actionable(g types.Grant) bool {
 	return g.Status == types.GrantStatus_GRANT_STATUS_ACTIVE ||
-		g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS
+		g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS ||
+		g.Status == types.GrantStatus_GRANT_STATUS_PENDING
+}
+
+// consentDeposit is what the handler escrows from granter for an
+// access-class grant to grantee (zero when grantee already allows granter).
+func (e *simEnv) consentDeposit(granter, grantee string) (math.Int, error) {
+	allowed, err := e.k.IsGranterAllowed(e.ctx, grantee, granter)
+	if err != nil || allowed {
+		return math.ZeroInt(), err
+	}
+	return math.NewIntFromUint64(e.params.PendingGrantDeposit), nil
 }
 
 // newestGrant returns the newest grant of granter with grantee and type
@@ -287,7 +300,7 @@ func (e *simEnv) newestGrant(granter, grantee string, t types.GrantType) (types.
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Id > list[j].Id })
 	for _, g := range list {
-		if g.Grantee == grantee && pending(g) {
+		if g.Grantee == grantee && actionable(g) {
 			return g, true, nil
 		}
 	}

@@ -13,9 +13,10 @@ import (
 	"sparkdream/x/vault/types"
 )
 
-// SimulateMsgLeaveVault declines a pending listing whose removal keeps the
-// vault's threshold reachable (an accepted leave is exercised by unit tests;
-// here it would mostly be refused by the anti-brick rule).
+// SimulateMsgLeaveVault declines a pending listing (an accepted leave is
+// exercised by unit tests; here it would mostly be refused by the anti-brick
+// rule). A decline is always allowed unless the entry is the vault's only
+// one; when the threshold needed the invitee it is clamped.
 func SimulateMsgLeaveVault(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -34,14 +35,8 @@ func SimulateMsgLeaveVault(
 			return simtypes.NoOpMsg(types.ModuleName, msgType, "no simulated invitee"), nil, nil
 		}
 		signer := invited[r.Intn(len(invited))]
-		var rest uint64
-		for _, s := range v.Signers {
-			if s.Address != signer.Address.String() {
-				rest += s.Weight
-			}
-		}
-		if len(v.Signers) < 2 || rest < v.Threshold {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "declining would make the threshold unreachable"), nil, nil
+		if len(v.Signers) < 2 {
+			return simtypes.NoOpMsg(types.ModuleName, msgType, "the last signer cannot leave"), nil, nil
 		}
 		msg := &types.MsgLeaveVault{Signer: signer.Address.String(), VaultId: v.VaultId}
 		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{

@@ -90,9 +90,11 @@ This prevents:
 - Sudden monetary policy changes
 - Erosion of economic guarantees
 
-The mint module authority is set to an impossible address (`sprkdrm1qqqqqq...` burn
-address) that has no private key, making parameter updates cryptographically impossible
-without a chain upgrade.
+The mint module authority is the x/guardian module account. Governance reaches mint only
+through `guardian.MsgExec`, whose filter rejects any change to the inflation fields
+(`inflation_min`, `inflation_max`, `inflation_rate_change`, `goal_bonded`, `mint_denom`),
+so those values change only through a chain upgrade. See
+[security-hardening.md](security-hardening.md) and [x/guardian/README.md](../x/guardian/README.md).
 
 ### SPARK Utility
 
@@ -119,7 +121,7 @@ Supply Dynamics:
 
 ```
 1. INITIATIVE COMPLETION (Primary)
-   ├── Completer reward: Budget × 90% × ReputationMultiplier
+   ├── Completer reward: Budget × 90% (completer_share; no reputation multiplier — see Budget to Reward Calculation)
    └── Treasury share: Budget × 10% (recycled, not minted — see Treasury Recycling)
 
 2. SEASONAL STAKING REWARD POOL
@@ -393,22 +395,25 @@ dampening effect on inflation during high-activity periods.
 
 ```
 Initiative Budget: B (DREAM)
-Completer Reputation: R (in relevant tags)
-Tier Reputation Cap: C
 
-Reputation Multiplier: M = max(0.1, min(R/C, 1.0))
-
-Completer Reward = B × 0.90 × M
-Treasury Reward = B × 0.10
+Completer Reward = B × completer_share (0.90)
+Treasury Reward  = B × treasury_share  (0.10)
 
 Example:
 ├── Budget: 500 DREAM
-├── Tier: Standard (cap = 100)
-├── Completer Rep: 80
-├── Multiplier: 80/100 = 0.8
-├── Completer gets: 500 × 0.90 × 0.8 = 360 DREAM
+├── Completer gets: 500 × 0.90 = 450 DREAM
 └── Treasury gets: 500 × 0.10 = 50 DREAM
 ```
+
+Reputation gates *access* to the reward, not its size: a member needs the
+tier's `min_reputation` to take the initiative, the tier's `reputation_cap`
+bounds the reputation the completion grants, and the tier's
+`reward_multiplier` scales the review fee pool (`ReviewFeePool`), never the
+completer's payout. An earlier design scaled the completer reward by the
+completer's reputation relative to the tier cap (`max(0.1, min(R/C, 1))`);
+it was never built, and the `min_reputation_multiplier` param that would have
+floored it was removed as dead. The season cap `max_initiative_rewards_per_season`
+bounds the total minted either way.
 
 ### Staker Reward Calculation
 
@@ -576,7 +581,7 @@ Key Metrics to Monitor (via QueryDreamSupplyStats, QueryMintBurnRatio):
    └── Need non-affiliated stakers
 
 3. Reputation gates rewards
-   └── Low rep = low multiplier
+   └── Below the tier's min_reputation = cannot take the initiative
 
 4. Challenge period
    └── Community can dispute
@@ -607,7 +612,7 @@ Requirements:
 ├── Pass challenge period (human review possible)
 
 Even if successful:
-├── Low reputation = low multiplier
+├── Low reputation = locked out of the higher tiers
 ├── Budget comes from existing pool
 ├── Multiple attempts trigger detection
 └── Inviter at risk if new account
@@ -643,7 +648,7 @@ Initiative Tiers:
 ├── MinReputation per tier
 ├── MaxBudget per tier
 ├── ReputationCap per tier
-├── RewardMultiplier per tier
+├── RewardMultiplier per tier (scales the review fee pool, not the completer reward)
 
 Conviction:
 ├── HalfLifeEpochs: Currently 7

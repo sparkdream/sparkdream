@@ -15,6 +15,9 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
 	}
+	if err := types.ValidateFieldLength("reason", msg.Reason, types.MaxReasonLength); err != nil {
+		return nil, err
+	}
 
 	// Get contribution
 	contrib, err := k.Contribution.Get(ctx, msg.ContributionId)

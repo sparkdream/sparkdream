@@ -45,7 +45,7 @@ func TestReverseSentinelAction(t *testing.T) {
 		require.Error(t, err, "HideRecord must be removed after reverse")
 	})
 
-	t.Run("hide: skip when parent category deleted (dangling guard)", func(t *testing.T) {
+	t.Run("hide: soft-delete when parent category deleted (dangling guard)", func(t *testing.T) {
 		f := initFixture(t)
 		cat := f.createTestCategory(t, "ReverseHideCategoryGone")
 		postID := f.hidePostViaSentinel(t, testSentinel, "2000000000", cat.CategoryId)
@@ -58,13 +58,14 @@ func TestReverseSentinelAction(t *testing.T) {
 			f.ctx,
 			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(postID, 10),
-		), "soft skip — appeal resolver continues")
+		), "appeal resolver continues")
 
-		// Post must remain HIDDEN (dangling reference avoided).
+		// FRM-103: never ACTIVE in a deleted category, never HIDDEN with no
+		// record either: the post is soft-deleted.
 		post, err := f.keeper.Post.Get(f.ctx, postID)
 		require.NoError(t, err)
-		require.Equal(t, types.PostStatus_POST_STATUS_HIDDEN, post.Status,
-			"reverse must NOT flip status into a deleted category")
+		require.Equal(t, types.PostStatus_POST_STATUS_DELETED, post.Status,
+			"reverse must NOT flip status into a deleted category nor leave it HIDDEN")
 	})
 
 	t.Run("hide: idempotent on already-unhidden post", func(t *testing.T) {

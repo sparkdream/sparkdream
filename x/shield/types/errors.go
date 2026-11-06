@@ -77,4 +77,7 @@ var (
 
 	// The shared anonymous submitter's txs must be unordered
 	ErrOrderedPublicSubmitterTx = errorsmod.Register(ModuleName, 57, "txs signed by the public anonymous submitter must be unordered")
+
+	// One identity's share of the per-epoch fee budget
+	ErrIdentityFeeShareExhausted = errorsmod.Register(ModuleName, 58, "this identity's share of the shield epoch fee budget is used up; retry next shield epoch")
 )

@@ -111,4 +111,12 @@ var (
 	ErrRecipientBlocked        = errors.Register(ModuleName, 1901, "recipient is a blocked module account")
 	ErrTooManyGrantsForGrantee = errors.Register(ModuleName, 1902, "grantee already holds the maximum number of grants")
 	ErrDenomRemovalForbidden   = errors.Register(ModuleName, 1903, "operational params may only add allowed denoms; removal is governance-only")
+	ErrNoMsgTypes              = errors.Register(ModuleName, 1904, "a session key must name at least one message type")
+
+	// Grantee consent (SES-102)
+	ErrMaxPendingGrantsExceeded = errors.Register(ModuleName, 1905, "granter has too many pending grants awaiting grantee acceptance")
+	ErrGrantNotPending          = errors.Register(ModuleName, 1906, "grant is not awaiting grantee acceptance")
+	ErrAcceptUnauthorized       = errors.Register(ModuleName, 1907, "caller is not the grantee of the pending grant")
+	ErrGranterNotAllowed        = errors.Register(ModuleName, 1908, "granter is not in the grantee's allowed granters")
+	ErrModuleAccountGrantee     = errors.Register(ModuleName, 1909, "a module account cannot be the grantee of a session key or sign-in: it could never accept or use it")
 )

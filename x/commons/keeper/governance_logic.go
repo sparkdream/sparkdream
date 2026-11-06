@@ -29,6 +29,28 @@ const (
 	MaxMarketTriggersPerBlock = 10
 )
 
+// clearMarketTriggers removes every queued confidence-market trigger of
+// groupName. The queue holds at most one entry per futarchy-enabled group,
+// and this runs only when a group config turns futarchy on or off, so the
+// full walk is bounded by the number of such groups.
+func (k Keeper) clearMarketTriggers(ctx context.Context, groupName string) error {
+	var stale []collections.Pair[int64, string]
+	if err := k.MarketTriggerQueue.Walk(ctx, nil, func(key collections.Pair[int64, string]) (bool, error) {
+		if key.K2() == groupName {
+			stale = append(stale, key)
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, key := range stale {
+		if err := k.MarketTriggerQueue.Remove(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (k Keeper) ScheduleNextMarket(ctx sdk.Context, groupName string, termDuration int64) error {
 	// 1. Calculate Next Trigger (Now + 50% of Term)
 	halfTerm := termDuration / 2
@@ -38,11 +60,43 @@ func (k Keeper) ScheduleNextMarket(ctx sdk.Context, groupName string, termDurati
 	return k.MarketTriggerQueue.Set(ctx, collections.Join(nextTrigger, groupName))
 }
 
+// hasLiveConfidenceMarket reports whether a confidence market linked to
+// groupName is still open. MarketToGroup holds only unresolved markets (the
+// resolution hook drops the link), so the walk is bounded by the number of
+// live confidence markets: at most one per futarchy-enabled group.
+func (k Keeper) hasLiveConfidenceMarket(ctx context.Context, groupName string) (bool, error) {
+	live := false
+	err := k.MarketToGroup.Walk(ctx, nil, func(_ uint64, linked string) (bool, error) {
+		live = linked == groupName
+		return live, nil
+	})
+	return live, err
+}
+
+// TriggerGovernanceMarket opens the group's confidence-vote market and
+// schedules the next one. While a market of the group is still open (the
+// group's futarchy was turned off and on again during it, FUT-201) no
+// second market is opened: both would resolve and both would move the
+// term, each for a subsidy. The next trigger is still scheduled so the
+// loop goes on from the live market.
 func (k Keeper) TriggerGovernanceMarket(ctx sdk.Context, groupName string) error {
 	// 1. Get Group
 	group, err := k.Groups.Get(ctx, groupName)
 	if err != nil {
 		return err
+	}
+
+	live, err := k.hasLiveConfidenceMarket(ctx, groupName)
+	if err != nil {
+		return err
+	}
+	if live {
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			"confidence_market_skipped",
+			sdk.NewAttribute("group", groupName),
+			sdk.NewAttribute("reason", "market_already_open"),
+		))
+		return k.ScheduleNextMarket(ctx, groupName, group.TermDuration)
 	}
 
 	// 2. Prepare Market Params

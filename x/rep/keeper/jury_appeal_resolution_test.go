@@ -97,13 +97,15 @@ func setupJuryAppeal(t *testing.T) *juryAppealFixture {
 		mkJurorMember(t, f, fmt.Sprintf("jury_juror_%02d", i), "100.0")
 	}
 
-	// Appellant files the appeal — CreateGovActionAppeal seats the jury.
+	// Appellant files the appeal — CreateGovActionAppeal queues the jury draw.
 	appellant := sdk.AccAddress([]byte(fmt.Sprintf("%-20.20s", "jury_appellant")))
 	setActiveMember(t, f.keeper, f.ctx, appellant)
 	ja.appellantStr = appellant.String()
 
 	_, _, err := f.keeper.CreateGovActionAppeal(f.ctx, ja.actionType, ja.actionTarget, appellant, "jury path")
 	require.NoError(t, err)
+	// The jury is drawn by the EndBlocker of the filing block.
+	require.NoError(t, f.keeper.DrawPendingJuries(f.ctx))
 
 	appealID, appeal := findAppeal(t, f, ja.appellantStr)
 	ja.appealID = appealID

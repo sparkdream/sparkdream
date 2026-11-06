@@ -39,6 +39,9 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// 1. Load moderation record
+	// The record follows a migrated member (REP-R-101): a resolution
+	// naming the old address reaches it through the alias.
+	member = k.canonical(ctx, member)
 	moderation, err := k.DisplayNameModeration.Get(ctx, member)
 	if err != nil {
 		return types.ErrDisplayNameNotModerated
@@ -61,20 +64,23 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 	reportStake, reportStakeErr := k.DisplayNameReportStake.Get(ctx, reportChallengeID)
 	appealStake, appealStakeErr := k.DisplayNameAppealStake.Get(ctx, moderation.AppealChallengeId)
 
-	// 6. Settle stakes based on outcome using shared dreamutil.SettleStakes
+	// 6. Settle stakes based on outcome. A stake whose lock x/rep reports
+	// as gone (its holder was zeroed and the zeroing hook missed the
+	// record) settles as nothing released, so one zeroed side can never
+	// wedge the case (SEA-101).
 	if appealSucceeded {
 		// Appeal succeeded: name was fine, reporter was wrong
 		// Winner = appellant (stake returned), Loser = reporter (stake burned)
 		if appealStakeErr == nil && reportStakeErr == nil {
-			if err := k.late.dreamOps.SettleStakes(ctx, appealStake.Appellant, appealStake.Amount.Uint64(), reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.SettleStakesOrGone(ctx, appealStake.Appellant, appealStake.Amount.Uint64(), reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to settle stakes: %s", err)
 			}
 		} else if appealStakeErr == nil {
-			if err := k.late.dreamOps.Unlock(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			if _, err := k.late.dreamOps.UnlockOrGone(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock appellant stake: %s", err)
 			}
 		} else if reportStakeErr == nil {
-			if err := k.late.dreamOps.BurnLocked(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			if _, err := k.late.dreamOps.BurnLockedOrGone(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn reporter stake: %s", err)
 			}
 		}
@@ -91,15 +97,15 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 		// Appeal failed: name was indeed bad, appellant was wrong
 		// Winner = reporter (stake returned), Loser = appellant (stake burned)
 		if reportStakeErr == nil && appealStakeErr == nil {
-			if err := k.late.dreamOps.SettleStakes(ctx, reportStake.Reporter, reportStake.Amount.Uint64(), appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.SettleStakesOrGone(ctx, reportStake.Reporter, reportStake.Amount.Uint64(), appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to settle stakes: %s", err)
 			}
 		} else if appealStakeErr == nil {
-			if err := k.late.dreamOps.BurnLocked(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			if _, err := k.late.dreamOps.BurnLockedOrGone(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn appellant stake: %s", err)
 			}
 		} else if reportStakeErr == nil {
-			if err := k.late.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			if _, err := k.late.dreamOps.UnlockOrGone(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", err)
 			}
 		}
@@ -156,6 +162,9 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 func (k Keeper) ResolveAppealTimeoutInternal(ctx context.Context, member string) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
+	// The record follows a migrated member (REP-R-101): a resolution
+	// naming the old address reaches it through the alias.
+	member = k.canonical(ctx, member)
 	moderation, err := k.DisplayNameModeration.Get(ctx, member)
 	if err != nil {
 		return types.ErrDisplayNameNotModerated
@@ -173,7 +182,7 @@ func (k Keeper) ResolveAppealTimeoutInternal(ctx context.Context, member string)
 
 	reportChallengeID := fmt.Sprintf("dn:%s:%d", moderation.Member, moderation.ModeratedAt)
 	if reportStake, err := k.DisplayNameReportStake.Get(ctx, reportChallengeID); err == nil {
-		if err := k.late.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+		if _, err := k.late.dreamOps.UnlockOrGone(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", err)
 		}
 		if err := k.DisplayNameReportStake.Remove(ctx, reportChallengeID); err != nil {
@@ -181,7 +190,7 @@ func (k Keeper) ResolveAppealTimeoutInternal(ctx context.Context, member string)
 		}
 	}
 	if appealStake, err := k.DisplayNameAppealStake.Get(ctx, moderation.AppealChallengeId); err == nil {
-		if err := k.late.dreamOps.Unlock(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+		if _, err := k.late.dreamOps.UnlockOrGone(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock appellant stake: %s", err)
 		}
 		if err := k.DisplayNameAppealStake.Remove(ctx, moderation.AppealChallengeId); err != nil {

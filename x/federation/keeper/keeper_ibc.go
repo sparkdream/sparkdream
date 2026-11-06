@@ -195,6 +195,25 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, destPort, destChannel s
 		return errorsmod.Wrapf(types.ErrInvalidContentHash, "got %d bytes", len(packet.ContentHash))
 	}
 
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	blockTime := sdkCtx.BlockTime().Unix()
+
+	// The per-peer sliding window is charged first, before the duplicate
+	// check, so a peer replaying hashes it already sent spends its own
+	// inbound budget on them (each attempt still costs a peer walk and a
+	// relay-fee refund). The global per-block cap is charged only for
+	// content that is actually new (FED-205): otherwise one peer's replays
+	// would consume the whole block's budget and starve every other peer.
+	// A rejected packet gets an error acknowledgement; the counters roll
+	// back with the rest of the failed receive (spec §10.2).
+	if err := k.checkAndRecordInboundRate(ctx, peerID, blockTime,
+		int64(params.RateLimitWindow.Seconds()), policy.InboundRateLimitPerEpoch); err != nil {
+		return errorsmod.Wrapf(err, "peer %s", peerID)
+	}
+
 	// Deduplicate by content hash (against live records only; a pruned
 	// record's hash may be received again)
 	hashHex := fmt.Sprintf("%x", packet.ContentHash)
@@ -202,21 +221,8 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, destPort, destChannel s
 		return nil // Already have this content — idempotent success
 	}
 
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return err
-	}
-	blockTime := sdkCtx.BlockTime().Unix()
-
-	// Global per-block cap, then the per-peer sliding window (spec §10.2).
-	// A rejected packet gets an error acknowledgement; the counters roll
-	// back with the rest of the failed receive.
 	if err := k.checkAndRecordInboundPerBlock(ctx, sdkCtx.BlockHeight(), params.MaxInboundPerBlock); err != nil {
 		return errorsmod.Wrap(err, "global per-block inbound cap")
-	}
-	if err := k.checkAndRecordInboundRate(ctx, peerID, blockTime,
-		int64(params.RateLimitWindow.Seconds()), policy.InboundRateLimitPerEpoch); err != nil {
-		return errorsmod.Wrapf(err, "peer %s", peerID)
 	}
 
 	// Store as FederatedContent
@@ -755,14 +761,7 @@ func (k Keeper) findPeerByChannel(ctx context.Context, channelID string) (string
 	if channelID == "" {
 		return "", fmt.Errorf("empty channel id")
 	}
-	var foundPeerID string
-	err := k.Peers.Walk(ctx, nil, func(peerID string, peer types.Peer) (bool, error) {
-		if peer.Status != types.PeerStatus_PEER_STATUS_REMOVED && peer.IbcChannelId == channelID {
-			foundPeerID = peerID
-			return true, nil // stop
-		}
-		return false, nil
-	})
+	foundPeerID, err := k.peerForChannel(ctx, channelID)
 	if err != nil {
 		return "", err
 	}
@@ -781,17 +780,13 @@ func (k Keeper) IsActivePeerChannel(ctx context.Context, channelID string) bool 
 	if channelID == "" {
 		return false
 	}
-	found := false
-	if err := k.Peers.Walk(ctx, nil, func(_ string, peer types.Peer) (bool, error) {
-		if peer.Status == types.PeerStatus_PEER_STATUS_ACTIVE &&
-			peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM &&
-			(peer.IbcChannelId == channelID || peer.IbcTransferChannelId == channelID) {
-			found = true
-			return true, nil
-		}
-		return false, nil
-	}); err != nil {
-		sdk.UnwrapSDKContext(ctx).Logger().Error("IsActivePeerChannel: Peers.Walk failed", "err", err)
+	// one bounded prefix read of the derived index; no peer record is
+	// decoded, so the cost does not depend on the registry
+	iter, err := k.ActivePeerChannels.Iterate(ctx, collections.NewPrefixedPairRange[string, string](channelID))
+	if err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("IsActivePeerChannel: index iterate failed", "err", err)
+		return false
 	}
-	return found
+	defer iter.Close()
+	return iter.Valid()
 }

@@ -241,6 +241,12 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.federation.v1.MsgResumePeer",
 			"/sparkdream.federation.v1.MsgUpdatePeerPolicy",
 			"/sparkdream.federation.v1.MsgUpdatePeerInfo",
+			"/sparkdream.federation.v1.MsgRevokeIdentityLink",
+			// Tier-2 service verdicts that depart from the jury's tally
+			// (REDUCE, dissolve) need a council or committee policy in the
+			// x/service keeper (SVC-201); without this entry the council
+			// could never execute one.
+			"/sparkdream.service.v1.MsgResolveReportByJury",
 			"/sparkdream.reveal.v1.MsgApprove",
 			"/sparkdream.reveal.v1.MsgReject",
 			"/sparkdream.reveal.v1.MsgResolveDispute",
@@ -580,6 +586,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.name.v1.MsgUpdateOperationalParams",
 			"/sparkdream.rep.v1.MsgUpdateOperationalParams",
 			"/sparkdream.season.v1.MsgUpdateOperationalParams",
+			// x/session gates its operational params on this committee's
+			// policy (or its council, or x/gov) exactly like the modules
+			// above; the keeper gate alone does not let a committee
+			// proposal carry the message.
+			"/sparkdream.session.v1.MsgUpdateOperationalParams",
 			// Season state machine and calendar. x/season accepts these
 			// only from a committee/council policy address, never a single
 			// member (x/season SEA-10), so the committee must be able to
@@ -608,6 +619,9 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.federation.v1.MsgUpdatePeerPolicy",
 			"/sparkdream.federation.v1.MsgUpdatePeerInfo",
 			"/sparkdream.federation.v1.MsgModerateContent",
+			// FED-105: remove a falsely attested identity link
+			// (keeper-gated to the committee policy).
+			"/sparkdream.federation.v1.MsgRevokeIdentityLink",
 			"/sparkdream.federation.v1.MsgUpdateOperationalParams",
 			// Phase 5 federation→service migration: recovery / admin
 			// messages owned by OpsComm. Slash + revoke went away (now
@@ -630,6 +644,13 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			// gap -- it blocked the devnet/testnet bring-up.
 			// TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs pins it.
 			"/sparkdream.federation.v1.MsgResumePeer",
+			// Stranded-peer escape hatch (docs/x-federation-spec.md §6.2):
+			// one committee proposal bundles MsgSuspendPeer and
+			// MsgRemovePeer. The federation keeper accepts this policy for
+			// removal (isCouncilPolicy) and any member for suspension, but
+			// a proposal can carry neither without these entries (FED-203).
+			"/sparkdream.federation.v1.MsgSuspendPeer",
+			"/sparkdream.federation.v1.MsgRemovePeer",
 			// Apply Phase 2 jury verdicts to escalated content
 			// challenges. OpsComm-only per spec §6.25a; the proposal
 			// dispatches via x/commons so the council vote is the
@@ -638,6 +659,12 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			// Resolve service-side reports against bridge operators
 			// (controllers are x/commons Group policy addresses).
 			"/sparkdream.service.v1.MsgResolveReport",
+			// Relay a tier-2 jury verdict. ACCEPT at the proposed slash and
+			// REJECT may be relayed by a single member; REDUCE and dissolve
+			// are gated in x/service on this committee's policy (or its
+			// council, or x/gov) and need this entry to be executable at
+			// all (SVC-201).
+			"/sparkdream.service.v1.MsgResolveReportByJury",
 			// Own a federation peer's author-curation list (PeerPolicy.
 			// curation): the committee creates the x/collect collection and
 			// adds members as editors, who curate it without a proposal per

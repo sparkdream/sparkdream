@@ -332,6 +332,15 @@ func (p Params) Validate() error {
 	if p.HideAppealCooldown >= DefaultHiddenExpiration {
 		return fmt.Errorf("hide_appeal_cooldown (%d) must be below the hidden-post expiration (%d s) or no hide can be appealed", p.HideAppealCooldown, DefaultHiddenExpiration)
 	}
+	// Same for locks and moves: their records expire at the compiled appeal
+	// deadline, so a cooldown at or past it makes every lock or move
+	// unappealable.
+	if p.LockAppealCooldown >= DefaultLockAppealDeadline {
+		return fmt.Errorf("lock_appeal_cooldown (%d) must be below the lock appeal deadline (%d s) or no lock can be appealed", p.LockAppealCooldown, DefaultLockAppealDeadline)
+	}
+	if p.MoveAppealCooldown >= DefaultMoveAppealDeadline {
+		return fmt.Errorf("move_appeal_cooldown (%d) must be below the move appeal deadline (%d s) or no move can be appealed", p.MoveAppealCooldown, DefaultMoveAppealDeadline)
+	}
 	if p.MinSentinelTrustLevel != "" {
 		if _, ok := reptypes.TrustLevel_value[p.MinSentinelTrustLevel]; !ok {
 			return fmt.Errorf("invalid min_sentinel_trust_level: %s", p.MinSentinelTrustLevel)

@@ -457,16 +457,70 @@ func TestSEA29_MigrationRefusedWhileModerationOpen(t *testing.T) {
 	fromStr, _ := f.addressCodec.BytesToString(from)
 	toStr, _ := f.addressCodec.BytesToString(to)
 	hooks := keeper.NewMigrationHooks(&k)
+	key := reptypes.MigrationPath_MIGRATION_PATH_KEY
 	require.NoError(t, k.SetDisplayNameModeration(ctx, fromStr, types.DisplayNameModeration{Member: fromStr, RejectedName: "Bad", ModeratedAt: 1, Active: true}))
-	require.Error(t, hooks.BeforeMemberMigration(ctx, from, to, reptypes.MigrationPath(0)))
+	require.Error(t, hooks.BeforeMemberMigration(ctx, from, to, key))
 
 	// Closed: allowed, and the blocked names follow the member.
 	require.NoError(t, k.SetDisplayNameModeration(ctx, fromStr, types.DisplayNameModeration{Member: fromStr, RejectedName: "Bad", ModeratedAt: 1, BlockedNames: []string{"bad"}}))
-	require.NoError(t, hooks.BeforeMemberMigration(ctx, from, to, reptypes.MigrationPath(0)))
-	require.NoError(t, hooks.AfterMemberMigration(ctx, from, to, reptypes.MigrationPath(0)))
+	require.NoError(t, hooks.BeforeMemberMigration(ctx, from, to, key))
+	require.NoError(t, hooks.AfterMemberMigration(ctx, from, to, key))
 	m, err := k.DisplayNameModeration.Get(ctx, toStr)
 	require.NoError(t, err)
 	require.Equal(t, []string{"bad"}, m.BlockedNames)
+}
+
+// REP-R-101: anyone can file a display-name report, so a veto on RECOVERY or
+// COUNCIL let a thief (or any griefer) fail every recovery reveal and burn the
+// victim's commitments one by one. Those paths are never blocked; the open
+// case, its queue entry and the report stake move to the new address and still
+// resolve there.
+func TestREPR101_RecoveryAndCouncilIgnoreAnOpenModeration(t *testing.T) {
+	for _, path := range []reptypes.MigrationPath{
+		reptypes.MigrationPath_MIGRATION_PATH_RECOVERY,
+		reptypes.MigrationPath_MIGRATION_PATH_COUNCIL,
+	} {
+		t.Run(path.String(), func(t *testing.T) {
+			f := initFixture(t)
+			ctx := sdk.UnwrapSDKContext(f.ctx)
+			k := f.keeper
+			from, to := TestAddrTarget, TestAddrMember3
+			fromStr, _ := f.addressCodec.BytesToString(from)
+			toStr, _ := f.addressCodec.BytesToString(to)
+			reporter, _ := f.addressCodec.BytesToString(TestAddrMember1)
+			hooks := keeper.NewMigrationHooks(&k)
+
+			moderatedAt := ctx.BlockHeight()
+			require.NoError(t, k.SetDisplayNameModeration(ctx, fromStr, types.DisplayNameModeration{
+				Member: fromStr, RejectedName: "Bad", ModeratedAt: moderatedAt, Active: true,
+			}))
+			oldStake := fmt.Sprintf("dn:%s:%d", fromStr, moderatedAt)
+			require.NoError(t, k.DisplayNameReportStake.Set(ctx, oldStake, types.DisplayNameReportStake{
+				ChallengeId: oldStake, Reporter: reporter, Amount: math.NewInt(5),
+			}))
+
+			require.NoError(t, hooks.BeforeMemberMigration(ctx, from, to, path))
+			require.NoError(t, hooks.AfterMemberMigration(ctx, from, to, path))
+
+			_, err := k.DisplayNameModeration.Get(ctx, fromStr)
+			require.Error(t, err, "the record left the old address")
+			m, err := k.DisplayNameModeration.Get(ctx, toStr)
+			require.NoError(t, err)
+			require.True(t, m.Active)
+			require.Equal(t, toStr, m.Member)
+			has, err := k.ModerationQueue.Has(ctx, collections.Join(moderatedAt, toStr))
+			require.NoError(t, err)
+			require.True(t, has, "the auto-resolution queue follows the record")
+			has, err = k.ModerationQueue.Has(ctx, collections.Join(moderatedAt, fromStr))
+			require.NoError(t, err)
+			require.False(t, has)
+			_, err = k.DisplayNameReportStake.Get(ctx, oldStake)
+			require.Error(t, err)
+			stake, err := k.DisplayNameReportStake.Get(ctx, fmt.Sprintf("dn:%s:%d", toStr, moderatedAt))
+			require.NoError(t, err)
+			require.Equal(t, reporter, stake.Reporter)
+		})
+	}
 }
 
 // --- SEA-30 / SEA-31 / SEA-20: retro eligibility and stakes ---------------------
@@ -552,8 +606,9 @@ func TestSEA20_NominateDuplicateAndCapByIndex(t *testing.T) {
 	activeSeason(t, f, 1, types.SeasonStatus_SEASON_STATUS_NOMINATION)
 	nominator := addrStr(t, f, "nominator_______")
 	f.repKeeper.SetMember(nominator, 0, nil, 0)
+	params, _ := f.keeper.Params.Get(f.ctx)
 	f.repKeeper.Initiatives = map[uint64]reptypes.Initiative{}
-	for i := uint64(1); i <= 4; i++ {
+	for i := uint64(1); i <= params.MaxNominationsPerMember+1; i++ {
 		f.repKeeper.Initiatives[i] = reptypes.Initiative{Id: i, Status: reptypes.InitiativeStatus_INITIATIVE_STATUS_COMPLETED, Assignee: nominator, CompletedAt: f.ctx.BlockTime().Unix()}
 	}
 	ms := keeper.NewMsgServerImpl(f.keeper)
@@ -561,12 +616,11 @@ func TestSEA20_NominateDuplicateAndCapByIndex(t *testing.T) {
 	require.NoError(t, err)
 	_, err = ms.Nominate(f.ctx, &types.MsgNominate{Creator: nominator, ContentRef: "rep/initiative/1"})
 	require.ErrorIs(t, err, types.ErrAlreadyNominated)
-	params, _ := f.keeper.Params.Get(f.ctx)
 	for i := uint64(2); i <= params.MaxNominationsPerMember; i++ {
 		_, err = ms.Nominate(f.ctx, &types.MsgNominate{Creator: nominator, ContentRef: fmt.Sprintf("rep/initiative/%d", i)})
 		require.NoError(t, err)
 	}
-	_, err = ms.Nominate(f.ctx, &types.MsgNominate{Creator: nominator, ContentRef: "rep/initiative/4"})
+	_, err = ms.Nominate(f.ctx, &types.MsgNominate{Creator: nominator, ContentRef: fmt.Sprintf("rep/initiative/%d", params.MaxNominationsPerMember+1)})
 	require.ErrorIs(t, err, types.ErrMaxNominationsReached)
 	nom, _ := f.keeper.Nomination.Get(f.ctx, 1)
 	require.Equal(t, nominator, nom.Author, "the author is stored at Nominate")
@@ -588,7 +642,7 @@ func (r *failingPoolRep) InitSeasonalPool(ctx context.Context, season uint64) er
 
 type failingArchiveRep struct{ *mockRepKeeper }
 
-func (r *failingArchiveRep) ArchiveSeasonalReputation(context.Context, string) (map[string]string, error) {
+func (r *failingArchiveRep) ArchiveSeasonalReputation(context.Context, string, math.LegacyDec) (map[string]string, error) {
 	return nil, errors.New("store error")
 }
 

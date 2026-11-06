@@ -14,8 +14,9 @@ import (
 // for hide records and curation challenges, each matching what the live write
 // paths leave behind:
 //   - an appealed hide has no expiry entry (MsgAppealHide drops it);
-//   - a hide on a deleted collection has no by-target entry
-//     (deleteCollectionFull drops them, the record stays);
+//   - a hide on a deleted collection or item has no by-target entry
+//     (deleteCollectionFull / cleanupItemHideRecords drop them, the record
+//     stays);
 //   - a challenge timeout keeps its exported deadline, a pending challenge
 //     without one gets the latest possible deadline, and the backfill is done.
 func TestGenesisRebuildMatchesLiveIndexes(t *testing.T) {
@@ -26,6 +27,8 @@ func TestGenesisRebuildMatchesLiveIndexes(t *testing.T) {
 	gs := types.DefaultGenesis()
 	gs.Collections = []types.Collection{{Id: 1, Owner: "phoenix"}}
 	gs.CollectionCount = 2
+	gs.Items = []types.Item{{Id: 6, CollectionId: 1, AddedBy: "phoenix"}}
+	gs.ItemCount = 7
 	gs.HideRecords = []types.HideRecord{
 		{Id: 1, TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, TargetId: 5, AppealDeadline: 100},
 		{Id: 2, TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, TargetId: 6, AppealDeadline: 200, Appealed: true},
@@ -57,6 +60,7 @@ func TestGenesisRebuildMatchesLiveIndexes(t *testing.T) {
 	require.False(t, hasTarget(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, 9, 3), "deleted collection")
 	require.True(t, hasTarget(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, 1, 4))
 	require.True(t, hasTarget(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, 6, 2))
+	require.False(t, hasTarget(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, 5, 1), "deleted item")
 
 	hasDeadline := func(deadline int64, id uint64) bool {
 		ok, err := k.CurationChallengeDeadline.Has(f.ctx, collections.Join(deadline, id))

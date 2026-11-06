@@ -66,7 +66,7 @@ func (k msgServer) BuyUnits(ctx context.Context, msg *types.MsgBuyUnits) (*types
 	if err := k.debit(ctx, &e, l.Seller, msg.Quantity, true); err != nil {
 		return nil, err
 	}
-	if err := k.credit(ctx, &e, msg.Buyer, msg.Quantity, buyer, false, math.Int{}, ""); err != nil {
+	if err := k.credit(ctx, &e, msg.Buyer, msg.Quantity, buyer, false, math.Int{}, "", ""); err != nil {
 		return nil, err
 	}
 	if err := k.saveEdition(ctx, e); err != nil {

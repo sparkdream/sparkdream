@@ -79,9 +79,41 @@ func TestMsgResolveReportByJury_Accept(t *testing.T) {
 	require.Equal(t, accrued.MulInt64(300).QuoInt64(10000).MulInt64(types.JurySlashReputationMultiplier).String(), ded.Amount.String())
 }
 
+// asCommitteePolicy makes testCouncil the Operations Committee policy
+// address, which REDUCE and dissolve require (SVC-101).
+func (f *fixture) asCommitteePolicy() {
+	f.commonsKeeper.IsCouncilOrCommitteePolicyFn = func(_ context.Context, addr string, _, _ string) bool {
+		return addr == testCouncil
+	}
+}
+
+// SVC-101: a single committee member relays the jury's verdict but cannot
+// resize it (REDUCE) or turn it into a dissolution.
+func TestMsgResolveReportByJury_MemberCannotReduceOrDissolve(t *testing.T) {
+	f := initFixture(t)
+	reportID := f.seedEscalatedReport(t, 400)
+
+	_, err := f.msgServer.ResolveReportByJury(f.ctx, &types.MsgResolveReportByJury{
+		JuryAuthority: testCouncil, ReportId: reportID,
+		Verdict: types.JuryVerdict_JURY_VERDICT_REDUCE, SlashBps: 1,
+	})
+	require.ErrorIs(t, err, types.ErrUnauthorizedCouncilResolver)
+
+	_, err = f.msgServer.ResolveReportByJury(f.ctx, &types.MsgResolveReportByJury{
+		JuryAuthority: testCouncil, ReportId: reportID,
+		Verdict: types.JuryVerdict_JURY_VERDICT_ACCEPT, SlashBps: 400, Dissolve: true,
+	})
+	require.ErrorIs(t, err, types.ErrUnauthorizedCouncilResolver)
+
+	r, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_ESCALATED, r.Status)
+}
+
 func TestMsgResolveReportByJury_AcceptDissolve(t *testing.T) {
 	f := initFixture(t)
 	reportID := f.seedEscalatedReport(t, 300)
+	f.asCommitteePolicy()
 
 	_, err := f.msgServer.ResolveReportByJury(f.ctx, &types.MsgResolveReportByJury{
 		JuryAuthority: testCouncil,
@@ -104,6 +136,7 @@ func TestMsgResolveReportByJury_AcceptDissolve(t *testing.T) {
 func TestMsgResolveReportByJury_Reduce(t *testing.T) {
 	f := initFixture(t)
 	reportID := f.seedEscalatedReport(t, 400)
+	f.asCommitteePolicy()
 
 	_, err := f.msgServer.ResolveReportByJury(f.ctx, &types.MsgResolveReportByJury{
 		JuryAuthority: testCouncil,
@@ -240,4 +273,22 @@ func TestMsgResolveReportByJury_EscalatedQueueCleared(t *testing.T) {
 
 	has, _ := f.keeper.EscalatedReportsQueue.Has(f.ctx, collections.Join(escalatedAt, reportID))
 	require.False(t, has)
+}
+
+// SVC-103: a proposed slash above 100% cannot be escalated.
+func TestMsgResolveReport_EscalateRejectsSlashAbove100Percent(t *testing.T) {
+	f := initFixture(t)
+	f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
+	reportID := f.seedPendingReport(t)
+	_, err := f.msgServer.ResolveReport(f.ctx, &types.MsgResolveReport{
+		Controller: testController,
+		ReportId:   reportID,
+		Verdict:    types.ResolveVerdict_RESOLVE_VERDICT_ESCALATE_TO_JURY,
+		SlashBps:   types.MaxSlashBps + 1,
+	})
+	require.ErrorIs(t, err, types.ErrInvalidVerdict)
+	r, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status)
 }

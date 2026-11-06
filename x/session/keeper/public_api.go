@@ -273,6 +273,11 @@ func (k Keeper) RevokeGrantInternal(
 			refund = dep
 		}
 	}
+	if grant.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if refund, err = k.refundPendingDeposit(ctx, grant, grant.Granter); err != nil {
+			return sdk.Coin{}, err
+		}
+	}
 
 	if err := k.deleteGrant(ctx, grant); err != nil {
 		return sdk.Coin{}, err
@@ -374,6 +379,11 @@ func (k Keeper) DeclineGrantInternal(
 				return sdk.Coin{}, err
 			}
 			refund = dep
+		}
+	}
+	if grant.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if refund, err = k.refundPendingDeposit(ctx, grant, grant.Granter); err != nil {
+			return sdk.Coin{}, err
 		}
 	}
 

@@ -58,3 +58,11 @@ type IdentityKeeper interface {
 	BondDenom(ctx context.Context) string
 	DreamDenom(ctx context.Context) string
 }
+
+// DistributionKeeper is the subset of x/distribution session uses to forfeit
+// an expired pending-grant deposit to the community pool. Late-bound via
+// SetDistrKeeper from app.go; when it is not wired the deposit goes to the
+// fee collector instead.
+type DistributionKeeper interface {
+	FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error
+}

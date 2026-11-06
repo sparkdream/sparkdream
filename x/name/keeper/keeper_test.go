@@ -25,6 +25,7 @@ import (
 
 	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // --- Test Fixture ---
@@ -254,6 +255,9 @@ type MockRepKeeper struct {
 	burnErr       error
 	// unlockFailures fails the next N UnlockDREAM calls.
 	unlockFailures int
+	// Gone holds zeroed addresses: their locks no longer exist, so an
+	// unlock fails with ErrInsufficientStake, as in x/rep.
+	Gone map[string]bool
 }
 
 func NewMockRepKeeper() *MockRepKeeper {
@@ -273,6 +277,7 @@ func (m *MockRepKeeper) Reset() {
 	m.lockErr = nil
 	m.unlockErr = nil
 	m.burnErr = nil
+	m.Gone = nil
 }
 
 // SetActiveMember marks an address as an active x/rep member for tests.
@@ -313,6 +318,9 @@ func (m *MockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 	if m.unlockFailures > 0 {
 		m.unlockFailures--
 		return fmt.Errorf("unlock failed")
+	}
+	if m.Gone[addr.String()] {
+		return reptypes.ErrInsufficientStake
 	}
 	key := addr.String()
 	current, ok := m.UnlockedDREAM[key]

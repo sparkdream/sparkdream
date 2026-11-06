@@ -113,7 +113,9 @@ func ItemCollectionReferenceInvariant(k Keeper) sdk.Invariant {
 }
 
 // HideRecordConsistencyInvariant checks that every unresolved HideRecord
-// references a target that is in HIDDEN status.
+// references a target that is in HIDDEN status. An appealed record may
+// outlive its target: the target can be deleted while x/rep's verdict is
+// pending, and the verdict then settles the record.
 func HideRecordConsistencyInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var broken int
@@ -127,6 +129,9 @@ func HideRecordConsistencyInvariant(k Keeper) sdk.Invariant {
 			switch hr.TargetType {
 			case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
 				coll, err := k.Collection.Get(ctx, hr.TargetId)
+				if err != nil && hr.Appealed {
+					return false, nil
+				}
 				if err != nil {
 					broken++
 					msg += fmt.Sprintf("  hide record %d references non-existent collection %d\n",
@@ -138,6 +143,9 @@ func HideRecordConsistencyInvariant(k Keeper) sdk.Invariant {
 				}
 			case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
 				item, err := k.Item.Get(ctx, hr.TargetId)
+				if err != nil && hr.Appealed {
+					return false, nil
+				}
 				if err != nil {
 					broken++
 					msg += fmt.Sprintf("  hide record %d references non-existent item %d\n",

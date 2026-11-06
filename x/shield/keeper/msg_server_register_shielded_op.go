@@ -52,7 +52,16 @@ func (k msgServer) RegisterShieldedOp(ctx context.Context, msg *types.MsgRegiste
 		return nil, conflict
 	}
 
+	// An in-place update that keeps the op's domain keeps its scoping rule
+	// too: the domain's stored nullifiers were written under it, and a new
+	// scope type, field or window would prune or re-admit them. Changing
+	// how an op is scoped needs a new domain.
 	prev, hadPrev := k.GetShieldedOp(ctx, reg.MessageTypeUrl)
+	if hadPrev {
+		if err := types.CheckDomainCompatible(reg, prev); err != nil {
+			return nil, err
+		}
+	}
 	if err := k.SetShieldedOp(ctx, reg); err != nil {
 		return nil, err
 	}

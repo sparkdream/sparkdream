@@ -17,6 +17,10 @@
 #   devnet's  peer "sparkdream-test-1" -> inbound_content_types gates what
 #                                         devnet is willing to accept
 #
+# A Spark Dream peer is registered with --expected-chain-id (here the peer
+# id, which is the remote chain id): activation refuses a channel whose
+# light client names any other chain (FED-106).
+#
 # Peers start PENDING and are inert there: MsgFederateContent,
 # MsgSubmitFederatedContent and MsgRequestReputationAttestation all require
 # PEER_STATUS_ACTIVE. The only way to ACTIVE is MsgResumePeer -- registering
@@ -613,7 +617,7 @@ setup_side() {  # <side> <remote-chain-id> <channel-on-this-side> <display>
         echo "  registering..."
         tx "$side" "register $remote" register-peer \
             "$remote" "$display" "federation link via $channel" "$channel" \
-            --type spark-dream
+            --type spark-dream --expected-chain-id "$remote"
     elif [ "$bound" != "$channel" ]; then
         # A peer bound to the wrong channel -- or to none, which is what a
         # peer registered before bringup.sh ran looks like -- is inert in
@@ -647,7 +651,7 @@ setup_side() {  # <side> <remote-chain-id> <channel-on-this-side> <display>
         for i in $(seq 1 15); do
             if tx "$side" "re-register $remote" register-peer \
                 "$remote" "$display" "federation link via $channel" "$channel" \
-                --type spark-dream
+                --type spark-dream --expected-chain-id "$remote"
             then ok=1; break; fi
             echo "    cleanup still in progress; retrying in 4s ($i/15)"
             sleep 4

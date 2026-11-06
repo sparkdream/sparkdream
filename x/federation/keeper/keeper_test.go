@@ -18,9 +18,15 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/v10/modules/core/03-connection/types"
+	channeltypes "github.com/cosmos/ibc-go/v10/modules/core/04-channel/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v10/modules/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/v10/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 	ibctypes "github.com/cosmos/ibc-go/v10/modules/core/types"
+	ibctm "github.com/cosmos/ibc-go/v10/modules/light-clients/07-tendermint"
 	"github.com/stretchr/testify/require"
 
 	reptypes "sparkdream/x/rep/types"
@@ -47,7 +53,9 @@ type fixture struct {
 func initFixture(t *testing.T) *fixture {
 	t.Helper()
 
-	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+	// ibctm registers the Tendermint ClientState so the fixture IBC keeper
+	// can store the light client a peer's channel is pinned to (FED-106).
+	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{}, ibctm.AppModuleBasic{})
 	addressCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 
@@ -666,11 +674,63 @@ func (mockParams) GetParamSet(_ sdk.Context, _ paramtypes.ParamSet) {}
 // gate on ResumePeer directly.
 func activateTestPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
 	t.Helper()
+	if peer, err := f.keeper.Peers.Get(f.ctx, peerID); err == nil &&
+		peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM && peer.IbcChannelId != "" {
+		openTestChannelTo(t, f, peer.IbcChannelId, channeltypes.OPEN, peer.ExpectedChainId)
+		if peer.IbcTransferChannelId != "" {
+			openTestChannelOn(t, f, ibctransfertypes.PortID, peer.IbcTransferChannelId, channeltypes.OPEN, peer.ExpectedChainId)
+		}
+	}
 	_, err := ms.ResumePeer(f.ctx, &types.MsgResumePeer{
 		Authority: f.authority,
 		PeerId:    peerID,
 	})
 	require.NoError(t, err)
+}
+
+// testPeerChainID is the chain id every Spark Dream test peer is registered
+// for; activateTestPeer puts a light client for it behind the channel.
+const testPeerChainID = "phoenix-1"
+
+// openTestChannelTo writes a federation-port channel in the given state
+// into the fixture's IBC store, backed by a Tendermint client for chainID;
+// a Spark Dream peer's activation requires its channel to be OPEN and its
+// client to name the peer's expected_chain_id (FED-106). The connection
+// and client are keyed on the channel so two channels never share a client.
+func openTestChannelTo(t *testing.T, f *fixture, channelID string, state channeltypes.State, chainID string) {
+	t.Helper()
+	openTestChannelOn(t, f, types.PortID, channelID, state, chainID)
+}
+
+// openTestChannelOn is openTestChannelTo on an arbitrary port; the ICS-20
+// transfer channel of a Spark Dream peer is verified the same way at
+// activation (FED-201). The connection and client are keyed on port and
+// channel so no two channels share a client.
+func openTestChannelOn(t *testing.T, f *fixture, port, channelID string, state channeltypes.State, chainID string) {
+	t.Helper()
+	ibcK := f.keeper.IBCKeeperForTest()
+	require.NotNil(t, ibcK)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	connID := "connection-" + port + "-" + channelID
+	clientID := "07-tendermint-" + port + "-" + channelID
+	ibcK.ChannelKeeper.SetChannel(sdkCtx, port, channelID, channeltypes.NewChannel(
+		state, channeltypes.UNORDERED, channeltypes.NewCounterparty(port, "channel-0"),
+		[]string{connID}, types.Version))
+	ibcK.ConnectionKeeper.SetConnection(sdkCtx, connID, connectiontypes.NewConnectionEnd(
+		connectiontypes.OPEN, clientID,
+		connectiontypes.NewCounterparty(clientID, "connection-0", commitmenttypes.NewMerklePrefix([]byte("ibc"))),
+		nil, 0))
+	ibcK.ClientKeeper.SetClientState(sdkCtx, clientID, &ibctm.ClientState{ChainId: chainID})
+}
+
+// dropTestClient removes the light client behind a channel opened with
+// openTestChannelTo, leaving a channel whose chain cannot be resolved.
+func dropTestClient(t *testing.T, f *fixture, channelID string) {
+	t.Helper()
+	ibcK := f.keeper.IBCKeeperForTest()
+	require.NotNil(t, ibcK)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	ibcK.ClientKeeper.ClientStore(sdkCtx, "07-tendermint-"+types.PortID+"-"+channelID).Delete(host.ClientStateKey())
 }
 
 // registerTestPeer registers an ActivityPub peer with inbound blog_post allowed.
@@ -749,11 +809,12 @@ func registerTestLENSPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID s
 func registerTestIBCPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
 	t.Helper()
 	_, err := ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
-		Authority:    f.authority,
-		PeerId:       peerID,
-		DisplayName:  "IBC Peer " + peerID,
-		Type:         types.PeerType_PEER_TYPE_SPARK_DREAM,
-		IbcChannelId: "channel-0",
+		Authority:       f.authority,
+		PeerId:          peerID,
+		DisplayName:     "IBC Peer " + peerID,
+		Type:            types.PeerType_PEER_TYPE_SPARK_DREAM,
+		IbcChannelId:    "channel-0",
+		ExpectedChainId: testPeerChainID,
 	})
 	require.NoError(t, err)
 	activateTestPeer(t, f, ms, peerID)

@@ -88,6 +88,13 @@ service Query {
     option (google.api.http).get = "/sparkdream/shield/v1/identity_rate_limit/{rate_limit_nullifier_hex}";
   }
 
+  // Beacon returns the randomness beacon value for a shield epoch: the
+  // reconstructed TLE epoch key and whether it is available, still pending
+  // or will never be (see docs/x-shield-spec.md "Randomness beacon").
+  rpc Beacon(QueryBeaconRequest) returns (QueryBeaconResponse) {
+    option (google.api.http).get = "/sparkdream/shield/v1/beacon/{epoch}";
+  }
+
   // DKGState returns the current DKG ceremony state.
   rpc DKGState(QueryDKGStateRequest) returns (QueryDKGStateResponse) {
     option (google.api.http).get = "/sparkdream/shield/v1/dkg_state";
@@ -196,6 +203,32 @@ message QueryDecryptionSharesRequest {
 }
 message QueryDecryptionSharesResponse {
   repeated ShieldDecryptionShare shares = 1 [(gogoproto.nullable) = false];
+}
+
+// BeaconStatus is the state of one epoch's beacon value.
+enum BeaconStatus {
+  BEACON_STATUS_UNSPECIFIED = 0;
+  // No key will come: the beacon is off, no DKG has completed, the epoch is
+  // older than max_pending_epochs (its key was pruned or never demanded), or
+  // its demand was judged for liveness without reaching the threshold.
+  BEACON_STATUS_UNAVAILABLE = 1;
+  // The epoch is open, or closed and demanded, and no key exists yet.
+  BEACON_STATUS_PENDING = 2;
+  // The key is reconstructed and stored.
+  BEACON_STATUS_AVAILABLE = 3;
+}
+
+message QueryBeaconRequest {
+  // Epoch to look up; 0 means the latest closed epoch (current_epoch - 1).
+  uint64 epoch = 1;
+}
+message QueryBeaconResponse {
+  uint64 epoch = 1;
+  BeaconStatus status = 2;
+  // Hex of the canonical G1 encoding of the epoch key; empty unless AVAILABLE.
+  string key_hex = 3;
+  int64 reconstructed_at_height = 4;
+  uint64 current_epoch = 5;
 }
 
 message QueryIdentityRateLimitRequest {

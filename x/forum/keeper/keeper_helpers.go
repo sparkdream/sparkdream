@@ -486,9 +486,12 @@ func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {
 	return commontypes.Saturate[uint64](trustLevel)
 }
 
-// requireForumNotPaused refuses user-content writes while params.forum_paused
-// is set (the emergency stop). Moderation, appeals and fund exits (bounty
-// cancel / award, stake release) stay open so a pause never strands value.
+// requireForumNotPaused refuses user-content writes and moderation actions
+// (hide, lock, move, freeze, pin/unpin, unlock) while params.forum_paused is
+// set (the emergency stop). Appeals and fund exits (bounty cancel / award,
+// stake release) stay open so a pause never strands value: hide and lock
+// expiry keep running, and a blocked appeal window would let a hide
+// finalize unappealed. appeals_paused stops appeals on its own.
 func (k Keeper) requireForumNotPaused(ctx context.Context) error {
 	params, err := k.Params.Get(ctx)
 	if err == nil && params.ForumPaused {

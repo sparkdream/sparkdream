@@ -71,7 +71,11 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 			continue
 		}
 
-		if err := k.reserveInboxSlot(ctx, msg.Sender, e.Recipient, p); err != nil {
+		// The record, the pair count and the outbox index name the stored
+		// owner, who may be a migrated member's predecessor address, so
+		// they stay consistent with the token (ART-102, ART-202). The fee
+		// is paid by the signer.
+		if err := k.reserveInboxSlot(ctx, t.Owner, e.Recipient, p); err != nil {
 			return nil, err
 		}
 		if err := k.burnFrom(ctx, sender, p.InboxFee); err != nil {
@@ -80,7 +84,7 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 		pt := types.PendingTransfer{
 			ClassId:   t.ClassId,
 			TokenId:   t.Id,
-			From:      msg.Sender,
+			From:      t.Owner,
 			To:        e.Recipient,
 			CreatedAt: now(ctx),
 			ExpiresAt: now(ctx) + p.PendingTtl,
@@ -88,7 +92,7 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 		if err := k.PendingTransfers.Set(ctx, collections.Join(t.ClassId, t.Id), pt); err != nil {
 			return nil, err
 		}
-		if err := k.indexPending(ctx, types.InboxKind_INBOX_KIND_TRANSFER, t.ClassId, t.Id, msg.Sender, e.Recipient, pt.ExpiresAt); err != nil {
+		if err := k.indexPending(ctx, types.InboxKind_INBOX_KIND_TRANSFER, t.ClassId, t.Id, t.Owner, e.Recipient, pt.ExpiresAt); err != nil {
 			return nil, err
 		}
 		t.Lock = types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER
@@ -97,7 +101,7 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 		}
 		results = append(results, types.TransferResult{ClassId: t.ClassId, TokenId: t.Id, Delivered: false})
 		emit(ctx, types.EventTransferPending, classAttr(t.ClassId), tokenAttr(t.Id),
-			sdk.NewAttribute("from", msg.Sender), sdk.NewAttribute("to", e.Recipient),
+			sdk.NewAttribute("from", t.Owner), sdk.NewAttribute("to", e.Recipient),
 			sdk.NewAttribute("expires_at", i64(pt.ExpiresAt)), sdk.NewAttribute("inbox_fee", p.InboxFee.String()))
 	}
 	return &types.MsgTransferResponse{Results: results}, nil

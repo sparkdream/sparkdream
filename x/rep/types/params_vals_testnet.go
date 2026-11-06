@@ -3,6 +3,8 @@
 package types
 
 import (
+	"time"
+
 	"cosmossdk.io/math"
 )
 
@@ -88,7 +90,17 @@ func getMigrationTimings() migrationTimings { return productionMigrationTimings(
 // transition and 14-epoch extension cap.
 func getAliasDedupHorizonEpochs() int64 { return 240 }
 
-// getVotingPeriodCapEnabled reports whether council voting periods are capped
-// by the ZK key activation delay (member-key-migration plan, decision 17).
-// Always on in production builds.
-func getVotingPeriodCapEnabled() bool { return true }
+// getMaxAnonymousActionWindow is this network's ceiling on any window in
+// which one anonymous member may act once per item against the live member
+// tree (today the federation arbiter vote). The ZK key activation delay must
+// cover it, see Params.Validate. 1 day, under the shipped 1.4-day delay (14 epochs of 1440 blocks).
+func getMaxAnonymousActionWindow() time.Duration { return 24 * time.Hour }
+
+// getJuryBeaconWaitEpochs is how many shield epochs a queued jury draw waits
+// for its beacon value before falling back to the block-hash seed. The seed
+// epoch is the one after the epoch current at queueing, so its key arrives
+// up to two epoch intervals plus a block or two later. With batch mode on,
+// an epoch holding a batch under min_batch_size is not demanded until
+// max_pending_epochs (6) have passed, so seven intervals keep an honest
+// beacon from ever forcing a fallback.
+func getJuryBeaconWaitEpochs() uint64 { return 7 }

@@ -93,13 +93,13 @@ func TestResponsivenessDiscountsSelectionWeightWithoutExcluding(t *testing.T) {
 		recordRound(t, k, ctx, []string{silent}, nil)
 	}
 
-	require.Equal(t, 1.0, k.JurorResponsivenessWeight(ctx, responsive))
-	require.Equal(t, 1.0, k.JurorResponsivenessWeight(ctx, fresh),
+	require.True(t, k.JurorResponsivenessWeight(ctx, responsive).Equal(math.LegacyOneDec()))
+	require.True(t, k.JurorResponsivenessWeight(ctx, fresh).Equal(math.LegacyOneDec()),
 		"no record yet means full weight — one missed summons is not evidence")
 
 	got := k.JurorResponsivenessWeight(ctx, silent)
-	require.Less(t, got, 1.0, "a juror who never answers is drawn less often")
-	require.GreaterOrEqual(t, got, types.DefaultMinJurorSelectionWeight,
+	require.True(t, got.LT(math.LegacyOneDec()), "a juror who never answers is drawn less often")
+	require.True(t, got.GTE(types.DefaultMinJurorSelectionWeight),
 		"but never to zero — that would be exclusion in all but name, with no way back")
 }
 
@@ -115,7 +115,7 @@ func TestDeclinesCountAsAnswering(t *testing.T) {
 		require.NoError(t, k.DeclineJuryDuty(ctx, i, juror))
 	}
 
-	require.Equal(t, 1.0, k.JurorResponsivenessWeight(ctx, juror))
+	require.True(t, k.JurorResponsivenessWeight(ctx, juror).Equal(math.LegacyOneDec()))
 }
 
 func TestAbandonedSeatIsPenalisedInReputation(t *testing.T) {

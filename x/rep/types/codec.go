@@ -8,6 +8,10 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgEndorseExpertWitness{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgInviteExpertWitness{},
 	)
 

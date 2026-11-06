@@ -55,7 +55,7 @@ func (k msgServer) Revoke(ctx context.Context, msg *types.MsgRevoke) (*types.Msg
 		}
 		emit(ctx, types.EventRevoked, classAttr(c.Id), tokenAttr(id),
 			sdk.NewAttribute("holder", t.Owner), sdk.NewAttribute("reason", msg.Reason),
-			sdk.NewAttribute("refund", t.Deposit.String()))
+			sdk.NewAttribute("refund", t.Deposit.String()), sdk.NewAttribute("refund_to", depositRefundee(t, t.Owner)))
 	}
 	if err := k.saveClass(ctx, c); err != nil {
 		return nil, err

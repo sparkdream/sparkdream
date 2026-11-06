@@ -41,6 +41,28 @@ message GenesisState {
   // (CreateGrantOnBehalfOf). Binds the bypass decline and claim paths to
   // the creating module.
   repeated GrantCreator grant_creators = 7 [(gogoproto.nullable) = false];
+  // Granters each grantee has allowed (SES-102): an access-class grant from
+  // an allowed granter is ACTIVE at creation instead of PENDING.
+  repeated AllowedGranter allowed_granters = 8 [(gogoproto.nullable) = false];
+  // SPARK deposits escrowed in the session module account for PENDING
+  // access-class grants. Per-granter pending counts are recomputed from the
+  // grants list on InitGenesis.
+  repeated PendingGrantDeposit pending_grant_deposits = 9 [(gogoproto.nullable) = false];
+}
+
+// AllowedGranter is one (grantee, granter) consent entry.
+message AllowedGranter {
+  string grantee = 1;
+  string granter = 2;
+}
+
+// PendingGrantDeposit is one escrowed pending-grant deposit.
+message PendingGrantDeposit {
+  uint64 grant_id = 1;
+  cosmos.base.v1beta1.Coin amount = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
 }
 
 // OneshotDeposit is one escrowed ScheduledOneshot gas deposit.

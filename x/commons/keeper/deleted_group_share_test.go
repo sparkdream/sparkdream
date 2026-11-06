@@ -7,7 +7,6 @@ import (
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
@@ -57,16 +56,25 @@ func TestExecuteProposal_RechecksPermissions(t *testing.T) {
 	require.NoError(t, k.PolicyPermissions.Set(ctx, policy, types.PolicyPermissions{
 		PolicyAddress: policy, AllowedMessages: []string{"/sparkdream.commons.v1.MsgSpendFromCommons"},
 	}))
+	// The tx succeeds and the proposal ends FAILED (CMN-108: the status
+	// persists instead of rolling back with an error).
+	failed := func(id uint64) types.Proposal {
+		p, err := k.Proposals.Get(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_FAILED, p.Status)
+		return p
+	}
 	proposal(1)
 	_, err := ms.ExecuteProposal(ctx, &types.MsgExecuteProposal{Executor: executor, ProposalId: 1})
-	require.ErrorIs(t, err, sdkerrors.ErrUnauthorized)
-	require.Contains(t, err.Error(), "no longer allowed")
+	require.NoError(t, err)
+	require.Contains(t, failed(1).FailedReason, "no longer allowed")
 
 	// Deleted: the policy has no permissions at all.
 	require.NoError(t, k.PolicyPermissions.Remove(ctx, policy))
 	proposal(2)
 	_, err = ms.ExecuteProposal(ctx, &types.MsgExecuteProposal{Executor: executor, ProposalId: 2})
-	require.ErrorIs(t, err, sdkerrors.ErrUnauthorized)
+	require.NoError(t, err)
+	failed(2)
 
 	// Still allowed: the check passes (execution then stops at the unwired
 	// router, which this keeper has none of).

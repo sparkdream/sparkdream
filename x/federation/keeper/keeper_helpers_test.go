@@ -29,7 +29,7 @@ func TestGetPeerRequireActive(t *testing.T) {
 	// about the PENDING rejection, so put it back.
 	peer, _ := f.keeper.Peers.Get(f.ctx, "active-test-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_PENDING
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "active-test-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	// PENDING peer should fail
 	_, err := f.keeper.GetPeerRequireActive(f.ctx, "active-test-peer")
@@ -37,7 +37,7 @@ func TestGetPeerRequireActive(t *testing.T) {
 
 	// Set to ACTIVE
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "active-test-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	got, err := f.keeper.GetPeerRequireActive(f.ctx, "active-test-peer")
 	require.NoError(t, err)

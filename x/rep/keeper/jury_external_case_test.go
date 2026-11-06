@@ -30,6 +30,7 @@ func TestCreateSeatedAppeal(t *testing.T) {
 
 		id, err := f.keeper.CreateSeatedAppeal(f.ctx, "service.slash", []byte(`{}`), height+100, []string{operator})
 		require.NoError(t, err)
+		require.NoError(t, f.keeper.DrawPendingJuries(f.ctx))
 		review, err := f.keeper.GetJuryReview(f.ctx, id)
 		require.NoError(t, err)
 		require.NotEmpty(t, review.Jurors)

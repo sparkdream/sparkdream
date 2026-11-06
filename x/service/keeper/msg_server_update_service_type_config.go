@@ -34,6 +34,13 @@ func (k msgServer) UpdateServiceTypeConfig(ctx context.Context, msg *types.MsgUp
 	if err := msg.Config.Validate(); err != nil {
 		return nil, err
 	}
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := msg.Config.ValidateAgainstParams(params); err != nil {
+		return nil, err
+	}
 
 	// Service-type immutability on update: if an existing entry is keyed
 	// at the same string, that's an update. We only allow it (no rename).

@@ -167,9 +167,30 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 				pruned++
 				return false, nil
 			}
-			// Unappealed: the hide stood until the content's own TTL ran out.
-			// Finalize it exactly as hidden_expiration would (author slash,
-			// conviction-stake slash, reservation released), then prune.
+			// Unappealed but still inside its appeal window: an ephemeral
+			// post must not lose the window a permanent one gets (the appeal
+			// opens hide_appeal_cooldown after the hide, which can be after
+			// the TTL). Defer the prune to the hide's own expiry, where
+			// ExpireHiddenPosts settles it; the post stays HIDDEN meanwhile.
+			// An anonymous post has no appellant, so there is nothing to wait
+			// for (FRM-102).
+			if until := hideExpiryAt(hr); now < until && !k.isAnonymous(post.Author) {
+				if err := k.ExpirationQueue.Remove(ctx, key); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("PruneExpiredPosts: ExpirationQueue.Remove failed", "err", err)
+				}
+				post.ExpirationTime = until + 1
+				if setErr := k.Post.Set(ctx, postID, post); setErr == nil {
+					if err := k.ExpirationQueue.Set(ctx, collections.Join(post.ExpirationTime, postID)); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("PruneExpiredPosts: ExpirationQueue.Set failed", "err", err)
+					}
+				}
+				pruned++
+				return false, nil
+			}
+			// Unappealed past its window: the hide stood until the content's
+			// own TTL ran out. Finalize it exactly as hidden_expiration would
+			// (author slash, conviction-stake slash, reservation released),
+			// then prune.
 			if err := k.settleUnappealedHide(ctx, postID, hr, true, "ephemeral prune"); err != nil {
 				sdkCtx.Logger().Error("failed to settle hide before prune", "post_id", postID, "error", err)
 			}
@@ -496,6 +517,15 @@ func (k Keeper) tombstoneHiddenPost(ctx context.Context, postID uint64, post typ
 		}
 	}
 
+	return k.softDeleteHiddenPost(ctx, postID, post)
+}
+
+// softDeleteHiddenPost is the state half of the hidden-post tombstone: tag
+// usages released, the post soft-deleted with its content cleared, and its
+// secondary indexes dropped. tombstoneHiddenPost runs it after the "hide
+// stood" consequences; an overturned hide whose category is gone runs it on
+// its own (the author won, but the post has nowhere to come back to).
+func (k Keeper) softDeleteHiddenPost(ctx context.Context, postID uint64, post types.Post) error {
 	// Drop rep-registry UsageCount for every tag the post carried — this is
 	// the second half of the hidden-post tombstone path. Same
 	// rationale as the ephemeral-prune and explicit-delete paths.
@@ -510,8 +540,12 @@ func (k Keeper) tombstoneHiddenPost(ctx context.Context, postID uint64, post typ
 		return err
 	}
 	// FORUM-S2-8: drop from secondary indexes; the post is no longer
-	// eligible for TopPosts/PinnedPosts.
+	// eligible for TopPosts/PinnedPosts. DELETED is terminal, so the root
+	// also leaves RootsByCategory (HasPostInCategory never walks it again).
 	if post.ParentId == 0 {
+		if err := k.RootsByCategory.Remove(ctx, collections.Join(post.CategoryId, post.PostId)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("softDeleteHiddenPost: RootsByCategory.Remove failed", "err", err)
+		}
 		if err := k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId)); err != nil {
 			sdk.UnwrapSDKContext(ctx).Logger().Error("tombstoneHiddenPost: PostsByUpvotes.Remove failed", "err", err)
 		}

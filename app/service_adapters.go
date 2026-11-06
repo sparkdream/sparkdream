@@ -62,6 +62,29 @@ func (a *ServiceCommonsAdapter) IsCouncilAuthorized(ctx context.Context, addr st
 	return a.keeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
+// IsCouncilOrCommitteePolicy delegates to x/commons.
+func (a *ServiceCommonsAdapter) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	return a.keeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
+}
+
+// GroupPolicyMembers lists the members of the group behind policyAddr;
+// nil when the address is not a group policy.
+func (a *ServiceCommonsAdapter) GroupPolicyMembers(ctx context.Context, policyAddr string) ([]string, error) {
+	name, _, ok := a.keeper.GetGroupByPolicy(ctx, policyAddr)
+	if !ok {
+		return nil, nil
+	}
+	members, err := a.keeper.GetCouncilMembers(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(members))
+	for _, m := range members {
+		out = append(out, m.Address)
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // Rep → service.RepKeeper adapter
 // ---------------------------------------------------------------------------

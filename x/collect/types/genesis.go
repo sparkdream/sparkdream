@@ -56,6 +56,26 @@ func (gs GenesisState) Validate() error {
 		}
 	}
 
+	// At most one open (unresolved) hide record per target: MsgHideContent
+	// checks only the newest record on a target, so a second open record
+	// would let a hide pile on top of one still being settled.
+	hideIDs := make(map[uint64]bool)
+	openHideByTarget := make(map[string]uint64)
+	for _, hr := range gs.HideRecords {
+		if hideIDs[hr.Id] {
+			return fmt.Errorf("duplicate hide record ID: %d", hr.Id)
+		}
+		hideIDs[hr.Id] = true
+		if hr.Resolved {
+			continue
+		}
+		target := fmt.Sprintf("%d/%d", int32(hr.TargetType), hr.TargetId)
+		if other, dup := openHideByTarget[target]; dup {
+			return fmt.Errorf("hide records %d and %d are both open on target %s", other, hr.Id, target)
+		}
+		openHideByTarget[target] = hr.Id
+	}
+
 	// Validate collaborators reference valid collections
 	for _, collab := range gs.Collaborators {
 		if !collectionIDs[collab.CollectionId] {

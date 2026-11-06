@@ -48,10 +48,16 @@ func PolicyIndexInvariant(k Keeper) sdk.Invariant {
 	}
 }
 
+// OperationalMembers is the seat count from which a group is operational:
+// a standing committee is seeded with the founder alone, below its
+// min_members by design, until its first add; from two seats on it can
+// never shrink below min_members again (docs/security-hardening.md, one-way
+// ratchet).
+const OperationalMembers uint64 = 2
+
 // MemberBoundsInvariant: every group has at least one member and at most
-// max_members. The lower bound min_members is not checked: a standing
-// committee is seeded with the founder alone, below its minimum by design,
-// until its first add (docs/security-hardening.md, one-way ratchet).
+// max_members, and an operational group (OperationalMembers seats or more)
+// holds at least min_members (CMN-103).
 func MemberBoundsInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems string
@@ -66,6 +72,9 @@ func MemberBoundsInvariant(k Keeper) sdk.Invariant {
 			}
 			if n == 0 {
 				problems += fmt.Sprintf("group %q has no members\n", name)
+			}
+			if n >= OperationalMembers && n < g.MinMembers {
+				problems += fmt.Sprintf("group %q: %d members < min %d\n", name, n, g.MinMembers)
 			}
 			return false, nil
 		}); err != nil {

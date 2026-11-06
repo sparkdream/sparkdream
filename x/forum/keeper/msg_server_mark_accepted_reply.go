@@ -203,6 +203,16 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	if k.sameMember(ctx, reply.Author, msg.Creator) {
 		return nil, errorsmod.Wrap(types.ErrCannotCurateOwnContent, "cannot propose your own reply")
 	}
+	// A thread author answering their own question is not a curation worth
+	// paying: the author's confirmation would endorse their own reply, and
+	// one arm's-length accomplice could farm the reward and the accuracy
+	// ring with self-answered threads (FRM-201). The author can still mark
+	// their own reply accepted themselves (no reward, no verdict). Anonymous
+	// posts all share the shield account, so two anonymous strangers are not
+	// the same member.
+	if !k.isAnonymous(thread.Author) && k.sameMember(ctx, reply.Author, thread.Author) {
+		return nil, errorsmod.Wrap(types.ErrCannotCurateSelfAnswer, "reply was written by the thread author")
+	}
 
 	// Get or create thread metadata.
 	metadata, err := k.ThreadMetadata.Get(ctx, msg.ThreadId)

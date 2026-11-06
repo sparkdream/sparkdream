@@ -112,208 +112,189 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string min_reputation_multiplier = 11 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
 
   // Initiative tiers
-  TierConfig apprentice_tier = 12 [(gogoproto.nullable) = false];
-  TierConfig standard_tier = 13 [(gogoproto.nullable) = false];
-  TierConfig expert_tier = 14 [(gogoproto.nullable) = false];
-  TierConfig epic_tier = 15 [(gogoproto.nullable) = false];
+  TierConfig apprentice_tier = 11 [(gogoproto.nullable) = false];
+  TierConfig standard_tier = 12 [(gogoproto.nullable) = false];
+  TierConfig expert_tier = 13 [(gogoproto.nullable) = false];
+  TierConfig epic_tier = 14 [(gogoproto.nullable) = false];
 
   // Conviction
-  int64 conviction_half_life_epochs = 16;
-  string external_conviction_ratio = 17 [
+  int64 conviction_half_life_epochs = 15;
+  string external_conviction_ratio = 16 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string conviction_per_dream = 18 [
+  string conviction_per_dream = 17 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Review periods
-  int64 default_review_period_epochs = 19;
-  int64 default_challenge_period_epochs = 20;
+  int64 default_review_period_epochs = 18;
+  int64 default_challenge_period_epochs = 19;
 
   // Invitations
-  string min_invitation_stake = 21 [
+  string min_invitation_stake = 20 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 invitation_accountability_epochs = 22;
-  string referral_reward_rate = 23 [
+  int64 invitation_accountability_epochs = 21;
+  string referral_reward_rate = 22 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string invitation_cost_multiplier = 24 [
+  string invitation_cost_multiplier = 23 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Trust levels
-  TrustLevelConfig trust_level_config = 25 [(gogoproto.nullable) = false];
+  TrustLevelConfig trust_level_config = 24 [(gogoproto.nullable) = false];
 
   // Challenges
-  string min_challenge_stake = 26 [
+  string min_challenge_stake = 25 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string challenger_reward_rate = 27 [
+  string challenger_reward_rate = 26 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint32 jury_size = 28;
-  string jury_super_majority = 29 [
+  uint32 jury_size = 27;
+  string jury_super_majority = 28 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string min_juror_reputation = 30 [
+  string min_juror_reputation = 29 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Interim compensation
-  string simple_complexity_budget = 31 [
+  string simple_complexity_budget = 30 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string standard_complexity_budget = 32 [
+  string standard_complexity_budget = 31 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string complex_complexity_budget = 33 [
+  string complex_complexity_budget = 32 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string expert_complexity_budget = 34 [
+  string expert_complexity_budget = 33 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string solo_expert_bonus_rate = 35 [
+  string solo_expert_bonus_rate = 34 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 interim_deadline_epochs = 36;
-
-  // Rate limits
-  uint32 max_active_challenges_per_committee = 37;
-  uint32 max_new_challenges_per_epoch = 38;
-  uint32 challenge_queue_max_size = 39;
+  // Default lifetime of a member-created interim, in epochs: MsgCreateInterim
+  // with deadline 0 is due interim_deadline_epochs * epoch_blocks from now.
+  int64 interim_deadline_epochs = 35;
 
   // Slashing
-  string minor_slash_penalty = 40 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
-  string moderate_slash_penalty = 41 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
-  string severe_slash_penalty = 42 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
-  string zeroing_slash_penalty = 43 [
+  string severe_slash_penalty = 36 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Extended staking
-  string project_completion_bonus_rate = 44 [
+  string project_completion_bonus_rate = 37 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string member_stake_revenue_share = 45 [
+  string member_stake_revenue_share = 38 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string tag_stake_revenue_share = 46 [
+  string tag_stake_revenue_share = 39 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 min_stake_duration_seconds = 47;
-  bool allow_self_member_stake = 48;
+  int64 min_stake_duration_seconds = 40;
+  bool allow_self_member_stake = 41;
 
   // Challenge response deadline (epochs)
   // If assignee doesn't respond within this time, challenge is auto-upheld
-  int64 challenge_response_deadline_epochs = 49;
+  int64 challenge_response_deadline_epochs = 42;
 
   // Recipient-side transfer limits. DREAM an account may take in through tips
   // and initiative bounty payouts per epoch and per season. Sender caps alone
   // cannot bound a buyer, who can collect from any number of senders; these
   // bound how fast any one position can be bought. Gifts are excluded: each
   // member has one inviter, so max_gift_per_invitee already bounds them.
-  string max_transfer_received_per_epoch = 50 [
+  string max_transfer_received_per_epoch = 43 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_transfer_received_per_season = 51 [
+  string max_transfer_received_per_season = 44 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Content conviction staking
-  int64 content_conviction_half_life_epochs = 52; // Half-life for content conviction decay (default: 14 epochs)
-  string max_content_stake_per_member = 53 [ // Max DREAM one member can stake on a single content item
+  int64 content_conviction_half_life_epochs = 45; // Half-life for content conviction decay (default: 14 epochs)
+  string max_content_stake_per_member = 46 [ // Max DREAM one member can stake on a single content item
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_author_bond_per_content = 54 [ // Max DREAM an author can bond on their own content
+  string max_author_bond_per_content = 47 [ // Max DREAM an author can bond on their own content
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool author_bond_slash_on_moderation = 55; // Whether to slash author bonds when content is moderated
-  string content_challenge_reward_share = 56 [ // Fraction of slashed author bond given to challenger (rest burned), default 0.5
+  bool author_bond_slash_on_moderation = 48; // Whether to slash author bonds when content is moderated
+  string content_challenge_reward_share = 49 [ // Fraction of slashed author bond given to challenger (rest burned), default 0.5
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string conviction_propagation_ratio = 57 [ // Fraction of linked content conviction propagated to initiative (default 0.10)
+  string conviction_propagation_ratio = 50 [ // Fraction of linked content conviction propagated to initiative (default 0.10)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Tag anti-gaming
-  uint32 max_tags_per_initiative = 58; // Max tags allowed per initiative (default 3, prevents tag stuffing)
+  uint32 max_tags_per_initiative = 51; // Max tags allowed per initiative (default 3, prevents tag stuffing)
 
   // Anti-gaming parameters
-  string reputation_decay_rate = 59 [ // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
+  string reputation_decay_rate = 52 [ // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_conviction_share_per_member = 60 [ // Max fraction of required conviction any single member can contribute (default 0.33)
+  string max_conviction_share_per_member = 53 [ // Max fraction of required conviction any single member can contribute (default 0.33)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string invitation_stake_burn_rate = 61 [ // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
+  string invitation_stake_burn_rate = 54 [ // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_reputation_gain_per_epoch = 62 [ // Max reputation any member can earn per tag per epoch (default 50)
+  string max_reputation_gain_per_epoch = 55 [ // Max reputation any member can earn per tag per epoch (default 50)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Seasonal staking reward pool
-  string max_staking_rewards_per_season = 63 [ // Total DREAM minted per season for staking rewards (default: 25,000 DREAM)
+  string max_staking_rewards_per_season = 56 [ // Total DREAM minted per season for staking rewards (default: 25,000 DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -328,7 +309,7 @@ message Params {
   // acc_per_share grows without bound: a chain with 1.47 DREAM staked hands the
   // entire season budget to three dust stakes. Whatever this cap withholds
   // stays in the pool rather than being distributed or dropped.
-  string staking_reward_yield_per_epoch = 136 [
+  string staking_reward_yield_per_epoch = 129 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
@@ -341,7 +322,7 @@ message Params {
   // Staking rewards are excluded from the base. Counting them would let each
   // season's pool inflate the next one's, compounding with nothing but the
   // schedule cap below to stop it.
-  string staking_pool_mint_share = 137 [
+  string staking_pool_mint_share = 130 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
@@ -356,36 +337,36 @@ message Params {
   // and widens by that much each season. It backstops the mint-share term above
   // on a chain whose mint volume spikes; max_staking_rewards_per_season remains
   // the absolute ceiling over both.
-  string staking_pool_cap_base = 138 [
+  string staking_pool_cap_base = 131 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string staking_pool_cap_rate = 139 [
+  string staking_pool_cap_rate = 132 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string staked_decay_rate = 64 [ // Per-epoch decay on staked DREAM (default 0.05% = 0.0005)
+  string staked_decay_rate = 57 [ // Per-epoch decay on staked DREAM (default 0.05% = 0.0005)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 new_member_decay_grace_epochs = 65; // Epochs new members are exempt from decay (default 30 ~1 month)
+  int64 new_member_decay_grace_epochs = 58; // Epochs new members are exempt from decay (default 30 ~1 month)
 
   // Treasury management
-  string max_treasury_balance = 66 [ // Excess above this is burned each epoch (default: 100,000 DREAM)
+  string max_treasury_balance = 59 [ // Excess above this is burned each epoch (default: 100,000 DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool treasury_funds_interims = 67; // Pay interims from treasury first, mint only if empty (default true)
-  bool treasury_funds_retro_pgf = 68; // Pay retro PGF from treasury first, mint remainder (default true)
+  bool treasury_funds_interims = 60; // Pay interims from treasury first, mint only if empty (default true)
+  bool treasury_funds_retro_pgf = 61; // Pay retro PGF from treasury first, mint remainder (default true)
 
   // Anti-whale staking cap: max DREAM one member can stake on a single initiative (default 50,000 DREAM)
   // Prevents reward pool extraction — conviction is already capped by max_conviction_share_per_member,
   // but without this cap, a whale can stake disproportionately and extract most seasonal staking rewards.
-  string max_initiative_stake_per_member = 69 [
+  string max_initiative_stake_per_member = 62 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -403,7 +384,7 @@ message Params {
   // should not occupy a state slot. Move it with the yield. What bounds the
   // return on a small position is max_completion_bonus_stake_multiple, not
   // this.
-  string min_stake_amount = 140 [
+  string min_stake_amount = 133 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -416,7 +397,7 @@ message Params {
   // against a 25,000 DREAM genesis supply. Interims are self-assigned and
   // self-completed by design, so the per-member active cap alone does not
   // bound the total: a member can complete and re-create indefinitely.
-  string max_interim_rewards_per_season = 143 [
+  string max_interim_rewards_per_season = 136 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -424,7 +405,7 @@ message Params {
 
   // Per-season cap on total DREAM minted via initiative completion rewards (default 100,000 DREAM).
   // Bounds total extraction even if colluding members rubber-stamp initiatives.
-  string max_initiative_rewards_per_season = 70 [
+  string max_initiative_rewards_per_season = 63 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -432,34 +413,34 @@ message Params {
 
   // Projects with approved budget above this threshold require council proposal approval
   // instead of single Operations Committee member approval (default 10,000 DREAM).
-  string large_project_budget_threshold = 71 [
+  string large_project_budget_threshold = 64 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Permissionless creation fees (burned on creation — anti-spam + deflationary)
-  string project_creation_fee = 72 [ // DREAM burned when creating a permissionless project (default 5 DREAM)
+  string project_creation_fee = 65 [ // DREAM burned when creating a permissionless project (default 5 DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string initiative_creation_fee_apprentice = 73 [ // DREAM burned for apprentice initiative under permissionless project (default 1 DREAM)
+  string initiative_creation_fee_apprentice = 66 [ // DREAM burned for apprentice initiative under permissionless project (default 1 DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string initiative_creation_fee_standard = 74 [ // DREAM burned for standard initiative under permissionless project (default 3 DREAM)
+  string initiative_creation_fee_standard = 67 [ // DREAM burned for standard initiative under permissionless project (default 3 DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Permissionless access control (governance-only — not in RepOperationalParams)
-  uint32 permissionless_min_trust_level = 75; // Minimum trust level to create a permissionless project (default 2 = ESTABLISHED)
-  uint32 permissionless_max_tier = 76; // Highest initiative tier allowed in permissionless projects (default 1 = STANDARD)
+  uint32 permissionless_min_trust_level = 68; // Minimum trust level to create a permissionless project (default 2 = ESTABLISHED)
+  uint32 permissionless_max_tier = 69; // Highest initiative tier allowed in permissionless projects (default 1 = STANDARD)
 
-  string tag_creation_fee = 77 [ // DREAM burned when creating a member-registered tag (default 100 micro-DREAM)
+  string tag_creation_fee = 70 [ // DREAM burned when creating a member-registered tag (default 100 micro-DREAM)
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -467,25 +448,25 @@ message Params {
 
   // Sentinel SPARK reward pool (x/rep holds SPARK fed by spam taxes;
   // drained each epoch to sentinels according to accuracy/activity gates).
-  string max_sentinel_reward_pool = 78 [ // Upper cap (uspark). Excess is burned at ratio below (default 100,000 SPARK).
+  string max_sentinel_reward_pool = 71 [ // Upper cap (uspark). Excess is burned at ratio below (default 100,000 SPARK).
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string sentinel_reward_pool_overflow_burn_ratio = 79 [ // Fraction of overflow burned per epoch (default 0.5).
+  string sentinel_reward_pool_overflow_burn_ratio = 72 [ // Fraction of overflow burned per epoch (default 0.5).
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 sentinel_reward_epoch_blocks = 80; // Cadence of sentinel reward distribution (default 14400 ~= 1 day).
-  string min_sentinel_accuracy = 81 [ // Minimum accuracy to qualify for a reward (default 0.70).
+  uint64 sentinel_reward_epoch_blocks = 73; // Cadence of sentinel reward distribution (default 14400 ~= 1 day).
+  string min_sentinel_accuracy = 74 [ // Minimum accuracy to qualify for a reward (default 0.70).
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 min_appeals_for_accuracy = 82; // Minimum appeal sample size before accuracy is meaningful (default 10).
-  uint64 min_epoch_activity_for_reward = 83; // Minimum moderation actions in an epoch to qualify for a reward (default 1).
-  string min_appeal_rate = 84 [ // Minimum appeal rate (appeals / actions) to qualify for a reward (default 0.05).
+  uint64 min_appeals_for_accuracy = 75; // Minimum appeal sample size before accuracy is meaningful (default 10).
+  uint64 min_epoch_activity_for_reward = 76; // Minimum moderation actions in an epoch to qualify for a reward (default 1).
+  string min_appeal_rate = 77 [ // Minimum appeal rate (appeals / actions) to qualify for a reward (default 0.05).
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
@@ -494,16 +475,16 @@ message Params {
   // measured. Recent overturns move the ratio; inactivity ages a sentinel out.
   // Bounded 1 <= W <= MaxSentinelAccuracyWindowEpochs (== the forum
   // SentinelAccuracyRingSize). Default 6.
-  uint64 sentinel_accuracy_window_epochs = 91;
+  uint64 sentinel_accuracy_window_epochs = 84;
 
   // Per-member active work caps (anti-monopolization). 0 = unbounded.
-  uint32 max_active_initiatives_per_member = 85; // Max in-flight initiatives (OPEN..CHALLENGED) where the member is assignee (default 10)
-  uint32 max_active_interims_per_member = 86; // Max in-flight interims (PENDING/IN_PROGRESS) where the member is an assignee (default 10)
+  uint32 max_active_initiatives_per_member = 78; // Max in-flight initiatives (OPEN..CHALLENGED) where the member is assignee (default 10)
+  uint32 max_active_interims_per_member = 79; // Max in-flight interims (PENDING/IN_PROGRESS) where the member is an assignee (default 10)
 
   // Global per-epoch ceiling on DREAM minted across every path (initiative rewards,
   // referral rewards, interim compensation, retro PGF, jury rewards, etc.). Counter
   // resets at the first MintDREAM of each new epoch. 0 = unbounded.
-  string max_dream_mint_per_epoch = 87 [
+  string max_dream_mint_per_epoch = 80 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -514,7 +495,7 @@ message Params {
   // this is a hard cap that rejects nonsense values (e.g. 10^30 DREAM) and
   // keeps state clean. Set well above any legitimate project size so council-
   // gated large proposals are not blocked. Must be positive.
-  string max_project_requested_budget = 88 [
+  string max_project_requested_budget = 81 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -522,7 +503,7 @@ message Params {
 
   // Absolute upper bound on requested_spark at proposal time. Same role as
   // max_project_requested_budget but for SPARK (uspark). Must be positive.
-  string max_project_requested_spark = 89 [
+  string max_project_requested_spark = 82 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -531,7 +512,7 @@ message Params {
   // Number of blocks a PROPOSED (non-permissionless) project stays open before
   // the EndBlocker transitions it to PROJECT_STATUS_EXPIRED. Prevents state
   // pollution by stale unapproved proposals. Must be positive.
-  int64 proposed_project_expiry_blocks = 90;
+  int64 proposed_project_expiry_blocks = 83;
 
   // Self-assignment safeguards. A member MAY assign themselves an initiative
   // they created (or one under a project they created); conflict-of-interest
@@ -545,7 +526,7 @@ message Params {
   // initiative is self-assigned on a budget-backed project. Bond is returned
   // on completion or abandonment and burned when a challenge is upheld.
   // Range [0, 1]; 0 disables.
-  string self_assigned_bond_rate = 92 [
+  string self_assigned_bond_rate = 85 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -556,14 +537,14 @@ message Params {
   // since max_conviction_share_per_member caps any one member's contribution:
   // ceil(0.75 / 0.33) = 3 independent stakers, against 2 for externally
   // assigned work.
-  string self_assigned_external_conviction_ratio = 93 [
+  string self_assigned_external_conviction_ratio = 86 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Multiplier applied to the challenge window for self-assigned initiatives.
   // Must be >= 1. Default 2.
-  int64 self_assigned_challenge_multiplier = 94;
+  int64 self_assigned_challenge_multiplier = 87;
 
   // Bond rate applied instead of self_assigned_bond_rate when the initiative
   // is self-assigned under a permissionless project. Higher because the two
@@ -573,7 +554,7 @@ message Params {
   // self-assignment used to be exempt from the bond entirely, which disabled
   // the main economic deterrent exactly where no counterparty exists.
   // Range [0, 1]; 0 disables. Default 0.25.
-  string permissionless_self_assigned_bond_rate = 95 [
+  string permissionless_self_assigned_bond_rate = 88 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -585,7 +566,7 @@ message Params {
   // Charged in reputation because that is what qualifies a juror: enough
   // abandoned seats and they fall below min_juror_reputation and stop being
   // drawn for that tag at all. Must be non-negative; 0 disables. Default 10.
-  string abandoned_jury_seat_penalty = 96 [
+  string abandoned_jury_seat_penalty = 89 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -594,7 +575,7 @@ message Params {
   // regardless of what was in dispute, so a challenge over a 100 DREAM
   // APPRENTICE initiative minted 750 DREAM in juror fees to settle it — more
   // than the work was worth. Range [0, 1]. Default 0.25.
-  string juror_reward_rate = 97 [
+  string juror_reward_rate = 90 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -616,7 +597,7 @@ message Params {
   // Operational alongside the other juror knobs: leaving juror *pay* committee
   // tunable while juror *timing* needed a governance vote was an artifact of
   // build order, not a decision.
-  string jury_acceptance_window_ratio = 98 [
+  string jury_acceptance_window_ratio = 91 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -626,7 +607,7 @@ message Params {
   // content challenges and moderation appeals have no initiative budget to
   // scale against — for those this floor *is* the whole rate, which is why it
   // cannot stay a compile-time constant. Default 5 DREAM.
-  string min_juror_reward = 99 [
+  string min_juror_reward = 92 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -638,14 +619,14 @@ message Params {
   //
   // Chosen for shape rather than fitted to anything, and meant to be revisited
   // against observed response rates. Range (0,1]. Default 0.1.
-  string min_juror_selection_weight = 100 [
+  string min_juror_selection_weight = 93 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Seatings a juror must have before the responsiveness weight applies at all.
   // Below this there is no meaningful record and they are drawn at full weight.
   // Like the floor above, a guess awaiting real data. Default 3.
-  uint64 min_jury_seatings_for_weighting = 101;
+  uint64 min_jury_seatings_for_weighting = 94;
   // Conviction-weighted completion bonus, as a fraction of the initiative
   // budget, paid to external stakers on completion.
   //
@@ -653,7 +634,7 @@ message Params {
   // (project_completion_bonus_rate) was already a param — the same economic
   // knob, tunable on one side and fixed on the other. Range [0,1].
   // Default 0.1.
-  string initiative_completion_bonus_rate = 102 [
+  string initiative_completion_bonus_rate = 95 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -676,7 +657,7 @@ message Params {
   // restores the stake-to-budget ratio the conviction formula was designed
   // around (~4%) without touching the sqrt weighting that deliberately rewards
   // breadth. Range: 0 disables the bonus entirely.
-  string max_completion_bonus_stake_multiple = 141 [
+  string max_completion_bonus_stake_multiple = 134 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -694,7 +675,7 @@ message Params {
   // Must be >= max_content_stake_per_member. Default 20,000 DREAM (2x the
   // per-item cap). Author bonds are not counted; they are slashable escrow
   // with their own per-item cap.
-  string max_total_content_stake_per_member = 142 [
+  string max_total_content_stake_per_member = 135 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -706,7 +687,7 @@ message Params {
   // without lowering this leaves replacement jurors no time to read the work.
   // Both live in the same scope so the pair always moves under one authority.
   // Default 1.
-  uint32 max_jury_redraws = 103;
+  uint32 max_jury_redraws = 96;
   // Fraction of an initiative's budget a reviewer commits as bond when filing a
   // verdict on it, and the amount slashed if a jury overturns that verdict.
   //
@@ -715,7 +696,7 @@ message Params {
   // same risk should not attach to a 100 DREAM one. It is also self-limiting:
   // a reviewer can only hold as many open verdicts as their free bond covers.
   // Range (0,1]. Default 0.1.
-  string reviewer_bond_reserve_rate = 104 [
+  string reviewer_bond_reserve_rate = 97 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -728,7 +709,7 @@ message Params {
   // Paid when the initiative resolves, so an unacted-on review costs nothing and
   // filing verdicts earns nothing until something turns on them. Range [0,1].
   // Default 0.05.
-  string review_fee_rate = 105 [
+  string review_fee_rate = 98 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -736,7 +717,7 @@ message Params {
   // terminal. A rejection returns the work to ASSIGNED so the assignee can fix
   // and resubmit, which is the right remedy for "not done" — but unbounded it
   // lets a bad-faith assignee burn reviewer effort indefinitely. Default 3.
-  uint32 max_review_rounds = 106;
+  uint32 max_review_rounds = 99;
   // SPARK reward pool for initiative reviewers, mirroring the sentinel pool but
   // held and tuned separately.
   //
@@ -748,21 +729,21 @@ message Params {
   //
   // The pool is an ordinary bank sub-address, so a council policy funds it with
   // a plain send.
-  string max_reviewer_reward_pool = 107 [ // Upper cap (uspark). Excess burned at the ratio below. Default 100,000 SPARK.
+  string max_reviewer_reward_pool = 100 [ // Upper cap (uspark). Excess burned at the ratio below. Default 100,000 SPARK.
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string reviewer_reward_pool_overflow_burn_ratio = 108 [ // Fraction of overflow burned per epoch. Default 0.5.
+  string reviewer_reward_pool_overflow_burn_ratio = 101 [ // Fraction of overflow burned per epoch. Default 0.5.
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 reviewer_reward_epoch_blocks = 109; // Distribution cadence. Default 14400 (~1 day).
-  string min_reviewer_accuracy = 110 [ // Minimum windowed accuracy to earn a share. Default 0.70.
+  uint64 reviewer_reward_epoch_blocks = 102; // Distribution cadence. Default 14400 (~1 day).
+  string min_reviewer_accuracy = 103 [ // Minimum windowed accuracy to earn a share. Default 0.70.
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 reviewer_accuracy_window_epochs = 111; // Epochs of history the accuracy ring scores. Default 6.
+  uint64 reviewer_accuracy_window_epochs = 104; // Epochs of history the accuracy ring scores. Default 6.
   // Reviewer bonded-role policy: the eligibility and exit terms for
   // ROLE_TYPE_INITIATIVE_REVIEWER.
   //
@@ -793,14 +774,14 @@ message Params {
   // low is the point: reviewing should be something an ordinary member can start
   // doing and then grow into, rather than something gated on holding a large
   // balance up front.
-  string min_reviewer_bond = 129 [
+  string min_reviewer_bond = 122 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
   // Free bond below which a reviewer is demoted out of the role. Conventionally
   // half of min_reviewer_bond.
-  string reviewer_demotion_threshold = 130 [
+  string reviewer_demotion_threshold = 123 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -813,13 +794,13 @@ message Params {
   // check entirely on an empty string, so an omitted level would silently open
   // the one role whose approvals mint DREAM. An ungated roster is still
   // expressible as TRUST_LEVEL_NEW.
-  string min_reviewer_trust_level = 131;
-  uint64 min_reviewer_rep_tier = 132;
-  int64 min_reviewer_age_blocks = 133;
-  int64 reviewer_demotion_cooldown = 134;
+  string min_reviewer_trust_level = 124;
+  uint64 min_reviewer_rep_tier = 125;
+  int64 min_reviewer_age_blocks = 126;
+  int64 reviewer_demotion_cooldown = 127;
   // Bond stays slashable through this window after an unbond request, so open
   // verdicts can age out and still be charged if a jury overturns them.
-  int64 reviewer_unbond_cooldown = 135;
+  int64 reviewer_unbond_cooldown = 128;
   // Ceiling on the uspark x/rep may draw from the community pool per UTC day to
   // fund its bonded-role reward pools.
   //
@@ -853,7 +834,7 @@ message Params {
   //
   // Default 0.5 (half the community pool's inflation income); zero disables the
   // skim, leaving the pools to forfeited bonds and direct sends.
-  string role_reward_inflation_share = 112 [
+  string role_reward_inflation_share = 105 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -863,20 +844,20 @@ message Params {
   // comparable judgment calls with comparable liability. Kept as separate
   // params (and a separate pool) anyway, so neither role can draw on the
   // other's funds or be retuned by the other's bar.
-  string max_curator_reward_pool = 113 [
+  string max_curator_reward_pool = 106 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string curator_reward_pool_overflow_burn_ratio = 114 [
+  string curator_reward_pool_overflow_burn_ratio = 107 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 curator_reward_epoch_blocks = 115;
-  string min_curator_accuracy = 116 [
+  uint64 curator_reward_epoch_blocks = 108;
+  string min_curator_accuracy = 109 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 curator_accuracy_window_epochs = 117;
+  uint64 curator_accuracy_window_epochs = 110;
 
   // Budget above which an initiative cannot complete without at least one
   // reviewer verdict, regardless of the parent project's verification policy.
@@ -895,7 +876,7 @@ message Params {
   // Composes with the per-project policy as a MAXIMUM, never a replacement: a
   // project may demand more verifiers than this, never fewer. Zero disables the
   // chain-wide gate and leaves review entirely to project policy.
-  string review_required_above_budget = 118 [
+  string review_required_above_budget = 111 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -905,7 +886,7 @@ message Params {
   // funder advertising a bounty and withdrawing it in the same breath, which
   // would let anyone grief the reviewer roster at zero cost. Reclaim is barred
   // outright once any verdict is filed, regardless of this delay.
-  uint64 review_bounty_reclaim_delay = 119;
+  uint64 review_bounty_reclaim_delay = 112;
 
   // Minimum review bounty a PERMISSIONLESS initiative must escrow at creation,
   // as a fraction of its budget, paid in existing DREAM.
@@ -923,7 +904,7 @@ message Params {
   // service that is never delivered. That keeps apprentice work — the on-ramp,
   // where members arrive holding zero DREAM — free of it. Zero disables the
   // requirement entirely.
-  string permissionless_min_review_bounty_rate = 120 [
+  string permissionless_min_review_bounty_rate = 113 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -943,38 +924,38 @@ message Params {
   // fetching the peer's content and hashing it, then paying SPARK gas to
   // submit. Paying only in DREAM made it the single role where doing the job
   // drains the holder's SPARK and returns a token they cannot spend on gas.
-  string max_verifier_reward_pool = 121 [
+  string max_verifier_reward_pool = 114 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string verifier_reward_pool_overflow_burn_ratio = 122 [
+  string verifier_reward_pool_overflow_burn_ratio = 115 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 verifier_reward_epoch_blocks = 123;
-  string min_verifier_accuracy = 124 [
+  uint64 verifier_reward_epoch_blocks = 116;
+  string min_verifier_accuracy = 117 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 verifier_accuracy_window_epochs = 125;
+  uint64 verifier_accuracy_window_epochs = 118;
 
   // Verified items required in an epoch to earn anything that epoch. This is
   // the ONLY place volume enters verifier pay -- as a floor, never as a
   // weight. See the score formula in x/rep/keeper/verifier_reward_distribution.go
   // for why weighting by verified_count is the wrong curve for this role.
-  uint32 min_epoch_verifications = 126;
+  uint32 min_epoch_verifications = 119;
 
   // Flat DREAM minted per eligible verifier per epoch, scaled down pro-rata
   // when the roster would push the epoch's total past the mint cap. Auto-bonds
   // while the verifier is in RECOVERY so a slashed verifier can rebuild their
   // bond by working rather than by fronting DREAM.
-  string verifier_dream_reward = 127 [
+  string verifier_dream_reward = 120 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_verifier_dream_mint_per_epoch = 128 [
+  string max_verifier_dream_mint_per_epoch = 121 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -987,30 +968,30 @@ message Params {
   // max_initiative_bounty_contributions are refused. A funder may reclaim a
   // contribution older than initiative_bounty_reclaim_delay blocks while the
   // initiative is unassigned.
-  string initiative_bounty_max_budget_ratio = 144 [
+  string initiative_bounty_max_budget_ratio = 137 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_initiative_bounty_per_funder_epoch = 145 [
+  string max_initiative_bounty_per_funder_epoch = 138 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_initiative_bounty_contribution = 146 [
+  string min_initiative_bounty_contribution = 139 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_initiative_bounty_contributions = 147;
-  uint64 initiative_bounty_reclaim_delay = 148;
+  uint32 max_initiative_bounty_contributions = 140;
+  uint64 initiative_bounty_reclaim_delay = 141;
 
   // invitation_acceptance_epochs is how many epochs a PENDING invitation
   // stays open. Once it passes, the epoch-end sweep marks it EXPIRED,
   // unlocks the inviter's staked DREAM, restores the spent invitation
   // credit and frees the invitee address for a new invitation. 0 disables
   // expiry.
-  int64 invitation_acceptance_epochs = 149;
+  int64 invitation_acceptance_epochs = 142;
 
   // ---------------------------------------------------------------------
   // Member key migration (docs/x-rep-spec.md, "Member key migration").
@@ -1019,50 +1000,50 @@ message Params {
   // ---------------------------------------------------------------------
 
   // migration_enabled is the master switch for every migration path.
-  bool migration_enabled = 150;
+  bool migration_enabled = 143;
   // key_path_enabled is the "Q-day switch": governance flips it off if the
   // account signature scheme is considered broken. Recovery and council
   // migrations keep working.
-  bool key_path_enabled = 151;
+  bool key_path_enabled = 144;
   // key_migration_delay is the seconds between the new address accepting a
   // KEY migration and finalization (default 7 days).
-  int64 key_migration_delay = 152;
+  int64 key_migration_delay = 145;
   // recovery_migration_delay is the same for RECOVERY migrations (default
   // 2 days).
-  int64 recovery_migration_delay = 153;
+  int64 recovery_migration_delay = 146;
   // council_migration_delay is the same for COUNCIL migrations (default 21
   // days); the window in which the old address may object.
-  int64 council_migration_delay = 154;
+  int64 council_migration_delay = 147;
   // migration_accept_window is the seconds the new address has to accept a
   // requested migration before it expires (default 7 days, so a multisig
   // can collect signatures).
-  int64 migration_accept_window = 155;
+  int64 migration_accept_window = 148;
   // migration_cooldown is the seconds after a migration before the member
   // may request another KEY migration (default 30 days). Recovery and
   // council migrations are exempt.
-  int64 migration_cooldown = 156;
+  int64 migration_cooldown = 149;
   // max_key_migrations_per_window caps KEY migrations finalized within
   // key_migration_window (default 2): a rolling window, not a lifetime cap.
-  uint32 max_key_migrations_per_window = 157;
+  uint32 max_key_migrations_per_window = 150;
   // key_migration_window is the rolling window in seconds (default 365
   // days). Validated >= 2 * migration_cooldown.
-  int64 key_migration_window = 158;
+  int64 key_migration_window = 151;
   // recovery_change_delay is the seconds a commitment set, replaced or
   // removed by an existing member waits before it takes effect (default
   // 30 days). Longer than the KEY-path delay, so the recovery path can not
   // be used as a faster key path by whoever holds the key.
-  int64 recovery_change_delay = 159;
+  int64 recovery_change_delay = 152;
   // recovery_reveal_min_blocks is the minimum age of the sealed commit at
   // reveal (default 20 blocks): the front-running guard.
-  int64 recovery_reveal_min_blocks = 160;
+  int64 recovery_reveal_min_blocks = 153;
   // recovery_commit_ttl is the seconds a sealed commit lives before it
   // expires and its deposit is burned (default 7 days).
-  int64 recovery_commit_ttl = 161;
+  int64 recovery_commit_ttl = 154;
   // recovery_commit_deposit is the SPARK (micro-denom) locked with a sealed
   // commit; refunded on a successful reveal, burned on expiry (default 1
   // SPARK). MsgCommitRecovery is the only permissionless write on the
   // path, so spam has to lock capital.
-  string recovery_commit_deposit = 162 [
+  string recovery_commit_deposit = 155 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -1071,7 +1052,7 @@ message Params {
   // to the new address if the jury upholds the migration, refunded if the
   // objector wins; never burned, because on the stolen-key path it is the
   // victim's SPARK.
-  string migration_objection_bond = 163 [
+  string migration_objection_bond = 156 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -1080,14 +1061,29 @@ message Params {
   // MESSAGE_FIELD action window (council voting periods, challenge and
   // arbiter windows) so one member cannot act twice on one target with two
   // keys. x/commons refuses voting periods longer than it.
-  int64 zk_key_activation_delay = 164;
+  int64 zk_key_activation_delay = 157;
   // tag_budget_awarder_epoch_cap_bps caps what one group member may award
   // from one tag budget per epoch, in basis points of the pool as it stood
   // before that member's awards this epoch (default 2500 = 25%; 0 = the
   // default; at most 10000). Applies on top of the 25% single-award cap and
   // the self-award ban, so one member acting alone cannot drain the pool
   // through many posts by other authors.
-  uint64 tag_budget_awarder_epoch_cap_bps = 165;
+  uint64 tag_budget_awarder_epoch_cap_bps = 158;
+  // budget_review_threshold is the requested DREAM budget (micro-DREAM) at or
+  // above which a budget-backed project proposal opens a BUDGET_REVIEW interim
+  // (COMPLEX budget) for the Commons Operations Committee instead of a
+  // PROJECT_APPROVAL one (STANDARD budget). Default 5,000 DREAM. Governance
+  // only: it prices committee work, so a committee must not set it.
+  string budget_review_threshold = 159 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // max_proposed_projects_per_creator caps how many budget-backed project
+  // proposals one member (across their aliases) may hold in PROPOSED at
+  // once (default 3). Each proposal opens a paid review interim for the
+  // picked council's Operations Committee, so an uncapped proposer could
+  // fill the committee's pending work for the price of gas. Governance only.
+  uint32 max_proposed_projects_per_creator = 160;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -1132,241 +1128,234 @@ message RepOperationalParams {
   bool gift_only_to_invitees = 8;
 
   // Reputation
-  string min_reputation_multiplier = 9 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
 
   // Review periods
-  int64 default_review_period_epochs = 10;
-  int64 default_challenge_period_epochs = 11;
+  int64 default_review_period_epochs = 9;
+  int64 default_challenge_period_epochs = 10;
 
   // Invitations
-  string min_invitation_stake = 12 [
+  string min_invitation_stake = 11 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 invitation_accountability_epochs = 13;
-  string referral_reward_rate = 14 [
+  int64 invitation_accountability_epochs = 12;
+  string referral_reward_rate = 13 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string invitation_cost_multiplier = 15 [
+  string invitation_cost_multiplier = 14 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Challenges
-  string min_challenge_stake = 16 [
+  string min_challenge_stake = 15 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string challenger_reward_rate = 17 [
+  string challenger_reward_rate = 16 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint32 jury_size = 18;
-  string jury_super_majority = 19 [
+  uint32 jury_size = 17;
+  string jury_super_majority = 18 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string min_juror_reputation = 20 [
+  string min_juror_reputation = 19 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Interim compensation
-  string simple_complexity_budget = 21 [
+  string simple_complexity_budget = 20 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string standard_complexity_budget = 22 [
+  string standard_complexity_budget = 21 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string complex_complexity_budget = 23 [
+  string complex_complexity_budget = 22 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string expert_complexity_budget = 24 [
+  string expert_complexity_budget = 23 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string solo_expert_bonus_rate = 25 [
+  string solo_expert_bonus_rate = 24 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 interim_deadline_epochs = 26;
-
-  // Rate limits
-  uint32 max_active_challenges_per_committee = 27;
-  uint32 max_new_challenges_per_epoch = 28;
-  uint32 challenge_queue_max_size = 29;
+  // Default lifetime of a member-created interim, in epochs: MsgCreateInterim
+  // with deadline 0 is due interim_deadline_epochs * epoch_blocks from now.
+  int64 interim_deadline_epochs = 25;
 
   // Extended staking
-  string project_completion_bonus_rate = 30 [
+  string project_completion_bonus_rate = 26 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string member_stake_revenue_share = 31 [
+  string member_stake_revenue_share = 27 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string tag_stake_revenue_share = 32 [
+  string tag_stake_revenue_share = 28 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 min_stake_duration_seconds = 33;
-  bool allow_self_member_stake = 34;
+  int64 min_stake_duration_seconds = 29;
+  bool allow_self_member_stake = 30;
 
   // Challenge response deadline (epochs)
-  int64 challenge_response_deadline_epochs = 35;
+  int64 challenge_response_deadline_epochs = 31;
 
   // Recipient-side transfer limits. DREAM an account may take in through tips
   // and initiative bounty payouts per epoch and per season. Sender caps alone
   // cannot bound a buyer, who can collect from any number of senders; these
   // bound how fast any one position can be bought. Gifts are excluded: each
   // member has one inviter, so max_gift_per_invitee already bounds them.
-  string max_transfer_received_per_epoch = 36 [
+  string max_transfer_received_per_epoch = 32 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_transfer_received_per_season = 37 [
+  string max_transfer_received_per_season = 33 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Content conviction staking
-  int64 content_conviction_half_life_epochs = 38;
-  string max_content_stake_per_member = 39 [
+  int64 content_conviction_half_life_epochs = 34;
+  string max_content_stake_per_member = 35 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_author_bond_per_content = 40 [
+  string max_author_bond_per_content = 36 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool author_bond_slash_on_moderation = 41;
-  string content_challenge_reward_share = 42 [ // Fraction of slashed author bond given to challenger (rest burned), default 0.5
+  bool author_bond_slash_on_moderation = 37;
+  string content_challenge_reward_share = 38 [ // Fraction of slashed author bond given to challenger (rest burned), default 0.5
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string conviction_propagation_ratio = 43 [ // Fraction of linked content conviction propagated to initiative (default 0.10)
+  string conviction_propagation_ratio = 39 [ // Fraction of linked content conviction propagated to initiative (default 0.10)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Tag anti-gaming
-  uint32 max_tags_per_initiative = 44; // Max tags allowed per initiative (default 3, prevents tag stuffing)
+  uint32 max_tags_per_initiative = 40; // Max tags allowed per initiative (default 3, prevents tag stuffing)
 
   // Anti-gaming parameters
-  string reputation_decay_rate = 45 [ // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
+  string reputation_decay_rate = 41 [ // Per-epoch decay rate for reputation scores (default 0.001 = 0.1%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_conviction_share_per_member = 46 [ // Max fraction of required conviction any single member can contribute (default 0.33)
+  string max_conviction_share_per_member = 42 [ // Max fraction of required conviction any single member can contribute (default 0.33)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string invitation_stake_burn_rate = 47 [ // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
+  string invitation_stake_burn_rate = 43 [ // Fraction of invitation stake burned on acceptance (default 0.10 = 10%)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_reputation_gain_per_epoch = 48 [ // Max reputation any member can earn per tag per epoch (default 50)
+  string max_reputation_gain_per_epoch = 44 [ // Max reputation any member can earn per tag per epoch (default 50)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Seasonal staking reward pool
-  string max_staking_rewards_per_season = 49 [
+  string max_staking_rewards_per_season = 45 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string staked_decay_rate = 50 [
+  string staked_decay_rate = 46 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 new_member_decay_grace_epochs = 51;
+  int64 new_member_decay_grace_epochs = 47;
 
   // Treasury management
-  string max_treasury_balance = 52 [
+  string max_treasury_balance = 48 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  bool treasury_funds_interims = 53;
-  bool treasury_funds_retro_pgf = 54;
+  bool treasury_funds_interims = 49;
+  bool treasury_funds_retro_pgf = 50;
 
   // Anti-whale staking cap (mirrors Params.max_initiative_stake_per_member)
-  string max_initiative_stake_per_member = 55 [
+  string max_initiative_stake_per_member = 51 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Mirrors min_stake_amount in Params.
-  string min_stake_amount = 120 [
+  string min_stake_amount = 116 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Mirrors max_interim_rewards_per_season in Params.
-  string max_interim_rewards_per_season = 123 [
+  string max_interim_rewards_per_season = 119 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Per-season initiative reward minting cap (mirrors Params.max_initiative_rewards_per_season)
-  string max_initiative_rewards_per_season = 56 [
+  string max_initiative_rewards_per_season = 52 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Large project budget threshold for council approval (mirrors Params.large_project_budget_threshold)
-  string large_project_budget_threshold = 57 [
+  string large_project_budget_threshold = 53 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Permissionless creation fees (council-tunable)
-  string project_creation_fee = 58 [
+  string project_creation_fee = 54 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string initiative_creation_fee_apprentice = 59 [
+  string initiative_creation_fee_apprentice = 55 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string initiative_creation_fee_standard = 60 [
+  string initiative_creation_fee_standard = 56 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string tag_creation_fee = 61 [
+  string tag_creation_fee = 57 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -1374,39 +1363,39 @@ message RepOperationalParams {
 
   // Sentinel SPARK reward pool (x/rep holds SPARK fed by spam taxes;
   // drained each epoch to sentinels according to accuracy/activity gates).
-  string max_sentinel_reward_pool = 62 [ // Upper cap (uspark). Excess is burned at ratio below (default 100,000 SPARK).
+  string max_sentinel_reward_pool = 58 [ // Upper cap (uspark). Excess is burned at ratio below (default 100,000 SPARK).
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string sentinel_reward_pool_overflow_burn_ratio = 63 [ // Fraction of overflow burned per epoch (default 0.5).
+  string sentinel_reward_pool_overflow_burn_ratio = 59 [ // Fraction of overflow burned per epoch (default 0.5).
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 sentinel_reward_epoch_blocks = 64; // Cadence of sentinel reward distribution (default 14400 ~= 1 day).
-  string min_sentinel_accuracy = 65 [ // Minimum accuracy to qualify for a reward (default 0.70).
+  uint64 sentinel_reward_epoch_blocks = 60; // Cadence of sentinel reward distribution (default 14400 ~= 1 day).
+  string min_sentinel_accuracy = 61 [ // Minimum accuracy to qualify for a reward (default 0.70).
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 min_appeals_for_accuracy = 66; // Minimum appeal sample size before accuracy is meaningful (default 10).
-  uint64 min_epoch_activity_for_reward = 67; // Minimum moderation actions in an epoch to qualify for a reward (default 1).
-  string min_appeal_rate = 68 [ // Minimum appeal rate (appeals / actions) to qualify for a reward (default 0.05).
+  uint64 min_appeals_for_accuracy = 62; // Minimum appeal sample size before accuracy is meaningful (default 10).
+  uint64 min_epoch_activity_for_reward = 63; // Minimum moderation actions in an epoch to qualify for a reward (default 1).
+  string min_appeal_rate = 64 [ // Minimum appeal rate (appeals / actions) to qualify for a reward (default 0.05).
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Rolling window (in reward epochs) for sentinel reward accuracy (mirrors
   // Params.sentinel_accuracy_window_epochs). Default 6.
-  uint64 sentinel_accuracy_window_epochs = 75;
+  uint64 sentinel_accuracy_window_epochs = 71;
 
   // Per-member active work caps (mirrors Params.max_active_{initiatives,interims}_per_member). 0 = unbounded.
-  uint32 max_active_initiatives_per_member = 69;
-  uint32 max_active_interims_per_member = 70;
+  uint32 max_active_initiatives_per_member = 65;
+  uint32 max_active_interims_per_member = 66;
 
   // Global per-epoch DREAM minting cap (mirrors Params.max_dream_mint_per_epoch). 0 = unbounded.
-  string max_dream_mint_per_epoch = 71 [
+  string max_dream_mint_per_epoch = 67 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -1414,21 +1403,21 @@ message RepOperationalParams {
 
   // Proposal-time hard caps and expiry (mirror Params.max_project_requested_*
   // and Params.proposed_project_expiry_blocks).
-  string max_project_requested_budget = 72 [
+  string max_project_requested_budget = 68 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_project_requested_spark = 73 [
+  string max_project_requested_spark = 69 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 proposed_project_expiry_blocks = 74;
+  int64 proposed_project_expiry_blocks = 70;
 
   // Reputation deducted from a juror who accepted a summons and abandoned it.
   // Mirrors abandoned_jury_seat_penalty in Params.
-  string abandoned_jury_seat_penalty = 76 [
+  string abandoned_jury_seat_penalty = 72 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -1437,134 +1426,134 @@ message RepOperationalParams {
   // regardless of what was in dispute, so a challenge over a 100 DREAM
   // APPRENTICE initiative minted 750 DREAM in juror fees to settle it — more
   // than the work was worth. Range [0, 1]. Default 0.25.
-  string juror_reward_rate = 77 [
+  string juror_reward_rate = 73 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Mirrors min_juror_reward in Params.
-  string min_juror_reward = 78 [
+  string min_juror_reward = 74 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
   // Mirrors min_juror_selection_weight in Params.
-  string min_juror_selection_weight = 79 [
+  string min_juror_selection_weight = 75 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Mirrors min_jury_seatings_for_weighting in Params.
-  uint64 min_jury_seatings_for_weighting = 80;
+  uint64 min_jury_seatings_for_weighting = 76;
   // Mirrors initiative_completion_bonus_rate in Params.
-  string initiative_completion_bonus_rate = 81 [
+  string initiative_completion_bonus_rate = 77 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Mirrors max_completion_bonus_stake_multiple in Params.
-  string max_completion_bonus_stake_multiple = 121 [
+  string max_completion_bonus_stake_multiple = 117 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Mirrors max_total_content_stake_per_member in Params: the aggregate
   // per-member ceiling across all content conviction stakes.
-  string max_total_content_stake_per_member = 122 [
+  string max_total_content_stake_per_member = 118 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
   // Mirrors jury_acceptance_window_ratio in Params. Validated against
   // max_jury_redraws below — the pair must fit inside the review period.
-  string jury_acceptance_window_ratio = 82 [
+  string jury_acceptance_window_ratio = 78 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Mirrors max_jury_redraws in Params.
-  uint32 max_jury_redraws = 83;
+  uint32 max_jury_redraws = 79;
   // Mirrors reviewer_bond_reserve_rate in Params.
-  string reviewer_bond_reserve_rate = 84 [
+  string reviewer_bond_reserve_rate = 80 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Mirrors review_fee_rate in Params.
-  string review_fee_rate = 85 [
+  string review_fee_rate = 81 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Mirrors max_review_rounds in Params.
-  uint32 max_review_rounds = 86;
+  uint32 max_review_rounds = 82;
   // Mirrors the reviewer reward pool knobs in Params.
-  string max_reviewer_reward_pool = 87 [
+  string max_reviewer_reward_pool = 83 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string reviewer_reward_pool_overflow_burn_ratio = 88 [
+  string reviewer_reward_pool_overflow_burn_ratio = 84 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 reviewer_reward_epoch_blocks = 89;
-  string min_reviewer_accuracy = 90 [
+  uint64 reviewer_reward_epoch_blocks = 85;
+  string min_reviewer_accuracy = 86 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 reviewer_accuracy_window_epochs = 91;
+  uint64 reviewer_accuracy_window_epochs = 87;
   // Mirrors role_reward_inflation_share in Params.
-  string role_reward_inflation_share = 92 [
+  string role_reward_inflation_share = 88 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Mirrors the curator SPARK pool params in Params.
-  string max_curator_reward_pool = 93 [
+  string max_curator_reward_pool = 89 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string curator_reward_pool_overflow_burn_ratio = 94 [
+  string curator_reward_pool_overflow_burn_ratio = 90 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 curator_reward_epoch_blocks = 95;
-  string min_curator_accuracy = 96 [
+  uint64 curator_reward_epoch_blocks = 91;
+  string min_curator_accuracy = 92 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 curator_accuracy_window_epochs = 97;
+  uint64 curator_accuracy_window_epochs = 93;
   // Mirrors review_required_above_budget in Params.
-  string review_required_above_budget = 98 [
+  string review_required_above_budget = 94 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint64 review_bounty_reclaim_delay = 99;
-  string permissionless_min_review_bounty_rate = 100 [
+  uint64 review_bounty_reclaim_delay = 95;
+  string permissionless_min_review_bounty_rate = 96 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Mirrors the federation-verifier pay params in Params.
-  string max_verifier_reward_pool = 101 [
+  string max_verifier_reward_pool = 97 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string verifier_reward_pool_overflow_burn_ratio = 102 [
+  string verifier_reward_pool_overflow_burn_ratio = 98 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 verifier_reward_epoch_blocks = 103;
-  string min_verifier_accuracy = 104 [
+  uint64 verifier_reward_epoch_blocks = 99;
+  string min_verifier_accuracy = 100 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 verifier_accuracy_window_epochs = 105;
-  uint32 min_epoch_verifications = 106;
-  string verifier_dream_reward = 107 [
+  uint64 verifier_accuracy_window_epochs = 101;
+  uint32 min_epoch_verifications = 102;
+  string verifier_dream_reward = 103 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string max_verifier_dream_mint_per_epoch = 108 [
+  string max_verifier_dream_mint_per_epoch = 104 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -1573,39 +1562,39 @@ message RepOperationalParams {
   // Mirrors the reviewer bonded-role policy in Params. Updating these writes
   // through to the BondedRoleConfig for ROLE_TYPE_INITIATIVE_REVIEWER, so the
   // reviewer bond floor is tunable by council vote like every other role's.
-  string min_reviewer_bond = 109 [
+  string min_reviewer_bond = 105 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string reviewer_demotion_threshold = 110 [
+  string reviewer_demotion_threshold = 106 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_reviewer_trust_level = 111;
-  uint64 min_reviewer_rep_tier = 112;
-  int64 min_reviewer_age_blocks = 113;
-  int64 reviewer_demotion_cooldown = 114;
-  int64 reviewer_unbond_cooldown = 115;
+  string min_reviewer_trust_level = 107;
+  uint64 min_reviewer_rep_tier = 108;
+  int64 min_reviewer_age_blocks = 109;
+  int64 reviewer_demotion_cooldown = 110;
+  int64 reviewer_unbond_cooldown = 111;
 
   // Seasonal staking pool shape; see the same fields on Params.
-  string staking_reward_yield_per_epoch = 116 [
+  string staking_reward_yield_per_epoch = 112 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string staking_pool_mint_share = 117 [
+  string staking_pool_mint_share = 113 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string staking_pool_cap_base = 118 [
+  string staking_pool_cap_base = 114 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string staking_pool_cap_rate = 119 [
+  string staking_pool_cap_rate = 115 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
@@ -1618,21 +1607,21 @@ message RepOperationalParams {
   // max_initiative_bounty_contributions are refused. A funder may reclaim a
   // contribution older than initiative_bounty_reclaim_delay blocks while the
   // initiative is unassigned.
-  string initiative_bounty_max_budget_ratio = 124 [
+  string initiative_bounty_max_budget_ratio = 120 [
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string max_initiative_bounty_per_funder_epoch = 125 [
+  string max_initiative_bounty_per_funder_epoch = 121 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_initiative_bounty_contribution = 126 [
+  string min_initiative_bounty_contribution = 122 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_initiative_bounty_contributions = 127;
-  uint64 initiative_bounty_reclaim_delay = 128;
+  uint32 max_initiative_bounty_contributions = 123;
+  uint64 initiative_bounty_reclaim_delay = 124;
 }

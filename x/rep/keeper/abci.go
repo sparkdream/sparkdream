@@ -95,6 +95,16 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to sweep unanswered jury seats", "error", err)
 	}
 
+	// 6b'. Draw every seat queued this block: new reviews, declined seats and
+	// the seats the sweep above just vacated. Drawing here rather than in
+	// the transaction that asked for the seats keeps the draw out of the
+	// hands of the party who sent it (REP-R-102); the seed is the hash of
+	// this block. Seats queued by a module whose EndBlocker runs after this
+	// one are drawn in the next block.
+	if err := k.DrawPendingJuries(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to draw pending jury seats", "error", err)
+	}
+
 	// 6c. Escalate review rounds nobody finished. With the staker veto retired,
 	// reviewers are the quality gate — so if nobody reviews, nothing completes.
 	// This is the liveness guarantee: past the deadline the round goes to the
@@ -107,43 +117,15 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to sweep review deadlines", "error", err)
 	}
 
-	// 7. Process assigned initiative deadlines (interims).
-	//
-	// Collect first, then expire. ExpireInterim moves the interim out of
-	// PENDING/IN_PROGRESS, which is the very index IteratePendingInterims is
-	// walking, and it now also resolves an adjudication's challenge — so
-	// mutating mid-walk is doubly unsafe. Same shape as
-	// ResolveExpiredChallengeJuryReviews above.
-	var dueInterims []uint64
-	k.IteratePendingInterims(ctx, func(index int64, interim types.Interim) bool {
-		if sdkCtx.BlockHeight() >= interim.Deadline {
-			dueInterims = append(dueInterims, interim.Id)
-		}
-		return false
-	})
-	for _, id := range dueInterims {
-		if err := k.ExpireInterim(ctx, id); err != nil {
-			sdkCtx.Logger().Error("failed to expire interim", "interim_id", id, "error", err)
-		}
-	}
+	// 7. Expire interims whose deadline passed. Due queue, capped per block
+	// (REP-E-201): the walk over every live interim this used to be grew
+	// with each budget-backed project proposal, which opens one committee
+	// review interim; see due_queue.go.
+	k.SweepDueInterimDeadlines(ctx)
 
-	// 7b. Expire stale PROPOSED projects that no committee has approved within
-	// their expiry window. Collect first, mutate after the iterator closes so
-	// we don't mutate the by-status index mid-walk.
-	var expiredProjects []uint64
-	if err := k.IterateProjectsByStatus(ctx, types.ProjectStatus_PROJECT_STATUS_PROPOSED, func(id uint64, project types.Project) bool {
-		if project.ExpiryBlockHeight > 0 && sdkCtx.BlockHeight() >= project.ExpiryBlockHeight {
-			expiredProjects = append(expiredProjects, id)
-		}
-		return false
-	}); err != nil {
-		sdkCtx.Logger().Error("failed to walk PROPOSED projects for expiry", "error", err)
-	}
-	for _, id := range expiredProjects {
-		if err := k.ExpireProject(ctx, id); err != nil {
-			sdkCtx.Logger().Error("failed to expire project", "project_id", id, "error", err)
-		}
-	}
+	// 7b. Expire stale PROPOSED projects that no committee approved within
+	// their expiry window. Due queue, capped per block (REP-E-201).
+	k.SweepDueProjectExpiries(ctx)
 
 	// 8. Distribute staking rewards from seasonal pool
 	if err := k.DistributeEpochStakingRewards(ctx); err != nil {

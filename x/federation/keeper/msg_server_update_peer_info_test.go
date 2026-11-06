@@ -59,10 +59,67 @@ func TestUpdatePeerInfoRefusesMissingAndRemovedPeers(t *testing.T) {
 	peer, err := f.keeper.Peers.Get(f.ctx, "removed-peer")
 	require.NoError(t, err)
 	peer.Status = types.PeerStatus_PEER_STATUS_REMOVED
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "removed-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	_, err = ms.UpdatePeerInfo(f.ctx, &types.MsgUpdatePeerInfo{
 		Authority: f.authority, PeerId: "removed-peer", DisplayName: "x",
 	})
 	require.ErrorIs(t, err, types.ErrPeerNotActive)
+}
+
+// FED-106: expected_chain_id may be corrected only on a Spark Dream peer
+// that is not ACTIVE; an empty value keeps the current pin.
+func TestUpdatePeerInfoExpectedChainID(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+
+	// PENDING: correctable.
+	_, err := ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
+		Authority: f.authority, PeerId: "phoenix", DisplayName: "Phoenix",
+		Type: types.PeerType_PEER_TYPE_SPARK_DREAM, IbcChannelId: "channel-4", ExpectedChainId: "phoenix-0",
+	})
+	require.NoError(t, err)
+	upd := &types.MsgUpdatePeerInfo{Authority: f.authority, PeerId: "phoenix", DisplayName: "Phoenix", ExpectedChainId: "phoenix-1"}
+	require.NoError(t, upd.ValidateBasic())
+	_, err = ms.UpdatePeerInfo(f.ctx, upd)
+	require.NoError(t, err)
+	peer, err := f.keeper.Peers.Get(f.ctx, "phoenix")
+	require.NoError(t, err)
+	require.Equal(t, "phoenix-1", peer.ExpectedChainId)
+
+	// Empty keeps the pin.
+	_, err = ms.UpdatePeerInfo(f.ctx, &types.MsgUpdatePeerInfo{Authority: f.authority, PeerId: "phoenix", DisplayName: "Phoenix Chain"})
+	require.NoError(t, err)
+	peer, err = f.keeper.Peers.Get(f.ctx, "phoenix")
+	require.NoError(t, err)
+	require.Equal(t, "phoenix-1", peer.ExpectedChainId)
+	require.Equal(t, "Phoenix Chain", peer.DisplayName)
+
+	// Malformed is refused in ValidateBasic and the handler.
+	bad := &types.MsgUpdatePeerInfo{Authority: f.authority, PeerId: "phoenix", ExpectedChainId: "phoenix 2"}
+	require.ErrorContains(t, bad.ValidateBasic(), "whitespace")
+	_, err = ms.UpdatePeerInfo(f.ctx, bad)
+	require.ErrorContains(t, err, "whitespace")
+
+	// ACTIVE: refused, the pin is what activation verified.
+	activateTestPeer(t, f, ms, "phoenix")
+	_, err = ms.UpdatePeerInfo(f.ctx, &types.MsgUpdatePeerInfo{Authority: f.authority, PeerId: "phoenix", ExpectedChainId: "phoenix-2"})
+	require.ErrorIs(t, err, types.ErrInvalidRequest)
+	require.ErrorContains(t, err, "ACTIVE")
+	peer, err = f.keeper.Peers.Get(f.ctx, "phoenix")
+	require.NoError(t, err)
+	require.Equal(t, "phoenix-1", peer.ExpectedChainId)
+
+	// SUSPENDED: correctable again; the next activation re-verifies it.
+	_, err = ms.SuspendPeer(f.ctx, &types.MsgSuspendPeer{Authority: f.authority, PeerId: "phoenix", Reason: "rotate"})
+	require.NoError(t, err)
+	_, err = ms.UpdatePeerInfo(f.ctx, &types.MsgUpdatePeerInfo{Authority: f.authority, PeerId: "phoenix", ExpectedChainId: "phoenix-2"})
+	require.NoError(t, err)
+	_, err = ms.ResumePeer(f.ctx, &types.MsgResumePeer{Authority: f.authority, PeerId: "phoenix"})
+	require.ErrorIs(t, err, types.ErrPeerChainIdMismatch, "channel still leads to phoenix-1")
+
+	// Not a Spark Dream peer: refused.
+	registerTestPeer(t, f, ms, "pleroma.example")
+	_, err = ms.UpdatePeerInfo(f.ctx, &types.MsgUpdatePeerInfo{Authority: f.authority, PeerId: "pleroma.example", ExpectedChainId: "pleroma-1"})
+	require.ErrorContains(t, err, "only for Spark Dream peers")
 }

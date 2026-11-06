@@ -536,6 +536,12 @@ func (k Keeper) slashQueuedPost(ctx context.Context, postID uint64, author strin
 	if slashBps > 10000 {
 		slashBps = 10000
 	}
+	// A hide on an anonymous post could never be appealed (nobody can act as
+	// the shield account), so it never faced a challenge: its stakes are
+	// closed and unlocked without the staker slash (FRM-102).
+	if k.isAnonymous(author) {
+		slashBps = 0
+	}
 
 	rng := collections.NewPrefixedPairRange[uint64, uint64](postID)
 	collect := func(idx collections.KeySet[collections.Pair[uint64, uint64]], limit int) ([]uint64, error) {

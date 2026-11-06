@@ -65,4 +65,7 @@ var (
 	// without a project.
 	ProjectTransitionQueueKey    = collections.NewPrefix("contribution/project_retry/")
 	ProjectTransitionAttemptsKey = collections.NewPrefix("contribution/project_retry_attempts/")
+	// DeadlineFailuresKey: contributionID -> consecutive failed deadline steps
+	// (transient operational state, like ProjectTransitionAttempts).
+	DeadlineFailuresKey = collections.NewPrefix("contribution/deadline_failures/")
 )

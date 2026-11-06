@@ -31,8 +31,8 @@ var (
 
 	// maxExpArg bounds the argument of Exp. Every caller passes a
 	// non-positive exponent (the log-sum-exp forms below subtract the
-	// maximum first); the bound only guards LegacyDec against overflow if a
-	// future caller passes a large positive value. e^100 ~ 2.7e43 fits.
+	// maximum first), so anything above it is a caller bug: Exp refuses it
+	// instead of silently flattening the curve. e^100 ~ 2.7e43 fits.
 	maxExpArg = math.LegacyNewDec(100)
 
 	half = math.LegacyMustNewDecFromStr("0.5")
@@ -74,7 +74,11 @@ func CalculateLMSRCost(ctx sdk.Context, b math.LegacyDec, qYes, qNo math.LegacyD
 		hi, lo = y, x
 	}
 
-	lnSum, err := Ln(ctx, math.LegacyOneDec().Add(Exp(ctx, lo.Sub(hi))))
+	e, err := Exp(ctx, lo.Sub(hi))
+	if err != nil {
+		return math.LegacyZeroDec(), err
+	}
+	lnSum, err := Ln(ctx, math.LegacyOneDec().Add(e))
 	if err != nil {
 		return math.LegacyZeroDec(), fmt.Errorf("CalculateLMSRCost: ln failed: %w", err)
 	}
@@ -99,7 +103,11 @@ func SharesForAmount(ctx sdk.Context, b, qYes, qNo, amount math.LegacyDec, isYes
 	if !isYes {
 		side, other = qNo, qYes
 	}
-	oneMinus := math.LegacyOneDec().Sub(Exp(ctx, other.Sub(newCost).Quo(b)))
+	e, err := Exp(ctx, other.Sub(newCost).Quo(b))
+	if err != nil {
+		return math.LegacyZeroDec(), math.LegacyZeroDec(), err
+	}
+	oneMinus := math.LegacyOneDec().Sub(e)
 	if oneMinus.LTE(math.LegacyZeroDec()) {
 		return math.LegacyZeroDec(), math.LegacyZeroDec(), fmt.Errorf("trade too large: would deplete market liquidity")
 	}
@@ -116,12 +124,12 @@ func SharesForAmount(ctx sdk.Context, b, qYes, qNo, amount math.LegacyDec, isYes
 // convergent), and the result is squared back k times. The plain Taylor
 // series diverged for large |x| (Exp(-60) evaluated to -4.4e19, FUT-04).
 // Consumes gas per loop.
-func Exp(ctx sdk.Context, x math.LegacyDec) math.LegacyDec {
+func Exp(ctx sdk.Context, x math.LegacyDec) (math.LegacyDec, error) {
 	if x.IsZero() {
-		return math.LegacyOneDec()
+		return math.LegacyOneDec(), nil
 	}
 	if x.GT(maxExpArg) {
-		x = maxExpArg
+		return math.LegacyZeroDec(), fmt.Errorf("Exp: argument %s exceeds %s (callers must pass the log-sum-exp reduced form)", x.String(), maxExpArg.String())
 	}
 
 	one := math.LegacyOneDec()
@@ -150,7 +158,7 @@ func Exp(ctx sdk.Context, x math.LegacyDec) math.LegacyDec {
 		ctx.GasMeter().ConsumeGas(LmsrIterationGasCost, "lmsr_exp_iteration")
 		result = result.Mul(result)
 	}
-	return result
+	return result, nil
 }
 
 // Ln computes the natural logarithm. Returns an error if x <= 0 instead of
@@ -219,10 +227,17 @@ func SettlementPriceYes(ctx sdk.Context, b, qYes, qNo math.LegacyDec) (math.Lega
 	d := qYes.Sub(qNo).Quo(b)
 	if d.IsPositive() {
 		// p = 1 / (1 + e^-d)
-		return math.LegacyOneDec().Quo(math.LegacyOneDec().Add(Exp(ctx, d.Neg()))), nil
+		e, err := Exp(ctx, d.Neg())
+		if err != nil {
+			return math.LegacyZeroDec(), err
+		}
+		return math.LegacyOneDec().Quo(math.LegacyOneDec().Add(e)), nil
 	}
 	// p = e^d / (1 + e^d)
-	e := Exp(ctx, d)
+	e, err := Exp(ctx, d)
+	if err != nil {
+		return math.LegacyZeroDec(), err
+	}
 	return e.Quo(math.LegacyOneDec().Add(e)), nil
 }
 
@@ -230,13 +245,21 @@ func SettlementPriceYes(ctx sdk.Context, b, qYes, qNo math.LegacyDec) (math.Lega
 // z + ln(1 + e^-z), so the exponent is never positive.
 func softplus(ctx sdk.Context, z math.LegacyDec) (math.LegacyDec, error) {
 	if z.IsPositive() {
-		l, err := Ln(ctx, math.LegacyOneDec().Add(Exp(ctx, z.Neg())))
+		e, err := Exp(ctx, z.Neg())
+		if err != nil {
+			return math.LegacyZeroDec(), err
+		}
+		l, err := Ln(ctx, math.LegacyOneDec().Add(e))
 		if err != nil {
 			return math.LegacyZeroDec(), err
 		}
 		return z.Add(l), nil
 	}
-	return Ln(ctx, math.LegacyOneDec().Add(Exp(ctx, z)))
+	e, err := Exp(ctx, z)
+	if err != nil {
+		return math.LegacyZeroDec(), err
+	}
+	return Ln(ctx, math.LegacyOneDec().Add(e))
 }
 
 // CreatorResidualResolved returns the LMSR remainder after a YES/NO winner

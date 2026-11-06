@@ -1,8 +1,8 @@
 syntax = "proto3";
 package sparkdream.forum.v1;
 
-import "sparkdream/common/v1/flag_record.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/common/v1/flag_record.proto";
 
 option go_package = "sparkdream/x/forum/types";
 // Map fields are encoded in sorted key order: an unsorted encoding differs
@@ -16,7 +16,7 @@ message PostFlag {
   int64 first_flag_at = 3;
   int64 last_flag_at = 4;
   bool in_review_queue = 5;
-  repeated string flaggers = 10;
-  repeated sparkdream.common.v1.FlagRecord flag_records = 11;
-  map<int32, uint64> reason_counts = 12;
+  repeated string flaggers = 6;
+  repeated sparkdream.common.v1.FlagRecord flag_records = 7;
+  map<int32, uint64> reason_counts = 8;
 }

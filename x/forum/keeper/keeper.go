@@ -57,7 +57,8 @@ type Keeper struct {
 	BountiesByCreator collections.KeySet[collections.Pair[string, uint64]]
 	BountiesByExpiry  collections.KeySet[collections.Pair[int64, uint64]]
 	// RootsByCategory: (category_id, root_post_id) for every stored thread
-	// root, re-keyed when a thread moves (setRootCategory). Derived.
+	// root that is not DELETED, re-keyed when a thread moves
+	// (setRootCategory). Derived.
 	RootsByCategory collections.KeySet[collections.Pair[uint64, uint64]]
 	// LockedRoots indexes locked thread roots for the LockedThreads query
 	// (the ThreadLockRecord goes once the appeal window closes). Derived.
@@ -316,7 +317,9 @@ func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
 // category in any user-meaningful sense — counting them would mean an admin
 // could never delete a category that ever held a post, even after every post
 // has been removed. UNSPECIFIED is genesis-rejected so it should never occur
-// at runtime; treating it as a tombstone is the safe default.
+// at runtime; treating it as a tombstone is the safe default. DELETED is
+// terminal, so a deleted root also leaves RootsByCategory and is not walked
+// again; HIDDEN and ARCHIVED roots stay (both can come back).
 //
 // INVARIANT (DANGLING-REFERENCE GUARD): because tombstones do NOT block
 // category deletion here, every code path that transitions a post FROM a

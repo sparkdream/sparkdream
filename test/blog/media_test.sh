@@ -94,8 +94,8 @@ else
     BODY=$(echo "$SHOW" | jq -r '.post.body // ""')
     VERSION=$(echo "$SHOW" | jq -r '.post.media_rules_version // "0"')
     HASH=$(echo "$SHOW" | jq -r '.post.body_hash // ""')
-    if [ "$FLAGS" == "1" ] && [ -z "$BODY" ] && [ "$VERSION" == "2" ] && [ "$HASH" == "$(b64_sha256 "$INLINE_BODY")" ]; then
-        pass "show-post: media_flags=1, body withheld, rules v2, body_hash matches"
+    if [ "$FLAGS" == "1" ] && [ -z "$BODY" ] && [ "$VERSION" == "3" ] && [ "$HASH" == "$(b64_sha256 "$INLINE_BODY")" ]; then
+        pass "show-post: media_flags=1, body withheld, rules v3, body_hash matches"
     else
         fail "show-post: flags=$FLAGS version=$VERSION body='$BODY' hash=$HASH"
     fi

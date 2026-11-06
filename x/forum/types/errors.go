@@ -145,6 +145,8 @@ var (
 	ErrMaxProposalsReached         = errors.Register(ModuleName, 1917, "sentinel has reached the accepted-reply proposal cap on this thread")
 	ErrThreadProposalsLocked       = errors.Register(ModuleName, 1918, "thread is closed to accepted-reply proposals")
 	ErrCannotCurateOwnContent      = errors.Register(ModuleName, 1919, "sentinels cannot curate or dismiss flags on their own content")
+	ErrMaxPinnedPosts              = errors.Register(ModuleName, 1921, "maximum pinned posts reached for category")
+	ErrCannotCurateSelfAnswer      = errors.Register(ModuleName, 1922, "the thread author's own reply cannot be proposed as the accepted answer")
 
 	// Follow errors (1950-1999)
 	ErrAlreadyFollowing  = errors.Register(ModuleName, 1950, "already following this thread")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
@@ -21,11 +22,14 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Peers
+	// Peers, with the derived channel indexes
 	for _, peer := range genState.Peers {
 		if err := k.Peers.Set(ctx, peer.Id, peer); err != nil {
 			return err
 		}
+	}
+	if err := k.rebuildPeerIndexes(ctx, genState.Peers); err != nil {
+		return err
 	}
 
 	// PeerPolicies

@@ -42,12 +42,16 @@ bench:
 	@go test -mod=readonly -p 4 -v -timeout 30m -bench=. ./...
 
 # Production-build paths that untagged tests never reach: x/shield's
-# verification-key enforcement (InitGenesis launch gate, no-key rejection) and
-# the network build guard in app. Everything else assumes the testparams build.
+# verification-key enforcement (InitGenesis launch gate, no-key rejection), the
+# network build guard in app, and `genesis validate` over each network's
+# checked-in genesis.json under its own tag (module bounds compare against
+# compiled per-tag constants, so the testparams binary rejects every
+# production genesis). Everything else assumes the testparams build.
 test-production:
 	@echo Running production-build tests...
 	@go test -mod=readonly -count=1 -tags devnet -run 'TestProduction' ./x/shield/keeper/
 	@for net in devnet testnet mainnet; do go test -mod=readonly -count=1 -tags $$net -run 'TestCheckNetworkBuild' ./app/ || exit 1; done
+	@for net in devnet testnet mainnet; do go test -mod=readonly -count=1 -tags $$net -run 'TestNetworkBoundsActive|TestGovVotingPeriodFloorsPerNetwork|TestExecRejectsShortVotingPeriod' ./x/guardian/keeper/ || exit 1; done
 
 test: govet test-unit test-production
 

@@ -35,6 +35,16 @@ type mockShieldKeeper struct {
 	// chargeErr is what ChargeEpochFee returns; charged records each fee.
 	chargeErr error
 	charged   *[]math.Int
+	// refundErr is what RefundEpochFee returns; refunded records each call.
+	refundErr error
+	refunded  *[]refundCall
+}
+
+// refundCall is one RefundEpochFee call the mock saw.
+type refundCall struct {
+	epoch    uint64
+	amount   math.Int
+	identity string
 }
 
 func (m mockShieldKeeper) GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error) {
@@ -55,12 +65,22 @@ func (m mockShieldKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShielded
 	return m.consumes, nil
 }
 
-func (m mockShieldKeeper) ChargeEpochFee(_ sdk.Context, fee math.Int, _ math.Int) error {
+func (m mockShieldKeeper) ChargeEpochFee(_ sdk.Context, fee math.Int, _ shieldtypes.Params, _ *shieldtypes.MsgShieldedExec) error {
 	if m.chargeErr != nil {
 		return m.chargeErr
 	}
 	if m.charged != nil {
 		*m.charged = append(*m.charged, fee)
+	}
+	return nil
+}
+
+func (m mockShieldKeeper) RefundEpochFee(_ sdk.Context, epoch uint64, amount math.Int, identity string) error {
+	if m.refundErr != nil {
+		return m.refundErr
+	}
+	if m.refunded != nil {
+		*m.refunded = append(*m.refunded, refundCall{epoch: epoch, amount: amount, identity: identity})
 	}
 	return nil
 }
@@ -100,6 +120,14 @@ func (m mockUnorderedSigTx) GetTimeoutTimeStamp() time.Time { return time.Time{}
 type mockBankKeeper struct {
 	sendErr error
 	sent    bool
+	// transfers records every module-to-module send, in order.
+	transfers []moduleTransfer
+}
+
+// moduleTransfer is one SendCoinsFromModuleToModule the mock saw.
+type moduleTransfer struct {
+	from, to string
+	amt      sdk.Coins
 }
 
 func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error {
@@ -107,6 +135,7 @@ func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, sender
 		return m.sendErr
 	}
 	m.sent = true
+	m.transfers = append(m.transfers, moduleTransfer{from: senderModule, to: recipientModule, amt: amt})
 	return nil
 }
 

@@ -631,3 +631,46 @@ func TestUnbondRole_InvalidAmount(t *testing.T) {
 	})
 	require.ErrorIs(t, err, types.ErrInvalidAmount)
 }
+
+// REP-R-104: a streak demotion that lands while an unbond is in flight used to
+// overwrite UNBONDING with DEMOTED. MatureUnbonds treats a non-UNBONDING record
+// as a stale queue entry, so the pending DREAM stayed locked for good. The
+// status now stays UNBONDING, the cooldown carries the demotion (the role is
+// barred meanwhile), and maturity unlocks the DREAM and lands on DEMOTED.
+func TestUnbondRole_DemotionDuringUnbondStillMatures(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+	role := types.RoleType_ROLE_TYPE_CONTENT_SENTINEL
+
+	addr := sdk.AccAddress([]byte("sentinelDemoteU"))
+	bondSentinelForUnbond(t, f, addr, "2000")
+	_, err := srv.UnbondRole(f.ctx, &types.MsgUnbondRole{Creator: addr.String(), RoleType: role, Amount: "500"})
+	require.NoError(t, err)
+	br, err := f.keeper.GetBondedRole(f.ctx, role, addr.String())
+	require.NoError(t, err)
+
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	cooldownUntil := br.UnbondCompletionTime + 1000
+	require.NoError(t, f.keeper.SetBondStatus(f.ctx, role, addr.String(),
+		types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil))
+
+	br, err = f.keeper.GetBondedRole(f.ctx, role, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING, br.BondStatus)
+	require.Equal(t, cooldownUntil, br.DemotionCooldownUntil)
+	_, err = f.keeper.EligibleForRole(sdkCtx, role, addr.String())
+	require.ErrorIs(t, err, types.ErrRoleDemoted, "a demoted role may not act while it unbonds")
+
+	matured := sdkCtx.WithBlockTime(time.Unix(br.UnbondCompletionTime+1, 0))
+	require.NoError(t, f.keeper.MatureUnbonds(matured))
+
+	br, err = f.keeper.GetBondedRole(matured, role, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, "0", br.PendingUnbondAmount, "the unbond matured")
+	require.Equal(t, "1500", br.CurrentBond)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus, "held at DEMOTED by the cooldown")
+	require.Equal(t, cooldownUntil, br.DemotionCooldownUntil)
+	mem, err := f.keeper.Member.Get(matured, addr.String())
+	require.NoError(t, err)
+	require.Equal(t, "1500", mem.StakedDream.String(), "the pending DREAM is unlocked")
+}

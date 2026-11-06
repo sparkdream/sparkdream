@@ -217,7 +217,7 @@ func TestMsgResolveTagReport(t *testing.T) {
 			Creator:              authorityString(f),
 			TagName:              "reserved-tag",
 			Action:               2,
-			ReserveAuthority:     "council1",
+			ReserveAuthority:     authorityString(f),
 			ReserveMembersCanUse: true,
 		})
 		require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestMsgResolveTagReport(t *testing.T) {
 
 		rt, err := f.keeper.GetReservedTag(f.ctx, "reserved-tag")
 		require.NoError(t, err)
-		require.Equal(t, "council1", rt.Authority)
+		require.Equal(t, authorityString(f), rt.Authority)
 		require.True(t, rt.MembersCanUse)
 	})
 
@@ -262,4 +262,78 @@ func TestMsgResolveTagReport(t *testing.T) {
 		_, err = f.keeper.GetTag(f.ctx, "zenith-tag")
 		require.NoError(t, err)
 	})
+}
+
+// Action 3 (restore) releases a reserved tag back to public use and refunds
+// the reporters; it is refused for a tag that is not reserved.
+func TestMsgResolveTagReport_Restore(t *testing.T) {
+	f := initFixture(t, WithAuthorizationPolicy(AlwaysAuthorized))
+	f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool { return true }
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+	reporter := sdk.AccAddress([]byte("tag_restore_reporter")).String()
+
+	require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "aurora"}))
+	require.NoError(t, f.keeper.TagReport.Set(f.ctx, "aurora", types.TagReport{
+		TagName: "aurora", TotalBond: math.ZeroInt().String(), Reporters: []string{reporter}, UnderReview: true,
+	}))
+	// Not reserved: restore is refused and the report survives.
+	_, err := ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{Creator: authority, TagName: "aurora", Action: 3})
+	require.ErrorIs(t, err, types.ErrInvalidTagReportAction)
+	_, err = f.keeper.TagReport.Get(f.ctx, "aurora")
+	require.NoError(t, err)
+
+	require.NoError(t, f.keeper.SetReservedTag(f.ctx, types.ReservedTag{Name: "aurora", Authority: authority}))
+	_, err = ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{Creator: authority, TagName: "aurora", Action: 3})
+	require.NoError(t, err)
+	reserved, err := f.keeper.IsReservedTag(f.ctx, "aurora")
+	require.NoError(t, err)
+	require.False(t, reserved, "the reservation is released")
+	_, err = f.keeper.TagReport.Get(f.ctx, "aurora")
+	require.Error(t, err, "the report is resolved")
+
+	// Action 4 is still unknown.
+	_, err = ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{Creator: authority, TagName: "aurora", Action: 4})
+	require.ErrorIs(t, err, types.ErrInvalidTagReportAction)
+}
+
+// REP-R-203: reserve_authority is stored as-is and read by clients deciding
+// who may use the tag, so a value that is not an address is refused before
+// the report is touched; empty stays allowed.
+func TestMsgResolveTagReport_ReserveAuthorityValidated(t *testing.T) {
+	f := initFixture(t, WithAuthorizationPolicy(AlwaysAuthorized))
+	f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool { return true }
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+
+	for _, tc := range []struct {
+		name, reserveAuthority string
+		ok                     bool
+	}{
+		{"plain word", "council1", false},
+		{"broken checksum", "cosmos1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5lzv7xx", false},
+		{"empty", "", true},
+		{"bech32 address", authority, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tag := "zenith-" + tc.name
+			require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: tag}))
+			require.NoError(t, f.keeper.TagReport.Set(f.ctx, tag, types.TagReport{TagName: tag, Reporters: []string{authority}}))
+			_, err := ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{
+				Creator: authority, TagName: tag, Action: 2, ReserveAuthority: tc.reserveAuthority,
+			})
+			reserved, rErr := f.keeper.IsReservedTag(f.ctx, tag)
+			require.NoError(t, rErr)
+			_, reportErr := f.keeper.TagReport.Get(f.ctx, tag)
+			if tc.ok {
+				require.NoError(t, err)
+				require.True(t, reserved)
+				require.Error(t, reportErr, "the report is resolved")
+				return
+			}
+			require.ErrorIs(t, err, types.ErrInvalidTagReportAction)
+			require.False(t, reserved)
+			require.NoError(t, reportErr, "the report (and its bonds) survive a refused resolution")
+		})
+	}
 }

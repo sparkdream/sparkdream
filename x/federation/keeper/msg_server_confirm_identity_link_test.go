@@ -52,7 +52,7 @@ func TestConfirmIdentityLinkPeerNotActive(t *testing.T) {
 	setupIBCPeerForLink(t, f, ms, "remote-chain", "channel-4")
 	peer, _ := f.keeper.Peers.Get(f.ctx, "remote-chain")
 	peer.Status = types.PeerStatus_PEER_STATUS_SUSPENDED
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "remote-chain", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	claimedAddr := testAddr(t, f, "claimed-addr")
 	require.NoError(t, f.keeper.PendingIdChallenges.Set(f.ctx, collections.Join(claimedAddr, "remote-chain"), types.PendingIdentityChallenge{

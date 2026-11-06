@@ -595,8 +595,11 @@ fi
 echo ""
 # ========================================================================
 # TEST 5: Expert witnesses
-# A seated juror calls an expert on a pending initiative jury review; the
-# expert testifies and is paid through an EXPERT_TESTIMONY interim. It runs
+# A seated juror calls an expert on a pending initiative jury review, a
+# second juror who accepted jury duty endorses the call (the inviter cannot,
+# and the expert cannot testify before it), the expert testifies, and the
+# review's verdict pays the EXPERT_TESTIMONY interim the invitation opened
+# (testifying alone pays nothing). It runs
 # on its own challenge so its block rounds never share TEST 2's jury window
 # (one review epoch, 10 blocks on the test chain) with the votes.
 # ========================================================================
@@ -719,11 +722,11 @@ fi
 
 if [ "$TEST_5_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW5_ID" ] && [ "$JURY_REVIEW5_ID" != "null" ]; then
     JURY_ADDRS=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json | jq -r '.jury_review.jurors[]')
-    INVITER="" REFUSER=""
+    INVITER="" REFUSER="" REFUSER_ADDR=""
     for JADDR in $JURY_ADDRS; do
         JNAME="${JUROR_NAME_BY_ADDR[$JADDR]:-}"
         [ -z "$JNAME" ] && continue
-        if [ -z "$INVITER" ]; then INVITER=$JNAME; elif [ -z "$REFUSER" ]; then REFUSER=$JNAME; fi
+        if [ -z "$INVITER" ]; then INVITER=$JNAME; elif [ -z "$REFUSER" ]; then REFUSER=$JNAME; REFUSER_ADDR=$JADDR; fi
     done
 
     echo ""
@@ -767,20 +770,85 @@ if [ "$TEST_5_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW5_ID" ] && [ "$JURY_REVIEW
             echo "[ OK ] $INVITER invited $EXPERT_KEY as expert witness (interim #$EXPERT_INTERIM)"
 
             echo ""
-            echo "Step 4: Expert testifies and is paid..."
-            TEST_RES=$($BINARY tx rep submit-expert-testimony $JURY_REVIEW5_ID "sound" "The deliverable meets its stated criteria." \
+            echo "Step 3b: A second juror endorses the invitation (REP-E-103)..."
+            # Testimony before the endorsement is refused: ErrExpertNotEndorsed (rep 2420).
+            EARLY_RES=$($BINARY tx rep submit-expert-testimony $JURY_REVIEW5_ID \
+                "The deliverable is sound: it meets each stated acceptance criterion as written." \
+                "Submitted before any endorsement." \
+                --gas 800000 --from $EXPERT_KEY --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000${BOND_DENOM} -y --output json 2>&1)
+            EARLY_CODE=$(echo "$EARLY_RES" | jq -r '.code // 0' 2>/dev/null)
+            EARLY_HASH=$(echo "$EARLY_RES" | jq -r '.txhash // ""' 2>/dev/null)
+            if [ -n "$EARLY_HASH" ] && [ "$EARLY_CODE" = "0" ]; then
+                EARLY_CODE=$(wait_for_tx "$EARLY_HASH" | jq -r '.code')
+            fi
+            if [ "$EARLY_CODE" = "2420" ]; then
+                echo "[ OK ] Testimony before endorsement refused (code 2420)"
+            else
+                echo "[FAIL] Testimony before endorsement expected code 2420, got: $EARLY_CODE ($(echo "$EARLY_RES" | head -c 200 | tr '\n' ' '))"
+                TEST_5_RESULT="FAIL"
+            fi
+            # The inviter cannot endorse their own invitation: ErrInvalidEndorsement (rep 2421).
+            SELF_RES=$($BINARY tx rep endorse-expert-witness $JURY_REVIEW5_ID $EXPERT_PICK_ADDR --gas 400000 \
+                --from $INVITER --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000${BOND_DENOM} -y --output json 2>&1)
+            SELF_CODE=$(echo "$SELF_RES" | jq -r '.code // 0' 2>/dev/null)
+            SELF_HASH=$(echo "$SELF_RES" | jq -r '.txhash // ""' 2>/dev/null)
+            if [ -n "$SELF_HASH" ] && [ "$SELF_CODE" = "0" ]; then
+                SELF_CODE=$(wait_for_tx "$SELF_HASH" | jq -r '.code')
+            fi
+            if [ "$SELF_CODE" = "2421" ]; then
+                echo "[ OK ] Inviter's self-endorsement refused (code 2421)"
+            else
+                echo "[FAIL] Self-endorsement expected code 2421, got: $SELF_CODE ($(echo "$SELF_RES" | head -c 200 | tr '\n' ' '))"
+                TEST_5_RESULT="FAIL"
+            fi
+            if [ -z "$REFUSER" ]; then
+                echo "[FAIL] No second seated juror with a local key to endorse the invitation"
+                TEST_5_RESULT="FAIL"
+            else
+                # The endorser must have answered the summons: accept jury duty first.
+                ACC_RES=$($BINARY tx rep accept-jury-duty $JURY_REVIEW5_ID --gas 400000 \
+                    --from $REFUSER --chain-id $CHAIN_ID --keyring-backend test \
+                    --fees 5000${BOND_DENOM} -y --output json 2>&1)
+                ACC_TX=$(wait_for_tx "$(echo "$ACC_RES" | jq -r '.txhash // ""')")
+                if ! check_tx_success "$ACC_TX"; then
+                    echo "[FAIL] $REFUSER could not accept jury duty: $(echo "$ACC_TX" | jq -r '.raw_log' | head -c 200)"
+                    TEST_5_RESULT="FAIL"
+                fi
+                END_RES=$($BINARY tx rep endorse-expert-witness $JURY_REVIEW5_ID $EXPERT_PICK_ADDR --gas 400000 \
+                    --from $REFUSER --chain-id $CHAIN_ID --keyring-backend test \
+                    --fees 5000${BOND_DENOM} -y --output json 2>&1)
+                END_TX=$(wait_for_tx "$(echo "$END_RES" | jq -r '.txhash // ""')")
+                if check_tx_success "$END_TX"; then
+                    ENDORSERS=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json | jq -r '.jury_review.expert_endorsers // [] | join(",")')
+                    if [ "$ENDORSERS" = "$REFUSER_ADDR" ]; then
+                        echo "[ OK ] $REFUSER endorsed the invitation (expert_endorsers = $ENDORSERS)"
+                    else
+                        echo "[FAIL] Review expert_endorsers = '$ENDORSERS', expected $REFUSER_ADDR"
+                        TEST_5_RESULT="FAIL"
+                    fi
+                else
+                    echo "[FAIL] Endorsement rejected: $(echo "$END_TX" | jq -r '.raw_log' | head -c 300)"
+                    TEST_5_RESULT="FAIL"
+                fi
+            fi
+
+            echo ""
+            echo "Step 4: Expert testifies (paid at the verdict, not now)..."
+            # The opinion must be at least MinExpertOpinionLength (64) bytes.
+            TEST_RES=$($BINARY tx rep submit-expert-testimony $JURY_REVIEW5_ID \
+                "The deliverable is sound: it meets each stated acceptance criterion as written." \
+                "The deliverable meets its stated criteria." \
                 --gas 800000 --from $EXPERT_KEY --chain-id $CHAIN_ID --keyring-backend test \
                 --fees 5000${BOND_DENOM} -y --output json 2>&1)
             TEST_TX=$(wait_for_tx "$(echo "$TEST_RES" | jq -r '.txhash')")
             if check_tx_success "$TEST_TX"; then
-                ISTATUS=$($BINARY query rep get-interim $EXPERT_INTERIM --output json 2>/dev/null | jq -r '.interim.status')
-                BAL_AFTER=$($BINARY query rep get-member $EXPERT_PICK_ADDR --output json | jq -r '.member.dream_balance // "0"')
-                if [ "$ISTATUS" = "INTERIM_STATUS_COMPLETED" ] && python3 -c "import sys; sys.exit(0 if int('$BAL_AFTER') > int('$BAL_BEFORE') else 1)"; then
-                    echo "[ OK ] Testimony recorded, interim COMPLETED, expert paid ($BAL_BEFORE -> $BAL_AFTER)"
-                elif [ -n "$(extract_event_value "$TEST_TX" "expert_testimony_unpaid" "error")" ]; then
-                    echo "[WARN] Testimony recorded but unpaid: $(extract_event_value "$TEST_TX" "expert_testimony_unpaid" "error")"
+                ISTATUS=$($BINARY query rep get-interim $EXPERT_INTERIM --output json 2>/dev/null | jq -r '.interim.status // "INTERIM_STATUS_PENDING"')
+                if [ "$ISTATUS" = "INTERIM_STATUS_PENDING" ]; then
+                    echo "[ OK ] Testimony recorded, interim still PENDING until the verdict"
                 else
-                    echo "[FAIL] Testimony did not pay: interim status $ISTATUS, balance $BAL_BEFORE -> $BAL_AFTER"
+                    echo "[FAIL] Testimony settled the interim early: status $ISTATUS"
                     TEST_5_RESULT="FAIL"
                 fi
                 WITNESSES=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json | jq -r '.jury_review.expert_witnesses // [] | join(",")')
@@ -823,6 +891,26 @@ if [ "$TEST_5_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW5_ID" ] && [ "$JURY_REVIEW
             echo "[WARN] $JNAME vote did not land: $(echo "$VRES" | jq -r '.raw_log' | head -c 160)"
         fi
     done
+
+    echo ""
+    echo "Step 6: The verdict settles the expert's interim..."
+    VERDICT5=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json 2>/dev/null | jq -r '.jury_review.verdict // "VERDICT_PENDING"')
+    if [ -z "$EXPERT_INTERIM" ]; then
+        :
+    elif [ "$VERDICT5" = "VERDICT_PENDING" ]; then
+        echo "[WARN] Review #$JURY_REVIEW5_ID has no verdict yet; the expert is paid when it does"
+    else
+        ISTATUS=$($BINARY query rep get-interim $EXPERT_INTERIM --output json 2>/dev/null | jq -r '.interim.status')
+        BAL_AFTER=$($BINARY query rep get-member $EXPERT_PICK_ADDR --output json | jq -r '.member.dream_balance // "0"')
+        if [ "$ISTATUS" = "INTERIM_STATUS_COMPLETED" ] && python3 -c "import sys; sys.exit(0 if int('$BAL_AFTER') > int('$BAL_BEFORE') else 1)"; then
+            echo "[ OK ] Verdict $VERDICT5 paid the expert ($BAL_BEFORE -> $BAL_AFTER)"
+        elif [ "$ISTATUS" = "INTERIM_STATUS_EXPIRED" ]; then
+            echo "[WARN] Verdict $VERDICT5 left the testimony unpaid (season interim cap?)"
+        else
+            echo "[FAIL] Verdict $VERDICT5 did not settle the expert: interim status $ISTATUS, balance $BAL_BEFORE -> $BAL_AFTER"
+            TEST_5_RESULT="FAIL"
+        fi
+    fi
 fi
 echo ""
 
@@ -847,7 +935,7 @@ print_result "TEST 1: Anonymous Challenge (moved to x/shield)" "$TEST_1_RESULT"
 print_result "TEST 2: Jury Review (votes + verdict tally)"     "$TEST_2_RESULT"
 print_result "TEST 3: Auto-Uphold (deadline + EndBlocker)"     "$TEST_3_RESULT"
 print_result "TEST 4: Self-Challenge Rejected (ErrSelfChallenge)" "$TEST_4_RESULT"
-print_result "TEST 5: Expert Witness (invite, testify, pay)"   "$TEST_5_RESULT"
+print_result "TEST 5: Expert Witness (invite, endorse, testify, pay)"   "$TEST_5_RESULT"
 echo ""
 echo "================================================================================"
 

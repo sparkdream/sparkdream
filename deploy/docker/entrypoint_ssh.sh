@@ -216,6 +216,14 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
                 kill -TERM 1
                 return 0
             fi
+            # the node as a child of this entrypoint's own loop (step 8,
+            # remote-signer validators): stopping it is enough, the loop
+            # decides what follows, as the container restart did for PID 1
+            if [ "$(cut -d' ' -f4 "/proc/$pid/stat" 2>/dev/null)" = 1 ] \
+                && [ "$(cat /proc/1/comm 2>/dev/null)" != tail ]; then
+                kill -TERM "$pid"
+                return 0
+            fi
             cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
             out=$(readlink "/proc/$pid/fd/1" 2>/dev/null || true)
             case "$out" in /*) ;; *) out="${NODE_HOME_DIR}/sparkdreamd.log" ;; esac
@@ -392,7 +400,64 @@ if [ "$STARTUP_DELAY" -gt 0 ] 2>/dev/null; then
     echo "Startup delay complete."
 fi
 
-# 8. Normal mode: exec the image CMD (sparkdreamd for node images,
-#    relayer-run for the Hermes image)
+# 8. Normal mode: run the image CMD (sparkdreamd for node images,
+#    relayer-run for the Hermes image).
+#
+#    A remote-signer validator (PRIVVAL_KEEPALIVE_PORT set) does not exec it.
+#    CometBFT gives the signer a few seconds to connect after start and exits
+#    without one, and with the node as PID 1 that exit took the container
+#    with it: tailscaled and the keepalive proxy went down, the signer's next
+#    connect attempt then hung for two minutes on an address nothing answered,
+#    and by the time the provider had restarted the pod and the mesh was back
+#    (about forty seconds in every five minutes) the signer was still inside
+#    that timeout. Seen live as a fifteen-hour halt (devnet, 2026-11-05).
+#
+#    So the node runs as a child here. An exit with an error status within
+#    NODE_BOOT_FAIL_SECS of starting (default 120: the shape of "no signer
+#    yet") is retried after NODE_BOOT_RETRY_SECS (default 15) with the mesh
+#    and the proxy still up, so the signer connects the moment it can and the
+#    next start finds it waiting. Everything else keeps its old meaning: a node
+#    that ran and then stopped, or was stopped by a signal (the launcher's
+#    restarts, the watchdog's stall rule, the provider), ends the container,
+#    which the provider restarts.
+if [ -n "$PRIVVAL_KEEPALIVE_PORT" ]; then
+    NODE_BOOT_FAIL_SECS="${NODE_BOOT_FAIL_SECS:-120}"
+    NODE_BOOT_RETRY_SECS="${NODE_BOOT_RETRY_SECS:-15}"
+    NODE_PID=""
+    stopping=""
+    # the provider stops the pod by signalling PID 1: pass it on to the node
+    # (or leave at once while no node runs) instead of ignoring it, as PID 1 does
+    trap 'stopping=1; if [ -n "$NODE_PID" ] && kill -0 "$NODE_PID" 2>/dev/null; then kill -TERM "$NODE_PID"; else exit 143; fi' TERM INT
+    while true; do
+        echo "Starting: $@"
+        started=$(date +%s)
+        "$@" &
+        NODE_PID=$!
+        code=0
+        wait "$NODE_PID" || code=$?
+        # a trapped signal returns from wait before the node is gone: collect it
+        if [ -n "$stopping" ]; then
+            code=0
+            wait "$NODE_PID" 2>/dev/null || code=$?
+        fi
+        ran=$(( $(date +%s) - started ))
+        if [ -z "$stopping" ] && [ "$code" -ge 1 ] && [ "$code" -le 128 ] && [ "$ran" -lt "$NODE_BOOT_FAIL_SECS" ]; then
+            if pgrep -x sparkdreamd >/dev/null 2>&1; then
+                # the launcher started a node of its own over SSH meanwhile:
+                # that one runs, and the container ends when it does, as it
+                # would have with the node as PID 1
+                echo "node exited with status ${code} after ${ran}s and another sparkdreamd is running; leaving the node to it"
+                while pgrep -x sparkdreamd >/dev/null 2>&1; do sleep 10; done
+                exit 0
+            fi
+            echo "node exited with status ${code} after ${ran}s (a remote signer that has not connected yet is the usual cause); the mesh and the privval proxy stay up, starting it again in ${NODE_BOOT_RETRY_SECS}s"
+            sleep "$NODE_BOOT_RETRY_SECS"
+            [ -n "$stopping" ] && exit 143
+            continue
+        fi
+        echo "node exited with status ${code} after ${ran}s; the container ends with it"
+        exit "$code"
+    done
+fi
 echo "Starting: $@"
 exec "$@"

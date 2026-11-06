@@ -193,3 +193,60 @@ func (k Keeper) SweepDueContentChallengeResponses(ctx context.Context) {
 		return dueDone
 	})
 }
+
+// SweepDueInterimDeadlines expires live interims whose deadline passed
+// (EndBlocker step 7). An EXPERT_TESTIMONY interim whose review is still
+// pending is settled by the verdict, not the deadline: it is looked at again
+// when the review is due.
+func (k Keeper) SweepDueInterimDeadlines(ctx context.Context) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	height := sdkCtx.BlockHeight()
+	k.drainDueQueue(ctx, k.InterimDeadlineDue, "interim_deadline", func(id uint64) dueOutcome {
+		interim, err := k.Interim.Get(ctx, id)
+		if err != nil || !isLiveInterimStatus(interim.Status) {
+			return dueDone
+		}
+		if height < interim.Deadline {
+			return dueAt(interim.Deadline)
+		}
+		if k.expertInterimAwaitingVerdict(ctx, interim) {
+			at := height + dueRetryBlocks
+			if review, rerr := k.JuryReview.Get(ctx, interim.ReferenceId); rerr == nil && review.Deadline > at {
+				at = review.Deadline
+			}
+			return dueAt(at)
+		}
+		// ExpireInterim runs in its own cache context and resolves an
+		// adjudication's challenge together with the expiry.
+		if err := k.ExpireInterim(ctx, id); err != nil {
+			sdkCtx.Logger().Error("failed to expire interim", "interim_id", id, "error", err)
+			return dueAt(height + dueRetryBlocks)
+		}
+		return dueDone
+	})
+}
+
+// SweepDueProjectExpiries expires PROPOSED projects nobody approved before
+// their expiry_block_height (EndBlocker step 7b).
+func (k Keeper) SweepDueProjectExpiries(ctx context.Context) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	height := sdkCtx.BlockHeight()
+	k.drainDueQueue(ctx, k.ProjectExpiryDue, "project_expiry", func(id uint64) dueOutcome {
+		project, err := k.Project.Get(ctx, id)
+		if err != nil || project.Status != types.ProjectStatus_PROJECT_STATUS_PROPOSED || project.ExpiryBlockHeight <= 0 {
+			return dueDone
+		}
+		if height < project.ExpiryBlockHeight {
+			return dueAt(project.ExpiryBlockHeight)
+		}
+		// ExpireProject ends the review interim before it flips the status;
+		// contained so a half-done expiry is retried whole.
+		cacheCtx, writeCache := sdkCtx.CacheContext()
+		if err := k.ExpireProject(cacheCtx, id); err != nil {
+			sdkCtx.Logger().Error("failed to expire project", "project_id", id, "error", err)
+			return dueAt(height + dueRetryBlocks)
+		}
+		writeCache()
+		return dueDone
+	})
+}

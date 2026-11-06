@@ -95,7 +95,9 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 	ra.EpochAppealsResolved++
 	bumpRoleAccuracyWindow(&ra, epoch, upheld)
 
-	if upheld {
+	if upheld && types.UpheldKeepsStreak[kind] {
+		ra.UpheldActions[kind]++
+	} else if upheld {
 		ra.UpheldActions[kind]++
 		ra.ConsecutiveUpheld++
 		// How many consecutive upheld verdicts clear an overturn streak.
@@ -144,6 +146,26 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 		}
 	}
 	return nil
+}
+
+// RecordRoleRejection records a counterparty's refusal of one of the role
+// holder's proposals (today forum's rejected accepted-reply proposal): an
+// accuracy-ring miss and the per-kind overturned counter, so routine
+// rejection still lowers the holder's reward accuracy, but neither streak
+// moves, no overturn cooldown starts and no demotion follows (REP-R-207). A
+// thread author's "no" is their say-so on a suggestion, not a verdict on a
+// contested action; three authors declining must not cost a sentinel the
+// role the way three overturned hides do.
+func (k Keeper) RecordRoleRejection(ctx context.Context, roleType types.RoleType, addr, kind string) error {
+	addr = k.Canonical(ctx, addr)
+	if err := validateRoleType(roleType); err != nil {
+		return err
+	}
+	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
+	ra.EpochAppealsResolved++
+	bumpRoleAccuracyWindow(&ra, k.roleRewardEpoch(ctx, roleType), false)
+	ra.OverturnedActions[kind]++
+	return k.RoleActivities.Set(ctx, roleActivityKey(roleType, addr), ra)
 }
 
 // roleOverturnCooldown returns the lockout in seconds for an overturned

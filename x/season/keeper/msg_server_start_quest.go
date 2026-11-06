@@ -2,8 +2,9 @@ package keeper
 
 import (
 	"context"
-	"cosmossdk.io/collections"
 	"errors"
+
+	"cosmossdk.io/collections"
 
 	"sparkdream/x/season/types"
 
@@ -22,6 +23,12 @@ func (k msgServer) StartQuest(ctx context.Context, msg *types.MsgStartQuest) (*t
 	// Check maintenance mode
 	if k.IsInMaintenanceMode(ctx) {
 		return nil, types.ErrMaintenanceMode
+	}
+
+	// Votes cast earlier in this block reach quest objectives at
+	// EndBlock; apply this member's now (SEA-103).
+	if err := k.applyPendingVoteQuestProgress(ctx, msg.Creator); err != nil {
+		return nil, err
 	}
 
 	// Get member profile

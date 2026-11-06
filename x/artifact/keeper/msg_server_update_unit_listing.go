@@ -28,6 +28,11 @@ func (k msgServer) UpdateUnitListing(ctx context.Context, msg *types.MsgUpdateUn
 	if !k.canActAs(ctx, msg.Seller, l.Seller) {
 		return nil, types.ErrNotTokenOwner
 	}
+	// An expired listing the EndBlocker has not pruned yet is gone from the
+	// market; it cannot be revived in place (relist instead).
+	if l.ExpiresAt <= now(ctx) {
+		return nil, errorsmod.Wrapf(types.ErrListingNotFound, "unit listing %d expired at %d", l.Id, l.ExpiresAt)
+	}
 	c, err := k.getEditionsClass(ctx, l.ClassId)
 	if err != nil {
 		return nil, err

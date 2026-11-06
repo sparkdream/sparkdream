@@ -64,6 +64,39 @@ var (
 	// through CreateGrantOnBehalfOf. Binds the bypass decline and claim
 	// paths to the module that created the grant.
 	GrantCreatorModuleKey = collections.NewPrefix(12)
+
+	// GrantsByGranteeAndType: (grantee, type, grant_id) -> empty. Backs
+	// the per-class grantee caps and typed grantee listings; rebuilt from
+	// the grants at genesis.
+	GrantsByGranteeAndTypeKey = collections.NewPrefix(13)
+
+	// Grantee consent (SES-102).
+	//
+	// AllowedGranters: (grantee, granter) -> empty. An access-class grant
+	// (SESSION_KEY, SIGN_IN) from an allowed granter is ACTIVE at creation;
+	// from any other granter it waits as PENDING for the grantee's
+	// acceptance, which writes the entry.
+	AllowedGrantersKey = collections.NewPrefix(14)
+	// AllowedGranteesByGranter: (granter, grantee) -> empty. Reverse index
+	// of AllowedGranters, walked by the member-migration hook to re-key or
+	// drop a migrating granter's entries.
+	AllowedGranteesByGranterKey = collections.NewPrefix(15)
+	// PendingGrantDeposit: grant_id -> Coin. SPARK escrowed by the granter
+	// on a PENDING grant; refunded on accept / revoke / decline, forfeited
+	// to the community pool on expiry.
+	PendingGrantDepositKey = collections.NewPrefix(16)
+	// PendingGrantsByDeadline: (deadline_unix, grant_id) -> empty for
+	// PENDING grants. deadline = min(created_at + PendingGrantTTL,
+	// expires_at). Drives the EndBlocker pending-expiry pass.
+	PendingGrantsByDeadlineKey = collections.NewPrefix(17)
+	// PendingGrantCountByGranter: granter -> number of PENDING grants it
+	// holds (MaxPendingGrantsPerGranter).
+	PendingGrantCountByGranterKey = collections.NewPrefix(18)
+	// PendingGrantsByGrantee: (grantee, grant_id) -> empty for PENDING
+	// grants. The grantee's discovery path to the grants awaiting its
+	// acceptance (PendingGrantsForGrantee query, SES-202). Query-only: no
+	// on-chain consumer walks it, so it bounds nothing and is not capped.
+	PendingGrantsByGranteeKey = collections.NewPrefix(19)
 )
 
 // NonDelegableSessionMsgs are session module messages that can never appear in the
@@ -81,6 +114,10 @@ var NonDelegableSessionMsgs = map[string]bool{
 	"/sparkdream.session.v1.MsgRetryScheduledOneshot":   true,
 	"/sparkdream.session.v1.MsgUpdateParams":            true,
 	"/sparkdream.session.v1.MsgUpdateOperationalParams": true,
+	// Consent must be the grantee key's own signature: a session key may
+	// never accept a grant or edit the allowed-granter list (SES-102).
+	"/sparkdream.session.v1.MsgAcceptGrant":     true,
+	"/sparkdream.session.v1.MsgDisallowGranter": true,
 	// MsgRevokeGrant is intentionally absent (Rev 2 §7.2) — it's
 	// opt-in via SessionKeyPayload.allow_self_revoke, scoped to the
 	// same-granter at the msg-server level.

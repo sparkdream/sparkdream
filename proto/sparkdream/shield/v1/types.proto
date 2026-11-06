@@ -429,6 +429,20 @@ message EpochFeeLedger {
   ];
 }
 
+// IdentityEpochFeeEntry is the fees the shield module paid in one shield
+// epoch for the execs of one identity (keyed by its rate-limit nullifier, the
+// same key as the identity rate limit). Each identity may use only a share of
+// params.max_fees_per_epoch, so one member cannot exhaust the epoch's budget.
+message IdentityEpochFeeEntry {
+  uint64 epoch = 1;
+  string rate_limit_nullifier_hex = 2;
+  string paid = 3 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
 // DecryptionDemandEntry records that the EndBlocker asked validators for
 // decryption shares of a closed epoch (its batch became ready) at a height.
 // TLE liveness for that epoch is judged one full epoch interval later.

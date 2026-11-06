@@ -13,7 +13,7 @@ Use an x/session **SessionKey** grant: a scoped, time-limited delegation with in
 1. User connects wallet to the frontend
 2. Frontend generates an **ephemeral session key** (keypair stored in browser memory)
 3. User signs **one** `MsgCreateGrant` with a `session_key` payload (or the legacy `MsgCreateSession`) — the **only wallet popup** for the session. It names the message types the key may send (a subset of the chain's `allowed_msg_types`), a fee `spend_limit`, a `max_exec_count` and an expiration (at most `max_expiration`, 7 days by default; a key naming at most 2 message types without `allow_self_revoke` may run to `narrow_session_max_expiration`, 30 days by default)
-4. For the rest of the session the frontend wraps each action in `MsgExecSession { granter, grantee, msgs }` and signs it with the session key — **zero wallet popups**. The chain rewrites each inner message's signer field to the granter
+4. For the rest of the session the frontend wraps each action in `MsgExecSession { granter, grantee, msgs }` and signs it with the session key — **zero wallet popups**. The chain rewrites each inner message's signer field to the granter. The first time this wallet grants to this session key, the grant starts `PENDING` and that first exec accepts it (the key's signature is its consent); the wallet's 1 SPARK `pending_grant_deposit` comes back on acceptance, and the key is from then on an allowed granter's key, so later grants are active at creation. Nothing changes in the flow
 5. On logout the user revokes the grant (`MsgRevokeGrant`); on expiry it stops working by itself
 
 ### Flow Diagram
@@ -105,6 +105,7 @@ The grant's `spend_limit` is a fee budget paid by the granter: the session key n
 - A tx may only contain `MsgExecSession` messages, all for the same granter, each with at least one inner message.
 - The fee is in the spend-limit denom and must fit the remaining budget. An exhausted budget, or a batch that would exceed `max_exec_count`, is refused before anything is charged.
 - A failing inner message still costs the fee (the ante has already charged it), as for any tx.
+- A key the user has not been allowed by before is `PENDING` until the hot key's first exec accepts it (spec §31). That exec is fee-delegated like any other, so the hot key still never holds funds; the ante refuses it before charging anything when the acceptance itself would fail (the hot key already holds 256 access grants, or the user is at `max_sessions_per_granter`), so a pending key cannot bill the user for execs that never activate it.
 
 ---
 
@@ -153,7 +154,11 @@ being a multisig:
   re-point the member's anonymous identity around the account's threshold.
 - **Sign-in goes through a `SignIn` grant.** sdaplogin's ADR-036 sign-in
   accepts a single secp256k1 key only, so a multisig member grants `SignIn` to a
-  single-key grantee for the service and signs in with that key.
+  single-key grantee for the service and signs in with that key. Unless that key
+  already allows the multisig (it does once it has exec'd a session key from it),
+  the grant is `PENDING` and the key must sign `tx session accept-grant <id>`
+  before sdaplogin sees it; nothing executes through a sign-in grant, so there
+  is no implicit acceptance (x-session-spec §31).
 
 Multisig signers should pass `--gas 300000` on governance txs: a 3-of-5 tx
 costs about 25k gas more than a single-key tx.

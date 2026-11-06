@@ -293,7 +293,7 @@ cat > "$PROPOSAL_DIR/update_test_op.json" <<EOF
         "proof_domain": "PROOF_DOMAIN_TRUST_TREE",
         "min_trust_level": 1,
         "nullifier_domain": 99,
-        "nullifier_scope_type": "NULLIFIER_SCOPE_GLOBAL",
+        "nullifier_scope_type": "NULLIFIER_SCOPE_EPOCH",
         "active": false,
         "batch_mode": "SHIELD_BATCH_MODE_IMMEDIATE_ONLY",
         "scope_field_path": ""
@@ -303,7 +303,7 @@ cat > "$PROPOSAL_DIR/update_test_op.json" <<EOF
   "deposit": "100000000${BOND_DENOM}",
   "expedited": true,
   "title": "Update test shielded operation",
-  "summary": "Update test operation: lower trust, set inactive, change scope to global"
+  "summary": "Update test operation in place: lower trust, set inactive, immediate-only batch mode (scope unchanged)"
 }
 EOF
 
@@ -335,7 +335,7 @@ else
 
     echo "  Min trust level: $UPD_TRUST (expected: 1)"
     echo "  Active: $UPD_ACTIVE (expected: false)"
-    echo "  Nullifier scope: $UPD_SCOPE (expected: NULLIFIER_SCOPE_GLOBAL or 2)"
+    echo "  Nullifier scope: $UPD_SCOPE (expected: NULLIFIER_SCOPE_EPOCH or null, unchanged)"
     echo "  Batch mode: $UPD_BATCH (expected: SHIELD_BATCH_MODE_IMMEDIATE_ONLY or 0)"
 
     UPDATE_OK=true
@@ -351,8 +351,12 @@ else
         UPDATE_OK=false
     fi
 
-    if [ "$UPD_SCOPE" != "NULLIFIER_SCOPE_GLOBAL" ] && [ "$UPD_SCOPE" != "2" ]; then
-        echo "  ERROR: Scope type not updated"
+    # An in-place update must keep the domain's scoping rule (CheckDomainCompatible):
+    # the domain's stored nullifiers were written under it. Re-scoping needs a new
+    # domain, so the update above keeps NULLIFIER_SCOPE_EPOCH.
+    # NULLIFIER_SCOPE_EPOCH is enum value 0, which proto3 JSON omits (null).
+    if [ "$UPD_SCOPE" != "NULLIFIER_SCOPE_EPOCH" ] && [ "$UPD_SCOPE" != "0" ] && [ "$UPD_SCOPE" != "null" ]; then
+        echo "  ERROR: Scope type changed on an in-place update (got $UPD_SCOPE)"
         UPDATE_OK=false
     fi
 

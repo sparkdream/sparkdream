@@ -127,45 +127,51 @@ func (k Keeper) sweepCheckpointLiveness(ctx context.Context, currentHeight int64
 		return 0, err
 	}
 
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	moduleAddr := authtypes.NewModuleAddress(types.ModuleName)
+	processed := 0
 	for _, key := range due {
-		deadline, serviceType, opBytes := key.K1(), key.K2(), key.K3()
-		if err := k.clearCheckpointDeadline(ctx, serviceType, opBytes); err != nil {
-			return len(due), err
-		}
-
-		op, ok := k.GetOperator(ctx, opBytes, serviceType)
-		if !ok || !livenessTracked(op.Status) {
-			continue // archived or winding down: stop tracking
-		}
-		cfg, err := k.resolveServiceTypeConfig(ctx, serviceType)
-		if err != nil || cfg.CheckpointMaxLagBlocks <= 0 {
-			continue // liveness tracking turned off since scheduling
-		}
-		lag := cfg.CheckpointMaxLagBlocks
-		base := k.livenessBase(ctx, op, opBytes)
-		if base+lag > currentHeight {
-			// Caught up after this entry was written; reschedule.
-			if err := k.setCheckpointDeadline(ctx, serviceType, opBytes, base+lag); err != nil {
-				return len(due), err
+		if k.runIsolated(ctx, "checkpoint_liveness", func(ctx context.Context) (bool, error) {
+			sdkCtx := sdk.UnwrapSDKContext(ctx)
+			deadline, serviceType, opBytes := key.K1(), key.K2(), key.K3()
+			if err := k.clearCheckpointDeadline(ctx, serviceType, opBytes); err != nil {
+				return false, err
 			}
-			continue
-		}
 
-		dedupe := []byte(fmt.Sprintf("liveness|%s|%x|%d", serviceType, opBytes, deadline))
-		evidence := fmt.Sprintf("liveness:checkpoint_height=%d,block=%d,max_lag=%d", base, currentHeight, lag)
-		reportID, _, rerr := k.openSystemReport(ctx, types.ModuleName, moduleAddr, opBytes, serviceType, 0, evidence, dedupe)
-		if rerr != nil {
-			sdkCtx.Logger().Info("liveness report not filed", "operator", op.Address, "service_type", serviceType, "error", rerr)
-			reportID = 0
-		}
-		sdkCtx.EventManager().EmitEvent(types.NewLivenessLapseEvent(op.Address, serviceType, base, lag, reportID))
+			op, ok := k.GetOperator(ctx, opBytes, serviceType)
+			if !ok || !livenessTracked(op.Status) {
+				return false, nil // archived or winding down: stop tracking
+			}
+			cfg, err := k.resolveServiceTypeConfig(ctx, serviceType)
+			if err != nil || cfg.CheckpointMaxLagBlocks <= 0 {
+				return false, nil // liveness tracking turned off since scheduling
+			}
+			lag := cfg.CheckpointMaxLagBlocks
+			base := k.livenessBase(ctx, op, opBytes)
+			if base+lag > currentHeight {
+				// Caught up after this entry was written; reschedule.
+				if err := k.setCheckpointDeadline(ctx, serviceType, opBytes, base+lag); err != nil {
+					return false, err
+				}
+				return false, nil
+			}
 
-		// Next report no sooner than one full window from now.
-		if err := k.setCheckpointDeadline(ctx, serviceType, opBytes, currentHeight+lag); err != nil {
-			return len(due), err
+			dedupe := []byte(fmt.Sprintf("liveness|%s|%x|%d", serviceType, opBytes, deadline))
+			evidence := fmt.Sprintf("liveness:checkpoint_height=%d,block=%d,max_lag=%d", base, currentHeight, lag)
+			reportID, _, rerr := k.openSystemReport(ctx, types.ModuleName, moduleAddr, opBytes, serviceType, 0, evidence, dedupe)
+			if rerr != nil {
+				sdkCtx.Logger().Info("liveness report not filed", "operator", op.Address, "service_type", serviceType, "error", rerr)
+				reportID = 0
+			}
+			sdkCtx.EventManager().EmitEvent(types.NewLivenessLapseEvent(op.Address, serviceType, base, lag, reportID))
+
+			// Next report no sooner than one full window from now.
+			if err := k.setCheckpointDeadline(ctx, serviceType, opBytes, currentHeight+lag); err != nil {
+				return false, err
+			}
+			return true, nil
+		}) {
+			processed++
 		}
 	}
-	return len(due), nil
+	return processed, nil
 }

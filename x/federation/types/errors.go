@@ -36,7 +36,7 @@ var (
 	// resolves to a different controller (Decision 1a — shared bond
 	// across same-protocol bridges per operator address).
 	ErrControllerMismatch   = errors.Register(ModuleName, 2370, "operator's existing service.Operator controller doesn't match the peer's resolved controller")
-	ErrPeerHasActiveBridges = errors.Register(ModuleName, 2371, "peer has active bridges; operators must unbond first (or the gov proposal must bundle dissolutions for abandoned peers)")
+	ErrPeerHasActiveBridges = errors.Register(ModuleName, 2371, "active peer has bridges; operators must unbond first, or the peer must be suspended before removal")
 
 	// Content errors
 	ErrContentTypeNotAllowed = errors.Register(ModuleName, 2310, "content type not in peer policy")
@@ -140,4 +140,7 @@ var (
 	ErrSelfAttestation              = errors.Register(ModuleName, 2403, "a bridge operator cannot attest its own identity link")
 
 	ErrOperatorNotMember = errors.Register(ModuleName, 2404, "bridge operator must be an active x/rep member")
+
+	// Peer channel pin (FED-106)
+	ErrPeerChainIdMismatch = errors.Register(ModuleName, 2405, "the federation channel's light client does not name the peer's expected_chain_id")
 )

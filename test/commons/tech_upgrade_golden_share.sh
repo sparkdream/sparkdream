@@ -218,6 +218,14 @@ if [ "$EXEC_CODE" != "0" ]; then
     echo "         raw_log: $EXEC_RAW_LOG"
     exit 1
 fi
+# A proposal that can never execute (e.g. a nested-message authority
+# mismatch) is closed FAILED/VETOED by a successful tx; check the status too.
+COMMONS_PROP_STATUS=$($BINARY query commons get-proposal $COMMONS_PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+if [ "$COMMONS_PROP_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
+    echo "FAILURE: Commons proposal $COMMONS_PROP_ID did not execute (status=$COMMONS_PROP_STATUS)."
+    echo "         reason: $($BINARY query commons get-proposal $COMMONS_PROP_ID --output json 2>/dev/null | jq -r '.proposal.failed_reason')"
+    exit 1
+fi
 
 # --- 5. FINALIZE & VERIFY ---
 echo "--- STEP 5: Verify Upgrade Approval ---"

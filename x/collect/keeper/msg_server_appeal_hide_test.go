@@ -1,12 +1,15 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestAppealHide(t *testing.T) {
@@ -125,4 +128,32 @@ func TestAppealHide(t *testing.T) {
 			}
 		})
 	}
+}
+
+// COL-102: x/rep reads the hiding sentinel (to keep it off the appeal jury)
+// inside CreateGovActionAppeal. The record must already be marked appealed
+// then, or GetActionSentinel reports "" and the sentinel can judge its own
+// hide.
+func TestAppealHideExposesTheSentinelToRep(t *testing.T) {
+	f := initTestFixture(t)
+	collID := f.createCollection(t, f.owner)
+	resp, err := f.msgServer.HideContent(f.ctx, &types.MsgHideContent{
+		Creator:    f.sentinel,
+		TargetId:   collID,
+		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
+	})
+	require.NoError(t, err)
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.advanceBlockHeight(params.AppealCooldownBlocks + 1)
+
+	target := keeper.NewRepAppealTarget(f.keeper)
+	seen := "unset"
+	f.repKeeper.onCreateGovActionAppeal = func(ctx context.Context, actionType reptypes.GovActionType, tgt string) {
+		seen, err = target.GetActionSentinel(ctx, actionType, tgt)
+		require.NoError(t, err)
+	}
+	_, err = f.msgServer.AppealHide(f.ctx, &types.MsgAppealHide{Creator: f.owner, HideRecordId: resp.HideRecordId})
+	require.NoError(t, err)
+	require.Equal(t, f.sentinel, seen)
 }

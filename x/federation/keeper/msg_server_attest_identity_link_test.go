@@ -251,6 +251,44 @@ func TestUnlinkAttestedIdentityClearsIndexes(t *testing.T) {
 	require.NoError(t, e.attest(e.f.ctx, e.msg(t, rival)))
 }
 
+// FED-105: a falsely attested link of a retired operator can be revoked by
+// the committee policy (never one member), which frees the remote
+// identity for its real owner.
+func TestRevokeIdentityLinkFreesRemoteIdentity(t *testing.T) {
+	e := newAttestEnv(t)
+	rival := testAddr(t, e.f, "aurora-owner")
+	e.link(t, rival)
+	require.NoError(t, e.attest(e.f.ctx, e.msg(t, e.member)))
+
+	member := testAddr(t, e.f, "ops-member")
+	e.f.commonsKeeper.IsCouncilOrCommitteePolicyFn = func(_ context.Context, addr string, _, _ string) bool {
+		return addr != member
+	}
+	_, err := e.ms.RevokeIdentityLink(e.f.ctx, &types.MsgRevokeIdentityLink{
+		Authority: member, LocalAddress: e.member, PeerId: e.peer, Reason: "false attestation",
+	})
+	require.ErrorIs(t, err, types.ErrNotAuthorized)
+
+	_, err = e.ms.RevokeIdentityLink(e.f.ctx, &types.MsgRevokeIdentityLink{
+		Authority: e.f.authority, LocalAddress: e.member, PeerId: e.peer, Reason: "false attestation",
+	})
+	require.NoError(t, err)
+	has, _ := e.f.keeper.IdentityLinks.Has(e.f.ctx, collections.Join(e.member, e.peer))
+	require.False(t, has)
+	has, _ = e.f.keeper.IdentityLinksByRemote.Has(e.f.ctx, collections.Join(e.peer, e.remote))
+	require.False(t, has)
+	has, _ = e.f.keeper.IdentityLinksByAttester.Has(e.f.ctx, collections.Join3(e.operator, e.peer, e.member))
+	require.False(t, has)
+
+	// the real owner's pending claim can now be attested
+	require.NoError(t, e.attest(e.f.ctx, e.msg(t, rival)))
+
+	_, err = e.ms.RevokeIdentityLink(e.f.ctx, &types.MsgRevokeIdentityLink{
+		Authority: e.f.authority, LocalAddress: e.member, PeerId: e.peer,
+	})
+	require.ErrorIs(t, err, types.ErrIdentityLinkNotFound)
+}
+
 // A slashed (dissolved) operator's attestations lose their bond: the hook
 // queues them and the EndBlocker returns the links to UNVERIFIED with a
 // fresh TTL, keeping the challenge so another operator can attest the same

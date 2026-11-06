@@ -143,11 +143,9 @@ type SeasonKeeper interface {
 	OnProposalCreated(ctx context.Context, proposer sdk.AccAddress, proposalID uint64) error
 }
 
-// MigrationRepKeeper is the slice of x/rep that x/commons reads to cap
-// voting periods: a council window longer than the ZK key activation delay
-// would let a member vote anonymously twice on one proposal with two keys.
+// MigrationRepKeeper is the slice of x/rep that x/commons reads for the
+// alias contract and secret-ballot voter snapshots.
 type MigrationRepKeeper interface {
-	ZkKeyActivationDelaySeconds(ctx context.Context) int64
 	// CanActAs reports whether signer may exercise rights recorded against
 	// the stored address (alias contract: signer not tombstoned and stored
 	// resolves to signer).

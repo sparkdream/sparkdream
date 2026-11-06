@@ -19,6 +19,7 @@ func TestRevokeGrant_DirectGranter_SessionKey(t *testing.T) {
 
 	granter := testAddr("granter", f.addressCodec)
 	grantee := testAddr("grantee", f.addressCodec)
+	allowGranter(t, f, grantee, granter)
 
 	resp, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
 		Granter:   granter,
@@ -119,6 +120,7 @@ func TestRevokeGrant_SessionKey_AllowSelfRevoke(t *testing.T) {
 	granter := testAddr("granter", f.addressCodec)
 	sessionKeyGrantee := testAddr("session_key", f.addressCodec)
 	otherGrantee := testAddr("other_grantee", f.addressCodec)
+	allowGranter(t, f, sessionKeyGrantee, granter)
 
 	// 1) Create a session key WITH allow_self_revoke.
 	sessionResp, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
@@ -223,6 +225,7 @@ func TestRevokeGrant_SessionKey_FlagNotSet_Rejected(t *testing.T) {
 	granter := testAddr("granter", f.addressCodec)
 	sessionKeyGrantee := testAddr("session_key", f.addressCodec)
 	otherGrantee := testAddr("other_grantee", f.addressCodec)
+	allowGranter(t, f, sessionKeyGrantee, granter)
 
 	// Session key WITHOUT allow_self_revoke.
 	_, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{

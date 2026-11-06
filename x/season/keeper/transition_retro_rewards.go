@@ -90,40 +90,42 @@ func (k Keeper) payRetroRewards(ctx context.Context, season types.Season) error 
 		nomination types.Nomination
 		conviction math.LegacyDec
 	}
-	var nominations []nominationWithConviction
+	// Order: conviction descending, ties by id for a stable order.
+	less := func(a, b nominationWithConviction) bool {
+		if !a.conviction.Equal(b.conviction) {
+			return a.conviction.GT(b.conviction)
+		}
+		return a.nomination.Id < b.nomination.Id
+	}
 
+	// Keep only the top max_recipients eligible nominations while walking,
+	// so the memory and sort cost of this block is bounded by the cap
+	// rather than by every nomination of the season (members × max
+	// nominations). Each insert is a binary search plus a bounded shift.
+	minConviction := params.RetroRewardMinConviction
+	maxRecipients := commontypes.Saturate[int](params.RetroRewardMaxRecipients)
+	eligible := make([]nominationWithConviction, 0, maxRecipients)
 	err = k.walkSeasonNominations(ctx, season.Number, 0, func(nom types.Nomination) (bool, error) {
 		if nom.Rewarded {
 			return false, nil // SEA-01: paid in an earlier (aborted) run
 		}
-		nominations = append(nominations, nominationWithConviction{nomination: nom, conviction: nom.Conviction})
+		if maxRecipients == 0 || !nom.Conviction.GTE(minConviction) {
+			return false, nil
+		}
+		cand := nominationWithConviction{nomination: nom, conviction: nom.Conviction}
+		if len(eligible) == maxRecipients && !less(cand, eligible[len(eligible)-1]) {
+			return false, nil
+		}
+		pos := sort.Search(len(eligible), func(i int) bool { return less(cand, eligible[i]) })
+		if len(eligible) < maxRecipients {
+			eligible = append(eligible, nominationWithConviction{})
+		}
+		copy(eligible[pos+1:], eligible[pos:len(eligible)-1])
+		eligible[pos] = cand
 		return false, nil
 	})
 	if err != nil {
 		return err
-	}
-
-	// Sort by conviction descending, ties by id for a stable order
-	sort.Slice(nominations, func(i, j int) bool {
-		if !nominations[i].conviction.Equal(nominations[j].conviction) {
-			return nominations[i].conviction.GT(nominations[j].conviction)
-		}
-		return nominations[i].nomination.Id < nominations[j].nomination.Id
-	})
-
-	// Filter: conviction >= min_conviction
-	minConviction := params.RetroRewardMinConviction
-	var eligible []nominationWithConviction
-	for _, n := range nominations {
-		if n.conviction.GTE(minConviction) {
-			eligible = append(eligible, n)
-		}
-	}
-
-	// Take top N
-	maxRecipients := commontypes.Saturate[int](params.RetroRewardMaxRecipients)
-	if len(eligible) > maxRecipients {
-		eligible = eligible[:maxRecipients]
 	}
 
 	// Calculate total conviction for proportional distribution

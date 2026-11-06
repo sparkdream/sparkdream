@@ -73,12 +73,6 @@ const (
 // e2e season pin (max_extension_epochs 100000) stays valid.
 var AliasDedupHorizonEpochs = getAliasDedupHorizonEpochs()
 
-// VotingPeriodCapEnabled reports whether x/commons voting periods are capped
-// by zk_key_activation_delay and the delay cannot be lowered below a live
-// voting period. Production builds: true. Test build: false (see
-// params_vals_testparams.go).
-var VotingPeriodCapEnabled = getVotingPeriodCapEnabled()
-
 // RecoveryCommitmentHash is SHA-256(RecoveryCommitmentDomain || preimage).
 func RecoveryCommitmentHash(preimage []byte) []byte {
 	h := sha256.New()

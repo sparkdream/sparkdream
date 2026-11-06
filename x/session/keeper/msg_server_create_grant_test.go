@@ -240,11 +240,15 @@ func TestCreateGrant_NoteTooLong(t *testing.T) {
 }
 
 // TestCreateGrant_SessionKeyExpirationCaps: a session key naming at most
-// NarrowSessionMaxMsgTypes types without allow_self_revoke may live up to
-// narrow_session_max_expiration (30 days); any other is held to
-// max_expiration (7 days).
+// NarrowSessionMaxMsgTypes daemon types (NarrowSessionMsgTypes) without
+// allow_self_revoke may live up to narrow_session_max_expiration (30
+// days); any other is held to max_expiration (7 days), however few types
+// it names (SES-103).
 func TestCreateGrant_SessionKeyExpirationCaps(t *testing.T) {
 	day := 24 * time.Hour
+	checkpoint := "/sparkdream.service.v1.MsgSubmitCheckpoint"
+	verify := "/sparkdream.federation.v1.MsgVerifyContent"
+	mint := "/sparkdream.artifact.v1.MsgMint"
 	tests := []struct {
 		name       string
 		types      []string
@@ -252,12 +256,16 @@ func TestCreateGrant_SessionKeyExpirationCaps(t *testing.T) {
 		lifetime   time.Duration
 		wantErr    bool
 	}{
-		{"narrow 1 type, 30 days", types.DefaultAllowedMsgTypes[:1], false, 30 * day, false},
-		{"narrow 2 types, 30 days", types.DefaultAllowedMsgTypes[:2], false, 30 * day, false},
-		{"narrow past 30 days", types.DefaultAllowedMsgTypes[:1], false, 31 * day, true},
+		{"narrow 1 type, 30 days", []string{checkpoint}, false, 30 * day, false},
+		{"narrow 2 types, 30 days", []string{checkpoint, verify}, false, 30 * day, false},
+		{"narrow past 30 days", []string{checkpoint}, false, 31 * day, true},
+		{"single value-moving type, 8 days", []string{mint}, false, 8 * day, true},
+		{"daemon type plus another, 8 days", []string{checkpoint, mint}, false, 8 * day, true},
+		{"1 non-daemon type, 7 days", types.DefaultAllowedMsgTypes[:1], false, 7 * day, false},
+		{"1 non-daemon type, 8 days", types.DefaultAllowedMsgTypes[:1], false, 8 * day, true},
 		{"3 types, 7 days", types.DefaultAllowedMsgTypes[:3], false, 7 * day, false},
 		{"3 types, 8 days", types.DefaultAllowedMsgTypes[:3], false, 8 * day, true},
-		{"self-revoke, 8 days", types.DefaultAllowedMsgTypes[:1], true, 8 * day, true},
+		{"self-revoke, 8 days", []string{checkpoint}, true, 8 * day, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

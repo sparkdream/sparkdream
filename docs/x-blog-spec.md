@@ -744,7 +744,7 @@ message MsgReactResponse {}
 - Skipped if `reaction_fee_exempt` is true or `reaction_fee` is zero/nil
 - Never charged for anonymous reactions: the shield module account would pay it from its gas reserve, not the anonymous member
 
-**Anonymous reactions.** Every anonymous reaction carries the shield module address as creator, so reactions cannot be tracked per creator. An anonymous reaction stores no `Reaction` record and no `ReactorIndex` entry, skips the existing-reaction lookup (no change or no-op path), and simply increments the type count in `ReactionCounts`. x/shield's nullifier (domain 8, scoped by `reply_id|post_id` — the reply when reacting to one, else the post; section 21.1) limits each member to one anonymous reaction per post and one per reply, matching the one-reaction-per-target rule identified members get, and the per-address daily rate limit does not apply. Anonymous reactions therefore cannot be changed or removed.
+**Anonymous reactions.** Every anonymous reaction carries the shield module address as creator, so reactions cannot be tracked per creator. An anonymous reaction stores no `Reaction` record and no `ReactorIndex` entry, skips the existing-reaction lookup (no change or no-op path), and simply increments the type count in `ReactionCounts`. x/shield's nullifier (domain 8, scoped by `reply_id|post_id` — the reply when reacting to one, else the post; section 21.1) limits each member to one anonymous reaction per post and one per reply, matching the one-reaction-per-target rule identified members get, and the per-address daily rate limit does not apply. Anonymous reactions therefore cannot be changed or removed. The two limits are independent: the chain cannot tell which member is behind an anonymous reaction (that is the point), so a member may react once openly and once anonymously to the same post or reply, and both count in `ReactionCounts`. The counts are therefore reactions, not distinct people: at most two per member per target. Clients must not present them as a head count. Forum and collect up/downvotes behave the same way.
 
 **Logic:**
 1. Validate creator address and reaction type, look up the post (and reply if `reply_id > 0`), check post/reply are active
@@ -1975,7 +1975,7 @@ For every non-tombstoned post, `fee_bytes_high_water >= len(title) + len(body)` 
 
 ### 19.4. Reaction Gaming
 
-- One reaction per user per target prevents vote stuffing
+- One reaction per user per target prevents vote stuffing; with the anonymous path a member can add one open and one anonymous reaction to a target (both count, see §Anonymous reactions), so `ReactionCounts` overstates distinct reactors by at most 2x
 - Membership requirement raises the cost of Sybil attacks (each fake reactor needs a real invitation)
 - Reaction fee adds economic cost beyond gas, making mass reaction manipulation expensive
 - Daily reaction rate limit caps the number of new reactions per address

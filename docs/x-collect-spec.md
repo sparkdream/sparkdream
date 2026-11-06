@@ -571,7 +571,7 @@ one of the exits below:
 1. A sentinel or the council calls `MsgHideContent` (the `authority` field selects the path — AUTO prefers sentinel; see §5.25). Target set to HIDDEN, HideRecord created. Sentinel path: `committed_amount` (100 DREAM) locked from the shared x/forum sentinel bond and a `max_hides_per_sentinel_per_day` slot consumed. Council path: no bond, no rate limit, `sentinel = ""` (the gov-hide marker convention), `committed_amount = 0`. Both paths apply the author bond slash and per-tag rep penalty, snapshotted onto the record (fields 13-16) so reversal paths can restore exactly what was taken.
 2. **Pre-appeal reversal** (`MsgUnhideContent`): the hiding sentinel within `sentinel_unhide_window_blocks` (~24h), or the council at any time — for council hides AND as an override of sentinel hides. Content restored to ACTIVE; author bond + rep penalty restored from the snapshots. Sentinel self-correct retains the committed bond until the original `appeal_deadline` and does NOT refund the day's rate-limit slot (anti-cycling); a council unhide of a sentinel hide releases the bond immediately (not self-serve).
 3. **Auto-deletion**: If no appeal within `hide_expiry_blocks` (~7 days), the EndBlocker deletes the target (collection or item) with deposit refunds and marks the HideRecord as resolved. For collections, this triggers full cleanup (items, collaborators, curation, sponsorship). Author penalties stay burned — this is the only exit that does not restore them.
-4. **Appeal**: Owner calls `MsgAppealHide` within the window. This opens an x/rep moderation appeal (`GOV_ACTION_TYPE_COLLECT_HIDE`, action target = HideRecord id), the same machinery forum post hides use. x/rep charges its standard appeal bond, seats a jury and owns the deadline. HideRecord marked `appealed = true` with the x/rep `appeal_id`. Auto-deletion stops (the expiry entry is removed). Once appealed, self-correct is no longer possible: x/rep owns the outcome.
+4. **Appeal**: Owner calls `MsgAppealHide` within the window. This opens an x/rep moderation appeal (`GOV_ACTION_TYPE_COLLECT_HIDE`, action target = HideRecord id), the same machinery forum post hides use. x/rep charges its standard appeal bond, seats a jury and owns the deadline. The HideRecord is marked `appealed = true` **before** the x/rep call (x/rep reads the hiding sentinel through `GetActionSentinel`, which reports only an appealed record, to keep the sentinel off its own jury, COL-102) and gets the x/rep `appeal_id` after it. Auto-deletion stops (the expiry entry is removed). Once appealed, self-correct is no longer possible: x/rep owns the outcome.
 5. **Resolution**: an x/rep verdict, from the jury or from the Commons Operations Committee via `MsgResolveGovActionAppeal`, calls back into collect's `RepAppealTarget`:
    - **OVERTURNED:** content restored and author penalties restored. x/rep slashes the sentinel and refunds the bond.
    - **UPHELD:** content deleted. x/rep releases the sentinel bond.
@@ -1227,7 +1227,7 @@ Invoked as `tx rep bond-role ROLE_TYPE_COLLECT_CURATOR <amount>` / `tx rep unbon
 - `creator` must be active `x/rep` member at or above `min_trust_level` (seeded from collect's `min_curator_trust_level`).
 - Initial `amount` ≥ `min_bond` (seeded from collect's `min_curator_bond`).
 - If previously demoted, must wait past `demotion_cooldown_until`.
-- Age gate (`min_age_blocks`, seeded from collect's `min_curator_age_blocks`) is enforced by collect at action time (see `MsgRateCollection`), not at bond time.
+- Age gate (`min_age_blocks`, seeded from collect's `min_curator_age_blocks`) is enforced at action time by x/rep's shared `EligibleForRole` gate (`ErrRoleTooNew`, wrapped in `ErrNotCurator` by `MsgRateCollection`), not at bond time.
 
 **Unbond validation (enforced in rep):**
 - Record must exist.
@@ -1854,7 +1854,7 @@ message ConvictionResponse {
 }
 ```
 
-**Conviction ranking:** `PublicCollections` and `PublicCollectionsByType` support an optional `order_by` field. When `order_by = CONVICTION`, results are ranked by conviction score (highest first). Clients can combine conviction score with `CurationSummary` for composite ranking.
+**Conviction ranking (design-only):** the optional `order_by = CONVICTION` ranking for `PublicCollections` and `PublicCollectionsByType` is not implemented; the queries page in id order. Clients rank with the per-collection conviction query and `CurationSummary`.
 
 **Privacy note:** `Collection` by ID returns any collection (including HIDDEN, with status visible). Privacy is enforced by encryption, not query restriction. `PublicCollections` filters to `VISIBILITY_PUBLIC` + `status = ACTIVE` only.
 
@@ -2225,9 +2225,13 @@ for each expired collection expiry index entry (where expires_at ≤ current_blo
         if endorsed_by is not empty and endorser stake not yet released:
             release endorser's DREAM stake via x/rep keeper
             delete Endorsement/expiry/ index entry
-        if active hide appeal exists (HideRecord with appealed = true, resolved = false):
+        for each open (unappealed, unresolved) hide on the collection or its items:
             release sentinel's bond commitment (no slash); mark resolved
-            (the x/rep appeal settles its own bond; collect's callbacks become no-ops)
+        an appealed, unresolved hide (e.g. on an item) is left to x/rep: the
+            verdict still slashes or releases the sentinel's reservation and
+            records the outcome; restoring the content soft-skips the missing
+            target. Deleting the collection (owner or TTL) cannot void an
+            item-hide appeal.
         delete all items in collection
         delete all collaborators for collection
         for each curation review where challenged = true and overturned = false:
@@ -2253,6 +2257,10 @@ for each expired sponsorship request index entry (where expires_at ≤ current_b
 
 Remaining expired entries are processed in subsequent blocks. The `max_prune_per_block` cap ensures the EndBlocker never consumes unbounded gas.
 
+Every EndBlocker collection delete (TTL, unendorsed pruning §10.5, unappealed hide expiry §10.3) runs in a cache context and commits only on success. A failure (e.g. a refund or burn the module account cannot cover) leaves no trace, so the retry in a later block cannot pay the deposit refund a second time.
+
+Deleting an item (with its collection or on its own) drops its hide records' `HideRecord/by_target/` entries, as deleting a collection does; the records themselves stay. `MsgHideContent` checks only the newest record on a target for an open hide (at most one is open at a time, and a resolved record never reopens), so a long hide history on a target does not grow the check. `GenesisState.Validate` enforces that invariant on import: hide record ids are unique and no two unresolved records share a target.
+
 ### 10.2. Position Compaction
 
 When items are removed (single or batch via MsgRemoveItem/MsgRemoveItems), positions are compacted in a **single pass** over the remaining items for each affected collection. This avoids O(N²) per-item reshuffling:
@@ -2263,17 +2271,20 @@ When items are removed (single or batch via MsgRemoveItem/MsgRemoveItems), posit
 
 For batch removes (MsgRemoveItems), all removals happen first, then one compaction pass runs.
 
+> **Implementation note:** compaction is not wired. Positions are allowed to stay sparse after a removal (`MsgRemoveItem`, `MsgRemoveItems`, hide expiry); `CompactPositions` exists in the keeper but has no caller. Item order is still the position order, so clients see no difference beyond gaps in the numbering.
+
 ### 10.3. EndBlocker: Unappealed Hide Expiry
 
 Each block, processes the hide expiry index for hide records where `appeal_deadline ≤ current_block` and `appealed = false` and `resolved = false`:
 
-1. Delete the hidden content (collection with full cleanup, or item with position compaction). Because the collection's status is still HIDDEN at deletion (no appeal flipped it back), `deleteCollectionFull` takes the **slash** branches: an endorser's locked DREAM is burned with an `endorser_rep_penalty` per-tag deduction, and any non-member collaborator stakes are fractionally burned (`non_member_collab_burn_fraction`) with a `collab_inviter_rep_penalty`. This is the only path that reaches the HIDDEN-slash branch (since `MsgDeleteCollection` rejects HIDDEN). The x/rep UPHELD-appeal callback deletes through the same path.
-2. Refund deposits per standard deletion logic
-3. Release sentinel's committed bond (no penalty — content was not appealed, implying owner accepted the hide)
-4. Mark HideRecord `resolved = true`
-5. Emit `unappealed_hide_expired` event
+1. Release the sentinel's committed bond (no penalty — content was not appealed, implying owner accepted the hide) and mark the HideRecord `resolved = true` **before** deleting, so the delete's per-target hide cleanup sees it settled and the reservation is released exactly once (a second release would free another action's reservation, since rep's `ReleaseBond` saturates at zero).
+2. Delete the hidden content (collection with full cleanup, or item with position compaction). Because the collection's status is still HIDDEN at deletion (no appeal flipped it back), `deleteCollectionFull` takes the **slash** branches: an endorser's locked DREAM is burned with an `endorser_rep_penalty` per-tag deduction, and any non-member collaborator stakes are fractionally burned (`non_member_collab_burn_fraction`) with a `collab_inviter_rep_penalty`. This is the only path that reaches the HIDDEN-slash branch (since `MsgDeleteCollection` rejects HIDDEN). The x/rep UPHELD-appeal callback deletes through the same path.
+3. Refund deposits per standard deletion logic
+4. Emit `unappealed_hide_expired` event
 
 Respects `max_prune_per_block` cap shared with TTL pruning.
+
+**Failed delete (retry).** The collection delete is atomic (§10.1) and can fail, e.g. on a refund the module account cannot cover. The record is already settled at that point (bond released, `resolved = true`) and every other exit is closed (`MsgUnhideContent` refuses a resolved record, `MsgDeleteCollection` refuses HIDDEN), so the EndBlocker re-indexes the record at `HideRecord/expiry/{current_block + 1}/{id}` and emits `hidden_target_delete_deferred`. The next block's walk finds a resolved, non-self-corrected record and retries the delete while the collection is still HIDDEN; it defers again on failure or while a newer hide on the collection is under appeal, and drops the entry if the collection is gone or was restored by a later verdict. The bond is never released a second time. Genesis import re-indexes a resolved, unappealed record whose collection is still HIDDEN at its `appeal_deadline` so the retry survives a restart. Item deletes are best-effort and never fail.
 
 ### 10.3a. Appeal Timeout (owned by x/rep)
 
@@ -2419,6 +2430,7 @@ Challenges filed before the index existed (or imported via genesis, which does n
 | `hide_appeal_rejected` | `hide_record_id`, `appeal_id`, `target_id`, `target_type`, `target_deleted` | x/rep verdict UPHELD (`RepAppealTarget.OnAppealOutcome`) |
 | `hide_appeal_timeout` | `hide_record_id`, `appeal_id`, `target_id`, `target_type`, `author_bond_restored`, `rep_penalty_restored` | x/rep appeal timeout (`RepAppealTarget.OnAppealOutcome`) |
 | `unappealed_hide_expired` | `hide_record_id`, `target_id`, `target_type`, `target_deleted` | EndBlocker |
+| `hidden_target_delete_deferred` | `hide_record_id`, `target_id`, `target_type`, `retry_at` | EndBlocker: the settled hide's collection delete failed and is retried next block (§10.3) |
 | `collection_endorsed` | `collection_id`, `endorser`, `dream_staked`, `endorser_reward` | MsgEndorseCollection |
 | `seeking_endorsement_updated` | `collection_id`, `seeking` | MsgSetSeekingEndorsement |
 | `endorsement_stake_released` | `collection_id`, `endorser`, `amount` | EndBlocker |
@@ -2471,7 +2483,6 @@ Challenges filed before the index existed (or imported via genesis, which does n
 | `ErrAlreadyCurator` | 1132 | Already registered |
 | `ErrInsufficientBond` | 1133 | Bond below `min_curator_bond` |
 | `ErrTrustLevelTooLow` | 1134 | Below `min_curator_trust_level` |
-| `ErrCuratorTooNew` | 1135 | Curator registered less than `min_curator_age_blocks` ago |
 | `ErrCannotRateOwnCollection` | 1136 | Curator is owner/collaborator |
 | `ErrAlreadyReviewed` | 1137 | One active (non-overturned) review per curator per collection |
 | `ErrMaxReviews` | 1138 | Collection at `max_reviews_per_collection` |
@@ -2660,7 +2671,7 @@ The module registers the following invariants via `RegisterInvariants` for state
 | `collection-counter` | Highest collection ID in store ≤ collection sequence counter |
 | `item-counter` | Highest item ID in store ≤ item sequence counter |
 | `item-collection-reference` | Every item's `collection_id` references an existing collection |
-| `hide-record-consistency` | Every hide record references a target that exists in store |
+| `hide-record-consistency` | Every hide record references a target that exists in store, except an appealed, unresolved record whose target was deleted while the appeal was in flight: the record is kept for x/rep's verdict (§10.1) |
 | `status-index-consistency` | Every collection in the status index has the matching status in its record |
 
 The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).

@@ -175,13 +175,22 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 	return &types.MsgRegisterNameResponse{}, nil
 }
 
-// Helper to check expiration
+// IsOwnerExpired reports whether ownerAddr's names can be scavenged: the
+// owner has been silent for expiration_duration, or x/rep zeroed the owner
+// (the zeroing hook sets OwnerInfo.scavengeable, NAM-202).
 func (k Keeper) IsOwnerExpired(ctx sdk.Context, ownerAddr sdk.AccAddress) bool {
+	info, err := k.Owners.Get(ctx, ownerAddr.String())
+	if err == nil && info.Scavengeable {
+		return true
+	}
 	// LastActiveTime is seeded by AddNameToOwner and refreshed by
 	// RecordOwnerActivity on every owner-driven message; a zero value here
 	// means we have no recent activity record and the owner is treated as
 	// expired (scavengeable). Pre-mainnet there are no legacy zero records.
-	lastActive := k.GetLastActiveTime(ctx, ownerAddr)
+	lastActive := int64(0)
+	if err == nil {
+		lastActive = info.LastActiveTime
+	}
 
 	params := k.GetParams(ctx)
 	expirationDuration := params.ExpirationDuration.Seconds() // int64

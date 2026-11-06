@@ -48,9 +48,11 @@ func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetr
 		return nil, types.ErrNotInRecoveryMode
 	}
 
-	// Reset processed count for current phase to retry
-	state.ProcessedCount = 0
-	state.LastProcessed = ""
+	// Restart the current phase: cursor reset. total_count is kept, not
+	// recounted: the count walks the phase's item set at gas (SEA-201).
+	if err := k.beginTransitionPhase(ctx, &state, state.Phase, false); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to restart phase")
+	}
 
 	if err := k.SeasonTransitionState.Set(ctx, state); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update transition state")

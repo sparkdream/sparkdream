@@ -49,8 +49,9 @@ type Params struct {
 	// Maximum exec_count per session. Must be > 0; sessions must declare
 	// a finite cap (1 <= session.max_exec_count <= params.max_exec_count).
 	MaxExecCount uint64 `protobuf:"varint,7,opt,name=max_exec_count,json=maxExecCount,proto3" json:"max_exec_count,omitempty"`
-	// Maximum duration of a narrow session: one that names at most
-	// NarrowSessionMaxMsgTypes (2) message types and does not set
+	// Maximum duration of a narrow session: one that names 1 to
+	// NarrowSessionMaxMsgTypes (2) message types, all in the compiled
+	// NarrowSessionMsgTypes daemon set, and does not set
 	// allow_self_revoke. Unattended daemons (bridge, verifier, content
 	// scanner) sign through such keys; renewing one needs the granter's main
 	// key, which stays off the daemon's host. Must be >= max_expiration.
@@ -58,76 +59,76 @@ type Params struct {
 	// --- RecurringPull (P3) ---
 	// Minimum period_seconds on a RECURRING_PULL grant. Default 86_400 (1 day);
 	// prevents abusive sub-second polling.
-	MinRecurringPeriodSeconds int64 `protobuf:"varint,10,opt,name=min_recurring_period_seconds,json=minRecurringPeriodSeconds,proto3" json:"min_recurring_period_seconds,omitempty"`
+	MinRecurringPeriodSeconds int64 `protobuf:"varint,9,opt,name=min_recurring_period_seconds,json=minRecurringPeriodSeconds,proto3" json:"min_recurring_period_seconds,omitempty"`
 	// Maximum (expires_at - start_time) on a RECURRING_PULL grant. Default
 	// 31_536_000 (1 year); long-lived recurring authorizations need explicit
 	// re-issuance.
-	MaxRecurringDurationSeconds int64 `protobuf:"varint,11,opt,name=max_recurring_duration_seconds,json=maxRecurringDurationSeconds,proto3" json:"max_recurring_duration_seconds,omitempty"`
+	MaxRecurringDurationSeconds int64 `protobuf:"varint,10,opt,name=max_recurring_duration_seconds,json=maxRecurringDurationSeconds,proto3" json:"max_recurring_duration_seconds,omitempty"`
 	// Maximum number of active RECURRING_PULL grants per granter. Default 50.
-	MaxRecurringPullsPerGranter uint32 `protobuf:"varint,12,opt,name=max_recurring_pulls_per_granter,json=maxRecurringPullsPerGranter,proto3" json:"max_recurring_pulls_per_granter,omitempty"`
+	MaxRecurringPullsPerGranter uint32 `protobuf:"varint,11,opt,name=max_recurring_pulls_per_granter,json=maxRecurringPullsPerGranter,proto3" json:"max_recurring_pulls_per_granter,omitempty"`
 	// --- SpendingAllowance (P4) ---
 	// Minimum period_seconds on a SPENDING_ALLOWANCE grant. Default 3_600
 	// (1 hour); finer-grained than RecurringPull to support rolling burst
 	// budgets.
-	MinAllowancePeriodSeconds int64 `protobuf:"varint,20,opt,name=min_allowance_period_seconds,json=minAllowancePeriodSeconds,proto3" json:"min_allowance_period_seconds,omitempty"`
+	MinAllowancePeriodSeconds int64 `protobuf:"varint,12,opt,name=min_allowance_period_seconds,json=minAllowancePeriodSeconds,proto3" json:"min_allowance_period_seconds,omitempty"`
 	// Maximum number of active SPENDING_ALLOWANCE grants per granter.
 	// Default 20.
-	MaxAllowancesPerGranter uint32 `protobuf:"varint,21,opt,name=max_allowances_per_granter,json=maxAllowancesPerGranter,proto3" json:"max_allowances_per_granter,omitempty"`
+	MaxAllowancesPerGranter uint32 `protobuf:"varint,13,opt,name=max_allowances_per_granter,json=maxAllowancesPerGranter,proto3" json:"max_allowances_per_granter,omitempty"`
 	// Maximum size of an allowed_recipients whitelist. Default 50. Prevents
 	// state-bloat attacks by capping the per-grant list length.
-	MaxAllowanceRecipientList uint32 `protobuf:"varint,22,opt,name=max_allowance_recipient_list,json=maxAllowanceRecipientList,proto3" json:"max_allowance_recipient_list,omitempty"`
+	MaxAllowanceRecipientList uint32 `protobuf:"varint,14,opt,name=max_allowance_recipient_list,json=maxAllowanceRecipientList,proto3" json:"max_allowance_recipient_list,omitempty"`
 	// Minimum amount per MsgPullAllowance call, as sdk.Int (string). Default
 	// "1000" (1000 uspark / 0.001 SPARK). Closes the "1 utoken at a time to
 	// bloat events / drain state" griefing pattern.
-	MinPullAmount string `protobuf:"bytes,23,opt,name=min_pull_amount,json=minPullAmount,proto3" json:"min_pull_amount,omitempty"`
+	MinPullAmount string `protobuf:"bytes,15,opt,name=min_pull_amount,json=minPullAmount,proto3" json:"min_pull_amount,omitempty"`
 	// --- ScheduledOneshot (P5) ---
 	// Minimum (fire_at - block_time) at creation. Default 60s; closes
 	// front-running edge cases.
-	MinScheduleDelaySeconds int64 `protobuf:"varint,30,opt,name=min_schedule_delay_seconds,json=minScheduleDelaySeconds,proto3" json:"min_schedule_delay_seconds,omitempty"`
+	MinScheduleDelaySeconds int64 `protobuf:"varint,16,opt,name=min_schedule_delay_seconds,json=minScheduleDelaySeconds,proto3" json:"min_schedule_delay_seconds,omitempty"`
 	// Maximum (fire_at - block_time) at creation. Default 31_536_000 (1 year).
 	// Applies to fire_at only; max_grant_lifetime_seconds applies to expires_at.
-	MaxScheduleHorizonSeconds int64 `protobuf:"varint,31,opt,name=max_schedule_horizon_seconds,json=maxScheduleHorizonSeconds,proto3" json:"max_schedule_horizon_seconds,omitempty"`
+	MaxScheduleHorizonSeconds int64 `protobuf:"varint,17,opt,name=max_schedule_horizon_seconds,json=maxScheduleHorizonSeconds,proto3" json:"max_schedule_horizon_seconds,omitempty"`
 	// Required buffer between fire_at and expires_at. Default 3600 (1h);
 	// makes the EndBlocker fire-vs-expire race impossible.
-	FireToExpiryBufferSeconds int64 `protobuf:"varint,32,opt,name=fire_to_expiry_buffer_seconds,json=fireToExpiryBufferSeconds,proto3" json:"fire_to_expiry_buffer_seconds,omitempty"`
+	FireToExpiryBufferSeconds int64 `protobuf:"varint,18,opt,name=fire_to_expiry_buffer_seconds,json=fireToExpiryBufferSeconds,proto3" json:"fire_to_expiry_buffer_seconds,omitempty"`
 	// Maximum active (non-paused) ScheduledOneshot grants per granter. Default 100.
-	MaxPendingOneshotsPerGranter uint32 `protobuf:"varint,33,opt,name=max_pending_oneshots_per_granter,json=maxPendingOneshotsPerGranter,proto3" json:"max_pending_oneshots_per_granter,omitempty"`
+	MaxPendingOneshotsPerGranter uint32 `protobuf:"varint,19,opt,name=max_pending_oneshots_per_granter,json=maxPendingOneshotsPerGranter,proto3" json:"max_pending_oneshots_per_granter,omitempty"`
 	// Maximum paused (PAUSED_INSUFFICIENT_FUNDS) ScheduledOneshot grants per
 	// granter. Default 20. Separate from active cap so paused grants don't
 	// pin slots indefinitely.
-	MaxPausedOneshotsPerGranter uint32 `protobuf:"varint,34,opt,name=max_paused_oneshots_per_granter,json=maxPausedOneshotsPerGranter,proto3" json:"max_paused_oneshots_per_granter,omitempty"`
+	MaxPausedOneshotsPerGranter uint32 `protobuf:"varint,20,opt,name=max_paused_oneshots_per_granter,json=maxPausedOneshotsPerGranter,proto3" json:"max_paused_oneshots_per_granter,omitempty"`
 	// Auto-revoke a paused oneshot after this many seconds. Default 604_800
 	// (7 days). Deposit refunded on auto-revoke.
-	PausedOneshotTtlSeconds int64 `protobuf:"varint,35,opt,name=paused_oneshot_ttl_seconds,json=pausedOneshotTtlSeconds,proto3" json:"paused_oneshot_ttl_seconds,omitempty"`
+	PausedOneshotTtlSeconds int64 `protobuf:"varint,21,opt,name=paused_oneshot_ttl_seconds,json=pausedOneshotTtlSeconds,proto3" json:"paused_oneshot_ttl_seconds,omitempty"`
 	// Minimum gas_limit allowed on OneshotExec. Default 30_000.
-	MinOneshotExecGas uint64 `protobuf:"varint,36,opt,name=min_oneshot_exec_gas,json=minOneshotExecGas,proto3" json:"min_oneshot_exec_gas,omitempty"`
+	MinOneshotExecGas uint64 `protobuf:"varint,22,opt,name=min_oneshot_exec_gas,json=minOneshotExecGas,proto3" json:"min_oneshot_exec_gas,omitempty"`
 	// Maximum gas_limit allowed on OneshotExec. Default 200_000.
-	MaxOneshotExecGas uint64 `protobuf:"varint,37,opt,name=max_oneshot_exec_gas,json=maxOneshotExecGas,proto3" json:"max_oneshot_exec_gas,omitempty"`
+	MaxOneshotExecGas uint64 `protobuf:"varint,23,opt,name=max_oneshot_exec_gas,json=maxOneshotExecGas,proto3" json:"max_oneshot_exec_gas,omitempty"`
 	// Price per gas unit for OneshotExec deposit calculation, as sdk.Dec
 	// string. Default "0.0025" (100x typical min_gas_price). Floor must be
 	// >= chain's effective min_gas_price. Denominated in the chain's bond
 	// denom (resolved at runtime via x/identity).
-	OneshotGasPrice string `protobuf:"bytes,38,opt,name=oneshot_gas_price,json=oneshotGasPrice,proto3" json:"oneshot_gas_price,omitempty"`
+	OneshotGasPrice string `protobuf:"bytes,24,opt,name=oneshot_gas_price,json=oneshotGasPrice,proto3" json:"oneshot_gas_price,omitempty"`
 	// Flat per-slot fee on every Oneshot grant creation (both Transfer and
 	// Exec variants), in bond-denom micro-units. Default 1000 (0.001 SPARK).
 	// Closes the "free state slot" hole.
-	OneshotCreationFee uint64 `protobuf:"varint,39,opt,name=oneshot_creation_fee,json=oneshotCreationFee,proto3" json:"oneshot_creation_fee,omitempty"`
+	OneshotCreationFee uint64 `protobuf:"varint,25,opt,name=oneshot_creation_fee,json=oneshotCreationFee,proto3" json:"oneshot_creation_fee,omitempty"`
 	// Hard floor on total deposit, in bond-denom micro-units. Default 1000.
 	// Defeats `gas_limit=1` zero-deposit slot griefing.
-	MinOneshotDeposit uint64 `protobuf:"varint,40,opt,name=min_oneshot_deposit,json=minOneshotDeposit,proto3" json:"min_oneshot_deposit,omitempty"`
+	MinOneshotDeposit uint64 `protobuf:"varint,26,opt,name=min_oneshot_deposit,json=minOneshotDeposit,proto3" json:"min_oneshot_deposit,omitempty"`
 	// Per-EndBlocker pass cap on dispatches (fire, auto-revoke, expire each
 	// get their own cap). Default 100.
-	MaxEndblockerDispatchesPerPass uint32 `protobuf:"varint,41,opt,name=max_endblocker_dispatches_per_pass,json=maxEndblockerDispatchesPerPass,proto3" json:"max_endblocker_dispatches_per_pass,omitempty"`
+	MaxEndblockerDispatchesPerPass uint32 `protobuf:"varint,27,opt,name=max_endblocker_dispatches_per_pass,json=maxEndblockerDispatchesPerPass,proto3" json:"max_endblocker_dispatches_per_pass,omitempty"`
 	// --- Cross-type (P3) ---
 	// Additional coins permitted as denom in RecurringPull / SpendingAllowance
 	// / Oneshot grants. Default empty — the chain's bond denom is ALWAYS
 	// allowed; this list adds additional permitted denoms (e.g. IBC vouchers).
 	// DREAM is permanently excluded at the handler level regardless of
 	// contents.
-	AllowedDenoms []string `protobuf:"bytes,50,rep,name=allowed_denoms,json=allowedDenoms,proto3" json:"allowed_denoms,omitempty"`
+	AllowedDenoms []string `protobuf:"bytes,28,rep,name=allowed_denoms,json=allowedDenoms,proto3" json:"allowed_denoms,omitempty"`
 	// General cap on `expires_at - created_at` across all grant types. Default
 	// 31_536_000 (1 year).
-	MaxGrantLifetimeSeconds int64 `protobuf:"varint,51,opt,name=max_grant_lifetime_seconds,json=maxGrantLifetimeSeconds,proto3" json:"max_grant_lifetime_seconds,omitempty"`
+	MaxGrantLifetimeSeconds int64 `protobuf:"varint,29,opt,name=max_grant_lifetime_seconds,json=maxGrantLifetimeSeconds,proto3" json:"max_grant_lifetime_seconds,omitempty"`
 	// --- Module-bypass (P8) ---
 	// Bech32 addresses of module accounts authorized to call
 	// `CreateGrantOnBehalfOf` (the signature-bypass keeper entrypoint).
@@ -140,7 +141,16 @@ type Params struct {
 	// grant; the bypass skips signature + sequence verification, so a
 	// compromised or buggy allowlisted module could synthesize arbitrary
 	// grants. Add only after a security review.
-	AuthorizedGrantCreators []string `protobuf:"bytes,60,rep,name=authorized_grant_creators,json=authorizedGrantCreators,proto3" json:"authorized_grant_creators,omitempty"`
+	AuthorizedGrantCreators []string `protobuf:"bytes,30,rep,name=authorized_grant_creators,json=authorizedGrantCreators,proto3" json:"authorized_grant_creators,omitempty"`
+	// --- Grantee consent (SES-102) ---
+	// SPARK deposit (bond-denom micro-units) a granter escrows on an
+	// access-class grant (SESSION_KEY, SIGN_IN) to a grantee that has not
+	// allowed the granter yet. The grant waits as PENDING; the deposit is
+	// refunded when the grantee accepts, declines or the granter revokes, and
+	// forfeited to the community pool when the grant expires unaccepted
+	// (PendingGrantTTL, compiled). Default 1_000_000 (1 SPARK). Governance
+	// only; 0 disables the deposit but not the consent step.
+	PendingGrantDeposit uint64 `protobuf:"varint,31,opt,name=pending_grant_deposit,json=pendingGrantDeposit,proto3" json:"pending_grant_deposit,omitempty"`
 }
 
 func (m *Params) Reset()         { *m = Params{} }
@@ -379,6 +389,13 @@ func (m *Params) GetAuthorizedGrantCreators() []string {
 	return nil
 }
 
+func (m *Params) GetPendingGrantDeposit() uint64 {
+	if m != nil {
+		return m.PendingGrantDeposit
+	}
+	return 0
+}
+
 // SessionOperationalParams defines the operational parameters updateable by
 // the Commons Council Operations Committee without a full governance proposal.
 // max_allowed_msg_types (the ceiling) is excluded — only chain upgrades can expand it.
@@ -393,32 +410,32 @@ type SessionOperationalParams struct {
 	MaxExecCount               uint64                `protobuf:"varint,6,opt,name=max_exec_count,json=maxExecCount,proto3" json:"max_exec_count,omitempty"`
 	NarrowSessionMaxExpiration time.Duration         `protobuf:"bytes,7,opt,name=narrow_session_max_expiration,json=narrowSessionMaxExpiration,proto3,stdduration" json:"narrow_session_max_expiration"`
 	// --- RecurringPull + cross-type (P3) ---
-	MinRecurringPeriodSeconds   int64  `protobuf:"varint,10,opt,name=min_recurring_period_seconds,json=minRecurringPeriodSeconds,proto3" json:"min_recurring_period_seconds,omitempty"`
-	MaxRecurringDurationSeconds int64  `protobuf:"varint,11,opt,name=max_recurring_duration_seconds,json=maxRecurringDurationSeconds,proto3" json:"max_recurring_duration_seconds,omitempty"`
-	MaxRecurringPullsPerGranter uint32 `protobuf:"varint,12,opt,name=max_recurring_pulls_per_granter,json=maxRecurringPullsPerGranter,proto3" json:"max_recurring_pulls_per_granter,omitempty"`
+	MinRecurringPeriodSeconds   int64  `protobuf:"varint,8,opt,name=min_recurring_period_seconds,json=minRecurringPeriodSeconds,proto3" json:"min_recurring_period_seconds,omitempty"`
+	MaxRecurringDurationSeconds int64  `protobuf:"varint,9,opt,name=max_recurring_duration_seconds,json=maxRecurringDurationSeconds,proto3" json:"max_recurring_duration_seconds,omitempty"`
+	MaxRecurringPullsPerGranter uint32 `protobuf:"varint,10,opt,name=max_recurring_pulls_per_granter,json=maxRecurringPullsPerGranter,proto3" json:"max_recurring_pulls_per_granter,omitempty"`
 	// --- SpendingAllowance (P4) ---
-	MinAllowancePeriodSeconds int64  `protobuf:"varint,20,opt,name=min_allowance_period_seconds,json=minAllowancePeriodSeconds,proto3" json:"min_allowance_period_seconds,omitempty"`
-	MaxAllowancesPerGranter   uint32 `protobuf:"varint,21,opt,name=max_allowances_per_granter,json=maxAllowancesPerGranter,proto3" json:"max_allowances_per_granter,omitempty"`
-	MaxAllowanceRecipientList uint32 `protobuf:"varint,22,opt,name=max_allowance_recipient_list,json=maxAllowanceRecipientList,proto3" json:"max_allowance_recipient_list,omitempty"`
-	MinPullAmount             string `protobuf:"bytes,23,opt,name=min_pull_amount,json=minPullAmount,proto3" json:"min_pull_amount,omitempty"`
+	MinAllowancePeriodSeconds int64  `protobuf:"varint,11,opt,name=min_allowance_period_seconds,json=minAllowancePeriodSeconds,proto3" json:"min_allowance_period_seconds,omitempty"`
+	MaxAllowancesPerGranter   uint32 `protobuf:"varint,12,opt,name=max_allowances_per_granter,json=maxAllowancesPerGranter,proto3" json:"max_allowances_per_granter,omitempty"`
+	MaxAllowanceRecipientList uint32 `protobuf:"varint,13,opt,name=max_allowance_recipient_list,json=maxAllowanceRecipientList,proto3" json:"max_allowance_recipient_list,omitempty"`
+	MinPullAmount             string `protobuf:"bytes,14,opt,name=min_pull_amount,json=minPullAmount,proto3" json:"min_pull_amount,omitempty"`
 	// --- ScheduledOneshot (P5) ---
-	MinScheduleDelaySeconds        int64  `protobuf:"varint,30,opt,name=min_schedule_delay_seconds,json=minScheduleDelaySeconds,proto3" json:"min_schedule_delay_seconds,omitempty"`
-	MaxScheduleHorizonSeconds      int64  `protobuf:"varint,31,opt,name=max_schedule_horizon_seconds,json=maxScheduleHorizonSeconds,proto3" json:"max_schedule_horizon_seconds,omitempty"`
-	FireToExpiryBufferSeconds      int64  `protobuf:"varint,32,opt,name=fire_to_expiry_buffer_seconds,json=fireToExpiryBufferSeconds,proto3" json:"fire_to_expiry_buffer_seconds,omitempty"`
-	MaxPendingOneshotsPerGranter   uint32 `protobuf:"varint,33,opt,name=max_pending_oneshots_per_granter,json=maxPendingOneshotsPerGranter,proto3" json:"max_pending_oneshots_per_granter,omitempty"`
-	MaxPausedOneshotsPerGranter    uint32 `protobuf:"varint,34,opt,name=max_paused_oneshots_per_granter,json=maxPausedOneshotsPerGranter,proto3" json:"max_paused_oneshots_per_granter,omitempty"`
-	PausedOneshotTtlSeconds        int64  `protobuf:"varint,35,opt,name=paused_oneshot_ttl_seconds,json=pausedOneshotTtlSeconds,proto3" json:"paused_oneshot_ttl_seconds,omitempty"`
-	MinOneshotExecGas              uint64 `protobuf:"varint,36,opt,name=min_oneshot_exec_gas,json=minOneshotExecGas,proto3" json:"min_oneshot_exec_gas,omitempty"`
-	MaxOneshotExecGas              uint64 `protobuf:"varint,37,opt,name=max_oneshot_exec_gas,json=maxOneshotExecGas,proto3" json:"max_oneshot_exec_gas,omitempty"`
-	OneshotGasPrice                string `protobuf:"bytes,38,opt,name=oneshot_gas_price,json=oneshotGasPrice,proto3" json:"oneshot_gas_price,omitempty"`
-	OneshotCreationFee             uint64 `protobuf:"varint,39,opt,name=oneshot_creation_fee,json=oneshotCreationFee,proto3" json:"oneshot_creation_fee,omitempty"`
-	MinOneshotDeposit              uint64 `protobuf:"varint,40,opt,name=min_oneshot_deposit,json=minOneshotDeposit,proto3" json:"min_oneshot_deposit,omitempty"`
-	MaxEndblockerDispatchesPerPass uint32 `protobuf:"varint,41,opt,name=max_endblocker_dispatches_per_pass,json=maxEndblockerDispatchesPerPass,proto3" json:"max_endblocker_dispatches_per_pass,omitempty"`
+	MinScheduleDelaySeconds        int64  `protobuf:"varint,15,opt,name=min_schedule_delay_seconds,json=minScheduleDelaySeconds,proto3" json:"min_schedule_delay_seconds,omitempty"`
+	MaxScheduleHorizonSeconds      int64  `protobuf:"varint,16,opt,name=max_schedule_horizon_seconds,json=maxScheduleHorizonSeconds,proto3" json:"max_schedule_horizon_seconds,omitempty"`
+	FireToExpiryBufferSeconds      int64  `protobuf:"varint,17,opt,name=fire_to_expiry_buffer_seconds,json=fireToExpiryBufferSeconds,proto3" json:"fire_to_expiry_buffer_seconds,omitempty"`
+	MaxPendingOneshotsPerGranter   uint32 `protobuf:"varint,18,opt,name=max_pending_oneshots_per_granter,json=maxPendingOneshotsPerGranter,proto3" json:"max_pending_oneshots_per_granter,omitempty"`
+	MaxPausedOneshotsPerGranter    uint32 `protobuf:"varint,19,opt,name=max_paused_oneshots_per_granter,json=maxPausedOneshotsPerGranter,proto3" json:"max_paused_oneshots_per_granter,omitempty"`
+	PausedOneshotTtlSeconds        int64  `protobuf:"varint,20,opt,name=paused_oneshot_ttl_seconds,json=pausedOneshotTtlSeconds,proto3" json:"paused_oneshot_ttl_seconds,omitempty"`
+	MinOneshotExecGas              uint64 `protobuf:"varint,21,opt,name=min_oneshot_exec_gas,json=minOneshotExecGas,proto3" json:"min_oneshot_exec_gas,omitempty"`
+	MaxOneshotExecGas              uint64 `protobuf:"varint,22,opt,name=max_oneshot_exec_gas,json=maxOneshotExecGas,proto3" json:"max_oneshot_exec_gas,omitempty"`
+	OneshotGasPrice                string `protobuf:"bytes,23,opt,name=oneshot_gas_price,json=oneshotGasPrice,proto3" json:"oneshot_gas_price,omitempty"`
+	OneshotCreationFee             uint64 `protobuf:"varint,24,opt,name=oneshot_creation_fee,json=oneshotCreationFee,proto3" json:"oneshot_creation_fee,omitempty"`
+	MinOneshotDeposit              uint64 `protobuf:"varint,25,opt,name=min_oneshot_deposit,json=minOneshotDeposit,proto3" json:"min_oneshot_deposit,omitempty"`
+	MaxEndblockerDispatchesPerPass uint32 `protobuf:"varint,26,opt,name=max_endblocker_dispatches_per_pass,json=maxEndblockerDispatchesPerPass,proto3" json:"max_endblocker_dispatches_per_pass,omitempty"`
 	// Note: allowed_denoms is add-only by ops (removing a denom strands existing
 	// grants and is gov-only via MsgUpdateParams). Including it here so ops can
 	// widen the set.
-	AllowedDenoms           []string `protobuf:"bytes,50,rep,name=allowed_denoms,json=allowedDenoms,proto3" json:"allowed_denoms,omitempty"`
-	MaxGrantLifetimeSeconds int64    `protobuf:"varint,51,opt,name=max_grant_lifetime_seconds,json=maxGrantLifetimeSeconds,proto3" json:"max_grant_lifetime_seconds,omitempty"`
+	AllowedDenoms           []string `protobuf:"bytes,27,rep,name=allowed_denoms,json=allowedDenoms,proto3" json:"allowed_denoms,omitempty"`
+	MaxGrantLifetimeSeconds int64    `protobuf:"varint,28,opt,name=max_grant_lifetime_seconds,json=maxGrantLifetimeSeconds,proto3" json:"max_grant_lifetime_seconds,omitempty"`
 }
 
 func (m *SessionOperationalParams) Reset()         { *m = SessionOperationalParams{} }
@@ -653,74 +670,79 @@ func init() {
 }
 
 var fileDescriptor_10acba0f5e5d4176 = []byte{
-	// 1063 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x55, 0x41, 0x4f, 0x1b, 0x47,
-	0x14, 0x66, 0x43, 0x42, 0x92, 0x49, 0x00, 0xb1, 0x81, 0xb0, 0x38, 0xc5, 0x76, 0x29, 0x49, 0x5d,
-	0xa4, 0xda, 0x25, 0xa9, 0xda, 0x8a, 0x54, 0x6a, 0x01, 0x27, 0xb4, 0x11, 0x51, 0x2c, 0xc3, 0xa9,
-	0x97, 0xd1, 0xb0, 0x3b, 0x5e, 0x46, 0xec, 0xce, 0xac, 0x66, 0xc6, 0xc9, 0xd2, 0x9f, 0xd0, 0x53,
-	0x8f, 0x3d, 0xf6, 0x27, 0xf4, 0x67, 0x70, 0xcc, 0xb1, 0xea, 0x21, 0xad, 0xe0, 0xd0, 0xfe, 0x89,
-	0x4a, 0xd5, 0xbc, 0x9d, 0x59, 0x6c, 0x87, 0x48, 0x4d, 0xd4, 0xde, 0x7c, 0x41, 0x66, 0xdf, 0xf7,
-	0x7d, 0xf3, 0xde, 0x9b, 0xf7, 0xe6, 0x43, 0x2b, 0x2a, 0x23, 0xf2, 0x28, 0x92, 0x94, 0xa4, 0x2d,
-	0x45, 0x95, 0x62, 0x82, 0xb7, 0x9e, 0xaf, 0xb7, 0x32, 0x22, 0x49, 0xaa, 0x9a, 0x99, 0x14, 0x5a,
-	0xf8, 0x0b, 0xe7, 0x98, 0xa6, 0xc5, 0x34, 0x9f, 0xaf, 0x57, 0xe6, 0x48, 0xca, 0xb8, 0x68, 0xc1,
-	0xdf, 0x02, 0x59, 0x99, 0x8f, 0x45, 0x2c, 0xe0, 0x67, 0xcb, 0xfc, 0xb2, 0x5f, 0xab, 0xb1, 0x10,
-	0x71, 0x42, 0x5b, 0xf0, 0xdf, 0x41, 0xbf, 0xd7, 0x8a, 0xfa, 0x92, 0x68, 0xa3, 0x02, 0x5f, 0x56,
-	0x4e, 0x66, 0xd0, 0x54, 0x07, 0x0e, 0xf4, 0xd7, 0xd1, 0x42, 0x4a, 0x72, 0x4c, 0x92, 0x44, 0xbc,
-	0xa0, 0x11, 0x4e, 0x55, 0x8c, 0xf5, 0x71, 0x46, 0x55, 0xe0, 0xd5, 0x27, 0x1b, 0xd7, 0xbb, 0x7e,
-	0x4a, 0xf2, 0xcd, 0x22, 0xf6, 0x54, 0xc5, 0xfb, 0x26, 0xe2, 0xaf, 0xa1, 0xb9, 0xd7, 0xe1, 0x97,
-	0x00, 0x3e, 0x4b, 0x46, 0xb0, 0x9f, 0xa3, 0xc0, 0xc8, 0xdb, 0x22, 0x14, 0xce, 0xa8, 0xc4, 0xb1,
-	0x24, 0x5c, 0x53, 0x19, 0x4c, 0xd6, 0xbd, 0xc6, 0xe5, 0xae, 0x39, 0x7e, 0xcf, 0x86, 0x3b, 0x54,
-	0xee, 0x14, 0x41, 0xff, 0x0b, 0xb4, 0x64, 0x88, 0xe5, 0x01, 0xc0, 0xb4, 0x32, 0xc1, 0xe5, 0x92,
-	0xe9, 0x0e, 0xea, 0x50, 0x69, 0x45, 0xfc, 0x27, 0x68, 0xc6, 0x30, 0x69, 0x9e, 0xb1, 0xa2, 0xe8,
-	0xe0, 0x4a, 0xdd, 0x6b, 0xdc, 0xb8, 0xbf, 0xd4, 0x2c, 0xba, 0xd2, 0x74, 0x5d, 0x69, 0xb6, 0x6d,
-	0x57, 0xb6, 0xae, 0x9d, 0xbc, 0xaa, 0x4d, 0xfc, 0xf4, 0x7b, 0xcd, 0xeb, 0x4e, 0xa7, 0x24, 0x7f,
-	0x54, 0x32, 0xfd, 0x2e, 0xba, 0x0d, 0xe9, 0x67, 0x94, 0x47, 0x38, 0x61, 0x29, 0xd3, 0x98, 0xa4,
-	0xa2, 0xcf, 0x75, 0x30, 0x55, 0xf7, 0x1a, 0xd7, 0xb7, 0x96, 0x0d, 0xf1, 0xb7, 0x57, 0xb5, 0x85,
-	0x50, 0xa8, 0x54, 0x28, 0x15, 0x1d, 0x35, 0x99, 0x68, 0xa5, 0x44, 0x1f, 0x36, 0xbf, 0xe5, 0xba,
-	0x7b, 0xcb, 0xd4, 0x66, 0xb8, 0xbb, 0x86, 0xba, 0x09, 0x4c, 0x7f, 0xd5, 0xe5, 0x47, 0x43, 0x1c,
-	0x82, 0xd6, 0x55, 0x28, 0xe7, 0x26, 0x1c, 0x4d, 0xc3, 0x6d, 0x40, 0xf5, 0xd0, 0x32, 0x27, 0x52,
-	0x8a, 0x17, 0xae, 0x68, 0x3c, 0x52, 0xd4, 0xb5, 0x7f, 0x5f, 0x54, 0xa5, 0x50, 0xb2, 0x0d, 0x7a,
-	0x3a, 0x54, 0xe1, 0x57, 0xe8, 0xbd, 0x94, 0x71, 0x2c, 0x69, 0xd8, 0x97, 0x92, 0xf1, 0xd8, 0xf4,
-	0x99, 0x89, 0x08, 0x2b, 0x1a, 0x0a, 0x1e, 0xa9, 0x00, 0xd5, 0xbd, 0xc6, 0x64, 0x77, 0x29, 0x65,
-	0xbc, 0xeb, 0x20, 0x1d, 0x40, 0xec, 0x15, 0x00, 0x7f, 0x1b, 0x55, 0x4d, 0x66, 0xe7, 0x02, 0x6e,
-	0xd6, 0x4a, 0x89, 0x1b, 0x20, 0x71, 0x27, 0x25, 0x79, 0x29, 0xe1, 0x92, 0x74, 0x22, 0x6d, 0x54,
-	0x1b, 0x16, 0xc9, 0xfa, 0x49, 0x32, 0x3c, 0x2d, 0x37, 0xeb, 0x5e, 0x63, 0x7a, 0x58, 0xa5, 0x63,
-	0x40, 0x03, 0x33, 0x63, 0x6b, 0x81, 0x19, 0x24, 0x3c, 0xa4, 0xa3, 0xb5, 0xcc, 0x97, 0xb5, 0x6c,
-	0x3a, 0xc8, 0x70, 0x2d, 0x0f, 0x51, 0xa5, 0x5c, 0x06, 0x13, 0x1d, 0xce, 0x60, 0x01, 0x32, 0x58,
-	0x74, 0x1b, 0x01, 0x80, 0x91, 0xd3, 0x07, 0xc9, 0xa6, 0x1a, 0x96, 0x31, 0xca, 0x35, 0x4e, 0x98,
-	0xd2, 0xc1, 0x6d, 0xa0, 0x2f, 0x0d, 0xd2, 0xbb, 0x0e, 0xb1, 0xcb, 0x94, 0xf6, 0xef, 0xa1, 0x59,
-	0x93, 0xbe, 0x29, 0xdd, 0x4d, 0xd9, 0xa2, 0x99, 0xb2, 0xee, 0x74, 0xca, 0xb8, 0xa9, 0xd5, 0x0e,
-	0x90, 0xc9, 0x92, 0x71, 0xac, 0xc2, 0x43, 0x1a, 0xf5, 0x13, 0x8a, 0x23, 0x9a, 0x90, 0xe3, 0xb2,
-	0xc8, 0x2a, 0x14, 0xb9, 0x98, 0x32, 0xbe, 0x67, 0x01, 0x6d, 0x13, 0x77, 0x25, 0xda, 0x2c, 0x4b,
-	0xf2, 0xa1, 0x90, 0xec, 0xfb, 0x81, 0xcb, 0xaa, 0xd9, 0x1e, 0x91, 0xdc, 0xd1, 0xbf, 0x29, 0x10,
-	0x4e, 0xe0, 0x6b, 0xb4, 0xdc, 0x63, 0x92, 0x62, 0x2d, 0x8a, 0x69, 0x3c, 0xc6, 0x07, 0xfd, 0x5e,
-	0x0f, 0x96, 0xb3, 0x50, 0xa8, 0x17, 0x0a, 0x06, 0xb4, 0x2f, 0x60, 0xd2, 0x8e, 0xb7, 0x00, 0xe1,
-	0x14, 0x1e, 0xa3, 0xba, 0x49, 0xc1, 0xec, 0x85, 0xb9, 0x6a, 0xc1, 0xa9, 0x3a, 0x14, 0x7a, 0xb8,
-	0xd7, 0xef, 0x43, 0xb3, 0x4c, 0xaa, 0x9d, 0x02, 0xf6, 0xcc, 0xa2, 0x06, 0x1a, 0x6e, 0x87, 0x26,
-	0x23, 0x7d, 0x45, 0xa3, 0x8b, 0x65, 0x56, 0xca, 0xa1, 0xe9, 0x00, 0xea, 0x02, 0x95, 0x87, 0xa8,
-	0x32, 0xac, 0x80, 0xb5, 0x4e, 0xca, 0x62, 0x3e, 0x28, 0xba, 0x99, 0x0d, 0xb2, 0xf7, 0x75, 0xe2,
-	0x4a, 0x69, 0xa1, 0x79, 0x73, 0x15, 0x8e, 0x09, 0x3b, 0x1d, 0x13, 0x15, 0xac, 0xc2, 0x46, 0xcf,
-	0xa5, 0x8c, 0x5b, 0x8e, 0x59, 0xec, 0x1d, 0x52, 0x10, 0x48, 0xfe, 0x3a, 0xe1, 0xae, 0x25, 0x90,
-	0x7c, 0x84, 0xb0, 0x86, 0xe6, 0x1c, 0x38, 0x26, 0x0a, 0x67, 0x92, 0x85, 0x34, 0xb8, 0x07, 0x63,
-	0x31, 0x6b, 0x03, 0x3b, 0x44, 0x75, 0xcc, 0x67, 0xff, 0x13, 0x34, 0xef, 0xb0, 0xa1, 0xa4, 0xc5,
-	0x12, 0xf6, 0x28, 0x0d, 0x3e, 0x04, 0x71, 0xdf, 0xc6, 0xb6, 0x6d, 0xe8, 0x31, 0xa5, 0x7e, 0x13,
-	0xdd, 0x1a, 0xcc, 0x3f, 0xa2, 0x99, 0x50, 0x4c, 0x07, 0x8d, 0xd1, 0xf4, 0xdb, 0x45, 0xc0, 0x7f,
-	0x82, 0x56, 0xe0, 0x19, 0xe2, 0xd1, 0x41, 0x22, 0xc2, 0x23, 0x2a, 0x71, 0xc4, 0x54, 0x46, 0x74,
-	0x78, 0x68, 0x77, 0x25, 0x23, 0x4a, 0x05, 0x1f, 0x41, 0xd7, 0xcd, 0xb3, 0xf0, 0xa8, 0x04, 0xb6,
-	0x4b, 0x5c, 0x87, 0xca, 0x0e, 0x51, 0xca, 0xbf, 0x8b, 0x66, 0x9c, 0x8d, 0x44, 0x94, 0x8b, 0x54,
-	0x05, 0xf7, 0xc1, 0x43, 0xa6, 0xed, 0xd7, 0x36, 0x7c, 0x74, 0x3b, 0x09, 0x37, 0x8a, 0x13, 0xd6,
-	0xa3, 0x9a, 0xa5, 0xb4, 0xbc, 0x9f, 0x07, 0x76, 0xda, 0x49, 0x0e, 0xf7, 0xb9, 0x6b, 0xe3, 0xee,
-	0x7e, 0x36, 0xd0, 0x12, 0xe9, 0x6b, 0x98, 0x71, 0x1a, 0x59, 0x0d, 0x68, 0x8d, 0x90, 0x2a, 0xf8,
-	0x12, 0x8e, 0x5b, 0x3c, 0x07, 0x80, 0xc4, 0xb6, 0x0d, 0x6f, 0xac, 0xfe, 0xf5, 0x73, 0xcd, 0xfb,
-	0xe1, 0xcf, 0x5f, 0xd6, 0xee, 0x0c, 0x38, 0x76, 0x5e, 0x7a, 0x76, 0xe1, 0x9f, 0x2b, 0x7f, 0x4f,
-	0xa3, 0xc0, 0x3e, 0xac, 0xcf, 0x32, 0x5a, 0xbc, 0x6a, 0x24, 0xb1, 0xe6, 0x7a, 0xa1, 0x53, 0x7a,
-	0x6f, 0xef, 0x94, 0x97, 0xde, 0xd9, 0x29, 0x27, 0xdf, 0xce, 0x29, 0x2f, 0xff, 0x0f, 0x4e, 0x79,
-	0xe5, 0x3f, 0x74, 0xca, 0xa9, 0x77, 0x71, 0xca, 0xab, 0x63, 0xa7, 0x1c, 0x3b, 0xe5, 0xd8, 0x29,
-	0xc7, 0x4e, 0x39, 0x76, 0xca, 0x37, 0x3a, 0xe5, 0xc6, 0x67, 0xce, 0xed, 0x3e, 0xbe, 0xd0, 0xed,
-	0xde, 0x64, 0x71, 0x5b, 0x9f, 0x9e, 0x9c, 0x56, 0xbd, 0x97, 0xa7, 0x55, 0xef, 0x8f, 0xd3, 0xaa,
-	0xf7, 0xe3, 0x59, 0x75, 0xe2, 0xe5, 0x59, 0x75, 0xe2, 0xd7, 0xb3, 0xea, 0xc4, 0x77, 0x95, 0x0b,
-	0x85, 0xc0, 0xa2, 0x0e, 0xa6, 0xe0, 0x11, 0x7e, 0xf0, 0x4f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xb1,
-	0x63, 0x27, 0xee, 0x0d, 0x0f, 0x00, 0x00,
+	// 1146 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x55, 0x41, 0x4f, 0x1b, 0x47,
+	0x14, 0x66, 0x43, 0x42, 0x60, 0xc0, 0x10, 0x2f, 0x18, 0xd6, 0x06, 0x6c, 0x0b, 0xa5, 0x95, 0x85,
+	0x54, 0xbb, 0xa4, 0x55, 0x5b, 0x91, 0x43, 0x0b, 0x38, 0xa1, 0x8d, 0x88, 0x62, 0x19, 0x4e, 0xbd,
+	0xac, 0x86, 0xdd, 0xb1, 0x19, 0xb1, 0xbb, 0xb3, 0x9a, 0x19, 0x27, 0x4b, 0x7f, 0x42, 0x4f, 0x3d,
+	0xf6, 0xd8, 0x9f, 0xd0, 0x9f, 0x91, 0x63, 0x8e, 0x55, 0x0f, 0x69, 0x05, 0x87, 0xf6, 0x47, 0xb4,
+	0x52, 0x35, 0x6f, 0x67, 0x16, 0xdb, 0xa1, 0x55, 0x6d, 0xd3, 0x5e, 0x90, 0xd9, 0xf7, 0x7d, 0xdf,
+	0xbc, 0xf7, 0xe6, 0xbd, 0xf9, 0xd0, 0x96, 0x88, 0x31, 0x3f, 0xf7, 0x39, 0xc1, 0x61, 0x43, 0x10,
+	0x21, 0x28, 0x8b, 0x1a, 0x2f, 0x77, 0x1a, 0x31, 0xe6, 0x38, 0x14, 0xf5, 0x98, 0x33, 0xc9, 0xec,
+	0xc2, 0x35, 0xa6, 0xae, 0x31, 0xf5, 0x97, 0x3b, 0xa5, 0x3c, 0x0e, 0x69, 0xc4, 0x1a, 0xf0, 0x37,
+	0x45, 0x96, 0x56, 0xba, 0xac, 0xcb, 0xe0, 0x67, 0x43, 0xfd, 0xd2, 0x5f, 0xcb, 0x5d, 0xc6, 0xba,
+	0x01, 0x69, 0xc0, 0x7f, 0xa7, 0xbd, 0x4e, 0xc3, 0xef, 0x71, 0x2c, 0x95, 0x0a, 0x7c, 0xd9, 0xfa,
+	0x63, 0x11, 0xcd, 0xb4, 0xe0, 0x40, 0x7b, 0x07, 0x15, 0x42, 0x9c, 0xb8, 0x38, 0x08, 0xd8, 0x2b,
+	0xe2, 0xbb, 0xa1, 0xe8, 0xba, 0xf2, 0x22, 0x26, 0xc2, 0xb1, 0xaa, 0xd3, 0xb5, 0xb9, 0xb6, 0x1d,
+	0xe2, 0x64, 0x2f, 0x8d, 0x3d, 0x17, 0xdd, 0x13, 0x15, 0xb1, 0xb7, 0x51, 0xfe, 0x5d, 0xf8, 0x1d,
+	0x80, 0x2f, 0xe1, 0x21, 0xec, 0xa7, 0xc8, 0x51, 0xf2, 0xba, 0x08, 0xe1, 0xc6, 0x84, 0xbb, 0x5d,
+	0x8e, 0x23, 0x49, 0xb8, 0x33, 0x5d, 0xb5, 0x6a, 0x77, 0xdb, 0xea, 0xf8, 0x63, 0x1d, 0x6e, 0x11,
+	0x7e, 0x98, 0x06, 0xed, 0xcf, 0x50, 0x51, 0x11, 0xb3, 0x03, 0x80, 0xa9, 0x65, 0x9c, 0xbb, 0x19,
+	0xd3, 0x1c, 0xd4, 0x22, 0x5c, 0x8b, 0xd8, 0xcf, 0xd0, 0xa2, 0x62, 0x92, 0x24, 0xa6, 0x69, 0xd1,
+	0xce, 0xbd, 0xaa, 0x55, 0x9b, 0x7f, 0x54, 0xac, 0xa7, 0x5d, 0xa9, 0x9b, 0xae, 0xd4, 0x9b, 0xba,
+	0x2b, 0xfb, 0xb3, 0xaf, 0xdf, 0x56, 0xa6, 0xbe, 0xff, 0xa5, 0x62, 0xb5, 0x73, 0x21, 0x4e, 0x9e,
+	0x64, 0x4c, 0xbb, 0x8d, 0x56, 0x21, 0xfd, 0x98, 0x44, 0xbe, 0x1b, 0xd0, 0x90, 0x4a, 0x17, 0x87,
+	0xac, 0x17, 0x49, 0x67, 0xa6, 0x6a, 0xd5, 0xe6, 0xf6, 0x37, 0x15, 0xf1, 0xe7, 0xb7, 0x95, 0x82,
+	0xc7, 0x44, 0xc8, 0x84, 0xf0, 0xcf, 0xeb, 0x94, 0x35, 0x42, 0x2c, 0xcf, 0xea, 0x5f, 0x45, 0xb2,
+	0xbd, 0xac, 0x6a, 0x53, 0xdc, 0x23, 0x45, 0xdd, 0x03, 0xa6, 0xfd, 0xd0, 0xe4, 0x47, 0x3c, 0xd7,
+	0x03, 0xad, 0xfb, 0x50, 0xce, 0x02, 0x1c, 0x4d, 0xbc, 0x03, 0x40, 0x75, 0xd0, 0x66, 0x84, 0x39,
+	0x67, 0xaf, 0x4c, 0xd1, 0xee, 0x50, 0x51, 0xb3, 0xff, 0xbe, 0xa8, 0x52, 0xaa, 0xa4, 0x1b, 0xf4,
+	0x7c, 0xa0, 0xc2, 0xcf, 0xd1, 0x46, 0x48, 0x23, 0x97, 0x13, 0xaf, 0xc7, 0x39, 0x8d, 0xba, 0xaa,
+	0xcf, 0x94, 0xf9, 0xae, 0x20, 0x1e, 0x8b, 0x7c, 0xe1, 0xcc, 0x55, 0xad, 0xda, 0x74, 0xbb, 0x18,
+	0xd2, 0xa8, 0x6d, 0x20, 0x2d, 0x40, 0x1c, 0xa7, 0x00, 0xfb, 0x00, 0x95, 0x55, 0x66, 0xd7, 0x02,
+	0x66, 0xd6, 0x32, 0x09, 0x04, 0x12, 0xeb, 0x21, 0x4e, 0x32, 0x09, 0x93, 0xa4, 0x11, 0x69, 0xa2,
+	0xca, 0xa0, 0x48, 0xdc, 0x0b, 0x82, 0xc1, 0x69, 0x99, 0xaf, 0x5a, 0xb5, 0xdc, 0xa0, 0x4a, 0x4b,
+	0x81, 0xfa, 0x66, 0x46, 0xd7, 0x02, 0x33, 0x88, 0x23, 0x8f, 0x0c, 0xd7, 0xb2, 0x90, 0xd5, 0xb2,
+	0x67, 0x20, 0x83, 0xb5, 0x3c, 0x46, 0xa5, 0x6c, 0x19, 0x54, 0x74, 0x30, 0x83, 0x1c, 0x64, 0xb0,
+	0x66, 0x36, 0x02, 0x00, 0x43, 0xa7, 0xf7, 0x93, 0x55, 0x35, 0x34, 0xa6, 0x24, 0x92, 0x6e, 0x40,
+	0x85, 0x74, 0x16, 0x81, 0x5e, 0xec, 0xa7, 0xb7, 0x0d, 0xe2, 0x88, 0x0a, 0x69, 0xbf, 0x8f, 0x96,
+	0x54, 0xfa, 0xaa, 0x74, 0x33, 0x65, 0x4b, 0x6a, 0xca, 0xda, 0xb9, 0x90, 0x46, 0xaa, 0x56, 0x3d,
+	0x40, 0x2a, 0x4b, 0x1a, 0xb9, 0xc2, 0x3b, 0x23, 0x7e, 0x2f, 0x20, 0xae, 0x4f, 0x02, 0x7c, 0x91,
+	0x15, 0xf9, 0x00, 0x8a, 0x5c, 0x0b, 0x69, 0x74, 0xac, 0x01, 0x4d, 0x15, 0x37, 0x25, 0xea, 0x2c,
+	0x33, 0xf2, 0x19, 0xe3, 0xf4, 0x9b, 0xbe, 0xcb, 0xca, 0xeb, 0x1e, 0xe1, 0xc4, 0xd0, 0xbf, 0x4c,
+	0x11, 0x46, 0xe0, 0x0b, 0xb4, 0xd9, 0xa1, 0x9c, 0xb8, 0x92, 0xa5, 0xd3, 0x78, 0xe1, 0x9e, 0xf6,
+	0x3a, 0x1d, 0x58, 0xce, 0x54, 0xc1, 0x4e, 0x15, 0x14, 0xe8, 0x84, 0xc1, 0xa4, 0x5d, 0xec, 0x03,
+	0xc2, 0x28, 0x3c, 0x45, 0x55, 0x95, 0x82, 0xda, 0x0b, 0x75, 0xd5, 0x2c, 0x22, 0xe2, 0x8c, 0xc9,
+	0xc1, 0x5e, 0x2f, 0x43, 0xb3, 0x54, 0xaa, 0xad, 0x14, 0xf6, 0x42, 0xa3, 0xfa, 0x1a, 0xae, 0x87,
+	0x26, 0xc6, 0x3d, 0x41, 0xfc, 0x9b, 0x65, 0x56, 0xb2, 0xa1, 0x69, 0x01, 0xea, 0x06, 0x95, 0xc7,
+	0xa8, 0x34, 0xa8, 0xe0, 0x4a, 0x19, 0x64, 0xc5, 0x14, 0xd2, 0x6e, 0xc6, 0xfd, 0xec, 0x13, 0x19,
+	0x98, 0x52, 0x1a, 0x68, 0x45, 0x5d, 0x85, 0x61, 0xc2, 0x4e, 0x77, 0xb1, 0x70, 0x56, 0x61, 0xa3,
+	0xf3, 0x21, 0x8d, 0x34, 0x47, 0x2d, 0xf6, 0x21, 0x4e, 0x09, 0x38, 0x79, 0x97, 0xb0, 0xa6, 0x09,
+	0x38, 0x19, 0x22, 0x6c, 0xa3, 0xbc, 0x01, 0x77, 0xb1, 0x70, 0x63, 0x4e, 0x3d, 0xe2, 0x38, 0x30,
+	0x16, 0x4b, 0x3a, 0x70, 0x88, 0x45, 0x4b, 0x7d, 0xb6, 0x3f, 0x44, 0x2b, 0x06, 0xeb, 0x71, 0x92,
+	0x2e, 0x61, 0x87, 0x10, 0xa7, 0x08, 0xe2, 0xb6, 0x8e, 0x1d, 0xe8, 0xd0, 0x53, 0x42, 0xec, 0x3a,
+	0x5a, 0xee, 0xcf, 0xdf, 0x27, 0x31, 0x13, 0x54, 0x3a, 0xa5, 0xe1, 0xf4, 0x9b, 0x69, 0xc0, 0x7e,
+	0x86, 0xb6, 0xe0, 0x19, 0x8a, 0xfc, 0xd3, 0x80, 0x79, 0xe7, 0x84, 0xbb, 0x3e, 0x15, 0x31, 0x96,
+	0xde, 0x99, 0xde, 0x95, 0x18, 0x0b, 0xe1, 0xac, 0x43, 0xd7, 0xd5, 0xb3, 0xf0, 0x24, 0x03, 0x36,
+	0x33, 0x5c, 0x8b, 0xf0, 0x16, 0x16, 0xc2, 0x7e, 0x0f, 0x2d, 0x1a, 0x1b, 0xf1, 0x49, 0xc4, 0x42,
+	0xe1, 0x6c, 0x80, 0x87, 0xe4, 0xf4, 0xd7, 0x26, 0x7c, 0x34, 0x3b, 0x09, 0x37, 0xea, 0x06, 0xb4,
+	0x43, 0x24, 0x0d, 0x49, 0x76, 0x3f, 0x9b, 0x7a, 0xda, 0x71, 0x02, 0xf7, 0x79, 0xa4, 0xe3, 0xe6,
+	0x7e, 0x76, 0x51, 0x11, 0xf7, 0x24, 0xcc, 0x38, 0xf1, 0xb5, 0x06, 0xb4, 0x86, 0x71, 0xe1, 0x94,
+	0xe1, 0xb8, 0xb5, 0x6b, 0x00, 0x48, 0x1c, 0xe8, 0xb0, 0xfd, 0x08, 0x15, 0xcc, 0x88, 0xa6, 0x44,
+	0xd3, 0x9d, 0x0a, 0x74, 0x67, 0x59, 0x07, 0x81, 0xa4, 0xfb, 0xb3, 0xfb, 0xf0, 0xf7, 0x1f, 0x2a,
+	0xd6, 0xb7, 0xbf, 0xfd, 0xb8, 0xbd, 0xde, 0xe7, 0xf2, 0x49, 0xe6, 0xf3, 0xa9, 0xe7, 0x6e, 0xfd,
+	0x99, 0x43, 0x8e, 0x7e, 0x8c, 0x5f, 0xc4, 0x24, 0x7d, 0x09, 0x71, 0xa0, 0x0d, 0xf9, 0x46, 0x77,
+	0xb5, 0x46, 0x77, 0xd7, 0x3b, 0x63, 0xbb, 0xeb, 0xf4, 0x68, 0xee, 0x7a, 0xf7, 0x3f, 0x70, 0xd7,
+	0x7b, 0xb7, 0xe8, 0xae, 0x33, 0xe3, 0xb8, 0xeb, 0xfd, 0xff, 0xc7, 0x5d, 0x67, 0x27, 0x77, 0xd7,
+	0xb9, 0x5b, 0x71, 0x57, 0x34, 0xb9, 0xbb, 0xce, 0x4f, 0xe6, 0xae, 0x0b, 0x93, 0xb9, 0x6b, 0x6e,
+	0x0c, 0x77, 0x5d, 0x1c, 0xdd, 0x5d, 0x97, 0x26, 0x73, 0xd7, 0x07, 0x13, 0xbb, 0x6b, 0xfe, 0x36,
+	0xdc, 0xd5, 0xbe, 0x1d, 0x77, 0x5d, 0x9e, 0xd4, 0x5d, 0x57, 0xc6, 0x73, 0xd7, 0xc2, 0xa8, 0xee,
+	0xba, 0x3a, 0x92, 0xbb, 0xae, 0x8d, 0xe6, 0xae, 0xce, 0xa8, 0xee, 0x5a, 0x9c, 0xcc, 0x5d, 0x4b,
+	0x63, 0xba, 0xeb, 0xfa, 0xe8, 0xee, 0xba, 0xf1, 0x8f, 0xee, 0xba, 0xfb, 0x89, 0x71, 0xbb, 0x0f,
+	0x6e, 0x74, 0xbb, 0xbf, 0xb3, 0xb8, 0xfd, 0x8f, 0x5f, 0x5f, 0x96, 0xad, 0x37, 0x97, 0x65, 0xeb,
+	0xd7, 0xcb, 0xb2, 0xf5, 0xdd, 0x55, 0x79, 0xea, 0xcd, 0x55, 0x79, 0xea, 0xa7, 0xab, 0xf2, 0xd4,
+	0xd7, 0xa5, 0x1b, 0x85, 0xc0, 0xa2, 0x4e, 0x67, 0xe0, 0x11, 0xfe, 0xe8, 0xaf, 0x00, 0x00, 0x00,
+	0xff, 0xff, 0x58, 0x4a, 0x45, 0x35, 0x41, 0x0f, 0x00, 0x00,
 }
 
 func (this *Params) Equal(that interface{}) bool {
@@ -851,6 +873,9 @@ func (this *Params) Equal(that interface{}) bool {
 		if this.AuthorizedGrantCreators[i] != that1.AuthorizedGrantCreators[i] {
 			return false
 		}
+	}
+	if this.PendingGrantDeposit != that1.PendingGrantDeposit {
+		return false
 	}
 	return true
 }
@@ -989,23 +1014,30 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.PendingGrantDeposit != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.PendingGrantDeposit))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xf8
+	}
 	if len(m.AuthorizedGrantCreators) > 0 {
 		for iNdEx := len(m.AuthorizedGrantCreators) - 1; iNdEx >= 0; iNdEx-- {
 			i -= len(m.AuthorizedGrantCreators[iNdEx])
 			copy(dAtA[i:], m.AuthorizedGrantCreators[iNdEx])
 			i = encodeVarintParams(dAtA, i, uint64(len(m.AuthorizedGrantCreators[iNdEx])))
 			i--
-			dAtA[i] = 0x3
+			dAtA[i] = 0x1
 			i--
-			dAtA[i] = 0xe2
+			dAtA[i] = 0xf2
 		}
 	}
 	if m.MaxGrantLifetimeSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxGrantLifetimeSeconds))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xe8
 	}
 	if len(m.AllowedDenoms) > 0 {
 		for iNdEx := len(m.AllowedDenoms) - 1; iNdEx >= 0; iNdEx-- {
@@ -1013,141 +1045,133 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			copy(dAtA[i:], m.AllowedDenoms[iNdEx])
 			i = encodeVarintParams(dAtA, i, uint64(len(m.AllowedDenoms[iNdEx])))
 			i--
-			dAtA[i] = 0x3
+			dAtA[i] = 0x1
 			i--
-			dAtA[i] = 0x92
+			dAtA[i] = 0xe2
 		}
 	}
 	if m.MaxEndblockerDispatchesPerPass != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxEndblockerDispatchesPerPass))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xd8
 	}
 	if m.MinOneshotDeposit != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinOneshotDeposit))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0xd0
 	}
 	if m.OneshotCreationFee != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.OneshotCreationFee))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0xc8
 	}
 	if len(m.OneshotGasPrice) > 0 {
 		i -= len(m.OneshotGasPrice)
 		copy(dAtA[i:], m.OneshotGasPrice)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.OneshotGasPrice)))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb2
+		dAtA[i] = 0xc2
 	}
 	if m.MaxOneshotExecGas != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxOneshotExecGas))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xb8
 	}
 	if m.MinOneshotExecGas != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinOneshotExecGas))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xb0
 	}
 	if m.PausedOneshotTtlSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PausedOneshotTtlSeconds))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xa8
 	}
 	if m.MaxPausedOneshotsPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxPausedOneshotsPerGranter))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xa0
 	}
 	if m.MaxPendingOneshotsPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxPendingOneshotsPerGranter))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0x98
 	}
 	if m.FireToExpiryBufferSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.FireToExpiryBufferSeconds))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x90
 	}
 	if m.MaxScheduleHorizonSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxScheduleHorizonSeconds))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0x88
 	}
 	if m.MinScheduleDelaySeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinScheduleDelaySeconds))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0x80
 	}
 	if len(m.MinPullAmount) > 0 {
 		i -= len(m.MinPullAmount)
 		copy(dAtA[i:], m.MinPullAmount)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.MinPullAmount)))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xba
+		dAtA[i] = 0x7a
 	}
 	if m.MaxAllowanceRecipientList != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxAllowanceRecipientList))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x70
 	}
 	if m.MaxAllowancesPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxAllowancesPerGranter))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x68
 	}
 	if m.MinAllowancePeriodSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinAllowancePeriodSeconds))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x60
 	}
 	if m.MaxRecurringPullsPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxRecurringPullsPerGranter))
 		i--
-		dAtA[i] = 0x60
+		dAtA[i] = 0x58
 	}
 	if m.MaxRecurringDurationSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxRecurringDurationSeconds))
 		i--
-		dAtA[i] = 0x58
+		dAtA[i] = 0x50
 	}
 	if m.MinRecurringPeriodSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinRecurringPeriodSeconds))
 		i--
-		dAtA[i] = 0x50
+		dAtA[i] = 0x48
 	}
 	n1, err1 := github_com_cosmos_gogoproto_types.StdDurationMarshalTo(m.NarrowSessionMaxExpiration, dAtA[i-github_com_cosmos_gogoproto_types.SizeOfStdDuration(m.NarrowSessionMaxExpiration):])
 	if err1 != nil {
@@ -1234,9 +1258,9 @@ func (m *SessionOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error
 	if m.MaxGrantLifetimeSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxGrantLifetimeSeconds))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xe0
 	}
 	if len(m.AllowedDenoms) > 0 {
 		for iNdEx := len(m.AllowedDenoms) - 1; iNdEx >= 0; iNdEx-- {
@@ -1244,141 +1268,131 @@ func (m *SessionOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error
 			copy(dAtA[i:], m.AllowedDenoms[iNdEx])
 			i = encodeVarintParams(dAtA, i, uint64(len(m.AllowedDenoms[iNdEx])))
 			i--
-			dAtA[i] = 0x3
+			dAtA[i] = 0x1
 			i--
-			dAtA[i] = 0x92
+			dAtA[i] = 0xda
 		}
 	}
 	if m.MaxEndblockerDispatchesPerPass != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxEndblockerDispatchesPerPass))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xd0
 	}
 	if m.MinOneshotDeposit != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinOneshotDeposit))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0xc8
 	}
 	if m.OneshotCreationFee != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.OneshotCreationFee))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0xc0
 	}
 	if len(m.OneshotGasPrice) > 0 {
 		i -= len(m.OneshotGasPrice)
 		copy(dAtA[i:], m.OneshotGasPrice)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.OneshotGasPrice)))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb2
+		dAtA[i] = 0xba
 	}
 	if m.MaxOneshotExecGas != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxOneshotExecGas))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xb0
 	}
 	if m.MinOneshotExecGas != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinOneshotExecGas))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xa8
 	}
 	if m.PausedOneshotTtlSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PausedOneshotTtlSeconds))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xa0
 	}
 	if m.MaxPausedOneshotsPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxPausedOneshotsPerGranter))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0x98
 	}
 	if m.MaxPendingOneshotsPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxPendingOneshotsPerGranter))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0x90
 	}
 	if m.FireToExpiryBufferSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.FireToExpiryBufferSeconds))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x88
 	}
 	if m.MaxScheduleHorizonSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxScheduleHorizonSeconds))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0x80
 	}
 	if m.MinScheduleDelaySeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinScheduleDelaySeconds))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0x78
 	}
 	if len(m.MinPullAmount) > 0 {
 		i -= len(m.MinPullAmount)
 		copy(dAtA[i:], m.MinPullAmount)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.MinPullAmount)))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xba
+		dAtA[i] = 0x72
 	}
 	if m.MaxAllowanceRecipientList != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxAllowanceRecipientList))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x68
 	}
 	if m.MaxAllowancesPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxAllowancesPerGranter))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x60
 	}
 	if m.MinAllowancePeriodSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinAllowancePeriodSeconds))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x58
 	}
 	if m.MaxRecurringPullsPerGranter != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxRecurringPullsPerGranter))
 		i--
-		dAtA[i] = 0x60
+		dAtA[i] = 0x50
 	}
 	if m.MaxRecurringDurationSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxRecurringDurationSeconds))
 		i--
-		dAtA[i] = 0x58
+		dAtA[i] = 0x48
 	}
 	if m.MinRecurringPeriodSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinRecurringPeriodSeconds))
 		i--
-		dAtA[i] = 0x50
+		dAtA[i] = 0x40
 	}
 	n3, err3 := github_com_cosmos_gogoproto_types.StdDurationMarshalTo(m.NarrowSessionMaxExpiration, dAtA[i-github_com_cosmos_gogoproto_types.SizeOfStdDuration(m.NarrowSessionMaxExpiration):])
 	if err3 != nil {
@@ -1487,17 +1501,17 @@ func (m *Params) Size() (n int) {
 		n += 1 + sovParams(uint64(m.MaxRecurringPullsPerGranter))
 	}
 	if m.MinAllowancePeriodSeconds != 0 {
-		n += 2 + sovParams(uint64(m.MinAllowancePeriodSeconds))
+		n += 1 + sovParams(uint64(m.MinAllowancePeriodSeconds))
 	}
 	if m.MaxAllowancesPerGranter != 0 {
-		n += 2 + sovParams(uint64(m.MaxAllowancesPerGranter))
+		n += 1 + sovParams(uint64(m.MaxAllowancesPerGranter))
 	}
 	if m.MaxAllowanceRecipientList != 0 {
-		n += 2 + sovParams(uint64(m.MaxAllowanceRecipientList))
+		n += 1 + sovParams(uint64(m.MaxAllowanceRecipientList))
 	}
 	l = len(m.MinPullAmount)
 	if l > 0 {
-		n += 2 + l + sovParams(uint64(l))
+		n += 1 + l + sovParams(uint64(l))
 	}
 	if m.MinScheduleDelaySeconds != 0 {
 		n += 2 + sovParams(uint64(m.MinScheduleDelaySeconds))
@@ -1551,6 +1565,9 @@ func (m *Params) Size() (n int) {
 			n += 2 + l + sovParams(uint64(l))
 		}
 	}
+	if m.PendingGrantDeposit != 0 {
+		n += 2 + sovParams(uint64(m.PendingGrantDeposit))
+	}
 	return n
 }
 
@@ -1591,20 +1608,20 @@ func (m *SessionOperationalParams) Size() (n int) {
 		n += 1 + sovParams(uint64(m.MaxRecurringPullsPerGranter))
 	}
 	if m.MinAllowancePeriodSeconds != 0 {
-		n += 2 + sovParams(uint64(m.MinAllowancePeriodSeconds))
+		n += 1 + sovParams(uint64(m.MinAllowancePeriodSeconds))
 	}
 	if m.MaxAllowancesPerGranter != 0 {
-		n += 2 + sovParams(uint64(m.MaxAllowancesPerGranter))
+		n += 1 + sovParams(uint64(m.MaxAllowancesPerGranter))
 	}
 	if m.MaxAllowanceRecipientList != 0 {
-		n += 2 + sovParams(uint64(m.MaxAllowanceRecipientList))
+		n += 1 + sovParams(uint64(m.MaxAllowanceRecipientList))
 	}
 	l = len(m.MinPullAmount)
 	if l > 0 {
-		n += 2 + l + sovParams(uint64(l))
+		n += 1 + l + sovParams(uint64(l))
 	}
 	if m.MinScheduleDelaySeconds != 0 {
-		n += 2 + sovParams(uint64(m.MinScheduleDelaySeconds))
+		n += 1 + sovParams(uint64(m.MinScheduleDelaySeconds))
 	}
 	if m.MaxScheduleHorizonSeconds != 0 {
 		n += 2 + sovParams(uint64(m.MaxScheduleHorizonSeconds))
@@ -1908,7 +1925,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 10:
+		case 9:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinRecurringPeriodSeconds", wireType)
 			}
@@ -1927,7 +1944,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 11:
+		case 10:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxRecurringDurationSeconds", wireType)
 			}
@@ -1946,7 +1963,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 12:
+		case 11:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxRecurringPullsPerGranter", wireType)
 			}
@@ -1965,7 +1982,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 20:
+		case 12:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinAllowancePeriodSeconds", wireType)
 			}
@@ -1984,7 +2001,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 21:
+		case 13:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAllowancesPerGranter", wireType)
 			}
@@ -2003,7 +2020,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 22:
+		case 14:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAllowanceRecipientList", wireType)
 			}
@@ -2022,7 +2039,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 23:
+		case 15:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinPullAmount", wireType)
 			}
@@ -2054,7 +2071,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.MinPullAmount = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 30:
+		case 16:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinScheduleDelaySeconds", wireType)
 			}
@@ -2073,7 +2090,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 31:
+		case 17:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxScheduleHorizonSeconds", wireType)
 			}
@@ -2092,7 +2109,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 32:
+		case 18:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field FireToExpiryBufferSeconds", wireType)
 			}
@@ -2111,7 +2128,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 33:
+		case 19:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxPendingOneshotsPerGranter", wireType)
 			}
@@ -2130,7 +2147,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 34:
+		case 20:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxPausedOneshotsPerGranter", wireType)
 			}
@@ -2149,7 +2166,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 35:
+		case 21:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PausedOneshotTtlSeconds", wireType)
 			}
@@ -2168,7 +2185,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 36:
+		case 22:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinOneshotExecGas", wireType)
 			}
@@ -2187,7 +2204,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 37:
+		case 23:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxOneshotExecGas", wireType)
 			}
@@ -2206,7 +2223,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 38:
+		case 24:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OneshotGasPrice", wireType)
 			}
@@ -2238,7 +2255,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.OneshotGasPrice = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 39:
+		case 25:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OneshotCreationFee", wireType)
 			}
@@ -2257,7 +2274,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 40:
+		case 26:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinOneshotDeposit", wireType)
 			}
@@ -2276,7 +2293,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 41:
+		case 27:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxEndblockerDispatchesPerPass", wireType)
 			}
@@ -2295,7 +2312,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 50:
+		case 28:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AllowedDenoms", wireType)
 			}
@@ -2327,7 +2344,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.AllowedDenoms = append(m.AllowedDenoms, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
-		case 51:
+		case 29:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxGrantLifetimeSeconds", wireType)
 			}
@@ -2346,7 +2363,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 60:
+		case 30:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AuthorizedGrantCreators", wireType)
 			}
@@ -2378,6 +2395,25 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.AuthorizedGrantCreators = append(m.AuthorizedGrantCreators, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 31:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PendingGrantDeposit", wireType)
+			}
+			m.PendingGrantDeposit = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PendingGrantDeposit |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipParams(dAtA[iNdEx:])
@@ -2617,7 +2653,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 10:
+		case 8:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinRecurringPeriodSeconds", wireType)
 			}
@@ -2636,7 +2672,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 11:
+		case 9:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxRecurringDurationSeconds", wireType)
 			}
@@ -2655,7 +2691,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 12:
+		case 10:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxRecurringPullsPerGranter", wireType)
 			}
@@ -2674,7 +2710,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 20:
+		case 11:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinAllowancePeriodSeconds", wireType)
 			}
@@ -2693,7 +2729,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 21:
+		case 12:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAllowancesPerGranter", wireType)
 			}
@@ -2712,7 +2748,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 22:
+		case 13:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAllowanceRecipientList", wireType)
 			}
@@ -2731,7 +2767,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 23:
+		case 14:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinPullAmount", wireType)
 			}
@@ -2763,7 +2799,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.MinPullAmount = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 30:
+		case 15:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinScheduleDelaySeconds", wireType)
 			}
@@ -2782,7 +2818,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 31:
+		case 16:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxScheduleHorizonSeconds", wireType)
 			}
@@ -2801,7 +2837,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 32:
+		case 17:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field FireToExpiryBufferSeconds", wireType)
 			}
@@ -2820,7 +2856,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 33:
+		case 18:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxPendingOneshotsPerGranter", wireType)
 			}
@@ -2839,7 +2875,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 34:
+		case 19:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxPausedOneshotsPerGranter", wireType)
 			}
@@ -2858,7 +2894,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 35:
+		case 20:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PausedOneshotTtlSeconds", wireType)
 			}
@@ -2877,7 +2913,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 36:
+		case 21:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinOneshotExecGas", wireType)
 			}
@@ -2896,7 +2932,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 37:
+		case 22:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxOneshotExecGas", wireType)
 			}
@@ -2915,7 +2951,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 38:
+		case 23:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OneshotGasPrice", wireType)
 			}
@@ -2947,7 +2983,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.OneshotGasPrice = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 39:
+		case 24:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OneshotCreationFee", wireType)
 			}
@@ -2966,7 +3002,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 40:
+		case 25:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinOneshotDeposit", wireType)
 			}
@@ -2985,7 +3021,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 41:
+		case 26:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxEndblockerDispatchesPerPass", wireType)
 			}
@@ -3004,7 +3040,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 50:
+		case 27:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AllowedDenoms", wireType)
 			}
@@ -3036,7 +3072,7 @@ func (m *SessionOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.AllowedDenoms = append(m.AllowedDenoms, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
-		case 51:
+		case 28:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxGrantLifetimeSeconds", wireType)
 			}

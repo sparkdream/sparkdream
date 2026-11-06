@@ -131,8 +131,53 @@ func (gs GenesisState) Validate() error {
 	}
 
 	grantType := make(map[uint64]GrantType, len(gs.Grants))
+	grantStatus := make(map[uint64]GrantStatus, len(gs.Grants))
+	pendingPerGranter := make(map[string]int)
 	for _, g := range gs.Grants {
 		grantType[g.Id] = g.Type
+		grantStatus[g.Id] = g.Status
+		if g.Status == GrantStatus_GRANT_STATUS_PENDING {
+			// Only access-class grants wait for consent (SES-102), and a
+			// granter holds at most MaxPendingGrantsPerGranter of them.
+			if !IsAccessGrantType(g.Type) {
+				return fmt.Errorf("grant %d: %s grants cannot be PENDING", g.Id, g.Type)
+			}
+			pendingPerGranter[g.Granter]++
+			if pendingPerGranter[g.Granter] > MaxPendingGrantsPerGranter {
+				return fmt.Errorf("granter %s has more than %d pending grants", g.Granter, MaxPendingGrantsPerGranter)
+			}
+		}
+	}
+	seenPendingDeposit := make(map[uint64]bool)
+	for i, d := range gs.PendingGrantDeposits {
+		if grantStatus[d.GrantId] != GrantStatus_GRANT_STATUS_PENDING {
+			return fmt.Errorf("pending_grant_deposits[%d]: grant %d is not a pending grant in genesis", i, d.GrantId)
+		}
+		if seenPendingDeposit[d.GrantId] {
+			return fmt.Errorf("pending_grant_deposits[%d]: duplicate grant %d", i, d.GrantId)
+		}
+		seenPendingDeposit[d.GrantId] = true
+		if !d.Amount.IsValid() || !d.Amount.IsPositive() {
+			return fmt.Errorf("pending_grant_deposits[%d]: invalid amount %s", i, d.Amount)
+		}
+	}
+	type pairKey struct{ grantee, granter string }
+	seenAllowed := make(map[pairKey]bool, len(gs.AllowedGranters))
+	for i, a := range gs.AllowedGranters {
+		if _, err := sdk.AccAddressFromBech32(a.Grantee); err != nil {
+			return fmt.Errorf("allowed_granters[%d]: invalid grantee address %q: %w", i, a.Grantee, err)
+		}
+		if _, err := sdk.AccAddressFromBech32(a.Granter); err != nil {
+			return fmt.Errorf("allowed_granters[%d]: invalid granter address %q: %w", i, a.Granter, err)
+		}
+		if a.Grantee == a.Granter {
+			return fmt.Errorf("allowed_granters[%d]: grantee cannot equal granter", i)
+		}
+		k := pairKey{a.Grantee, a.Granter}
+		if seenAllowed[k] {
+			return fmt.Errorf("allowed_granters[%d]: duplicate entry (%s, %s)", i, a.Grantee, a.Granter)
+		}
+		seenAllowed[k] = true
 	}
 	seenDeposit := make(map[uint64]bool)
 	for i, d := range gs.OneshotGasDeposits {

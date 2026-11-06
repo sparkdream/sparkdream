@@ -26,7 +26,6 @@ type keyRep struct {
 	alias map[string]string
 }
 
-func (r keyRep) ZkKeyActivationDelaySeconds(context.Context) int64 { return 0 }
 func (r keyRep) CanActAs(_ context.Context, signer, stored string) bool {
 	if to, ok := r.alias[stored]; ok {
 		stored = to
@@ -173,7 +172,9 @@ func TestSecretBallot_SnapshotVoteAndAccept(t *testing.T) {
 // deadline, and its snapshot is dropped.
 func TestSecretBallot_KeylessMembersCountInBody(t *testing.T) {
 	k, ctx, _ := setupCommonsKeeper(t)
-	policy, members := setupBallotGroup(t, k, ctx, "HalfKeyed", types.BallotMode_BALLOT_MODE_SECRET, 5, int(keeper.MinSecretBallotVoters))
+	// Size the body from the build's minimum so the keyed voters stay a
+	// minority under every network tag.
+	policy, members := setupBallotGroup(t, k, ctx, "HalfKeyed", types.BallotMode_BALLOT_MODE_SECRET, int(2*keeper.MinSecretBallotVoters+1), int(keeper.MinSecretBallotVoters))
 
 	pid, err := submitBallotProposal(t, k, ctx, members[0], policy, false)
 	require.NoError(t, err)

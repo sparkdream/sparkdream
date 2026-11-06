@@ -222,6 +222,10 @@ service Msg {
 // - Each tranche: stake_threshold <= max_tranche_valuation
 // - Each tranche: stake_threshold >= min_stake_amount (ErrTrancheBelowMinStake,
 //   1175); a smaller threshold could never be filled
+// - Free-text fields are capped (ErrFieldTooLong, 1178; compiled constants in
+//   x/reveal/types/limits.go): project_name 128, description 4096 characters.
+//   The same guard caps MsgVerify.comments (2048), MsgReject / MsgCancel /
+//   MsgResolveDispute.reason (2048) and MsgReveal.code_uri (512).
 // - sum(stake_threshold) across all tranches == total_valuation
 // - Contributor has no active proposal_cooldown
 // - final_license is an open license, by SPDX id: CC0-1.0, Unlicense, 0BSD,
@@ -419,8 +423,9 @@ type Keeper interface {
     // Transition
     TransitionToProject(ctx context.Context, contributionID uint64) (uint64, error)
 
-    // Holdback release (called when all tranches complete)
-    ReleaseHoldback(ctx context.Context, contributionID uint64) error
+    // Holdback release is not a separate entry point: completeContribution
+    // (reached from the EndBlocker's confirmTranche when the last tranche is
+    // verified) mints the holdback, returns the bond and creates the project.
 
     // EndBlocker
     ProcessDeadlines(ctx context.Context) error
@@ -665,7 +670,13 @@ PHASE 6: TRANSITION
 
 The EndBlocker runs every block and enforces all deadline-based transitions. It does not scan every `IN_PROGRESS` contribution: a deadline index keyed `(next_deadline, contribution_id)` holds each IN_PROGRESS contribution under its earliest pending deadline (STAKING → `stake_deadline`, BACKED → `reveal_deadline`, REVEALED → `verification_deadline`, DISPUTED → `verification_deadline + dispute_resolution_epochs`). Every keeper write of a contribution re-indexes it, `InitGenesis` rebuilds the index (it is not exported), and the EndBlocker walks only entries with `next_deadline <= height`, at most 100 contributions per block (the rest carry over). A DISPUTED entry uses the `dispute_resolution_epochs` value from its last save; a lowered value takes effect for that tranche at its next save.
 
-**Atomicity.** Each due contribution is processed in its own `CacheContext` and committed only if every step succeeds. A failed step (store error, a refused mint such as the per-epoch mint cap) leaves the contribution exactly as it was, logs, emits `contribution_deadline_failed` and is retried on the next block; the EndBlocker never returns an error. Within a step the stake returns run before the payout mint. A lock that x/rep reports as already gone (`ErrInsufficientStake` / `ErrMemberNotFound`: the staker or contributor was zeroed, and `ZeroMember` already burned the staked DREAM) is treated as settled: the stake record is deleted, the bond counts as released, nothing is burned for it, and a `reveal_lock_gone` event is emitted. So a zeroed staker can never make the payout repeat, and a zeroed contributor can never strand the stakers' DREAM on a disputed tranche. The holdback mint at completion is part of the same step, so a refused holdback mint is retried rather than dropped.
+**Atomicity.** Each due contribution is processed in its own `CacheContext` and committed only if every step succeeds. A failed step leaves the contribution exactly as it was, logs, emits `contribution_deadline_failed` (`error`, `transient`, `failures`, `retry_at`) and parks its deadline-index entry at a later height, behind every deadline due before then, so failing entries can never fill the 100-per-block window and starve later deadlines (REV-104); the entry is never dropped, so an IN_PROGRESS contribution always has a scheduled retry. Which height depends on the error. A **transient** x/rep refusal, one that clears with time (`transientDeadlineErrors`: today `ErrDreamMintCapExceeded`, the chain-wide `max_dream_mint_per_epoch` that a busy epoch of season retro payouts or initiative completions exhausts), is not counted and the entry is retried at the first block of the next x/rep epoch (`RepKeeper.NextEpochStartHeight`; `height + 10,000` when x/rep has no epochs), where the budget renews: a verified tranche's payout or a completion's holdback is only deferred, never lost (REV-201). This matters because after a tranche's deadline no tx can touch it (`MsgVerify`, `MsgStake`, `MsgReveal` refuse at their deadline, REV-103; the contributor cannot cancel past BACKED), so the EndBlocker is the only path left. A **real** failure (a store or decode error) is retried 100 blocks later (`deadlineRetryBlocks`) and counted (`DeadlineFailures`, transient state, not exported): at the third consecutive one (`maxDeadlineFailures`) the contribution is **poisoned**: `contribution_deadline_poisoned` is emitted once, the count saturates and the entry is retried once per x/rep epoch, so a deterministically failing contribution costs one discarded cache-context step per epoch instead of one per block, yet recovers by itself once the fault is gone (a chain upgrade fixing a bug needs no re-index; a reset's `InitGenesis` rebuilds the index anyway). Any save of the contribution (a tx on it, the zeroing hook, a successful step, a write that leaves IN_PROGRESS) clears the count (REV-202), so "three consecutive" never mixes old and new failures and the counter cannot leak for finished contributions. The remaining recovery path for a poisoned contribution that a human wants closed is the council or committee `MsgCancel`, which returns stakes and bond. The EndBlocker never returns an error. Within a step the stake returns run before the payout mint. A lock that x/rep reports as already gone (`ErrInsufficientStake` / `ErrMemberNotFound`: the staker or contributor was zeroed, and `ZeroMember` already burned the staked DREAM) is treated as settled: the stake record is deleted, the bond counts as released, nothing is burned for it, and a `reveal_lock_gone` event is emitted. So a zeroed staker can never make the payout repeat, and a zeroed contributor can never strand the stakers' DREAM on a disputed tranche. This tolerance is only the fallback: it is safe while the zeroing stands, but once an overturned zeroing re-mints the member's burn as liquid DREAM and the member locks DREAM elsewhere, the same unlock would succeed and release that unrelated lock. The zeroing hook therefore leaves nothing for it to find (see "Zeroed members" below).
+
+**Zeroed members (`ZeroingHook.AfterMemberZeroed`, registered with x/rep).** x/rep burns a zeroed member's whole balance, locked DREAM included, so reveal drops every lock record it holds for the member's addresses (REV-101, REV-102):
+
+- Every stake of the member goes, without an unlock. On a STAKING tranche it also leaves `dream_staked`, so DREAM that no longer exists cannot back the tranche; on a BACKED, REVEALED or DISPUTED tranche `dream_staked` keeps its weight (pulling it out would change a tally in flight), and a vote already cast keeps its recorded `stake_weight`. The member can no longer vote on that tranche (no stake).
+- The member's own PROPOSED and IN_PROGRESS contributions are cancelled, each in its own cache context: stakes on open tranches are returned to the other stakers, the bond is treated as burned (not unlocked), the unpaid holdback is forfeited (it was never minted), non-verified tranches are cancelled with their votes, and `contribution_cancelled` is emitted with `reason = contributor zeroed`. An approved contribution therefore stops minting tranche payouts to the zeroed account. A contribution that cannot be unwound (another staker's unlock fails) is logged and left for the council's `MsgCancel`.
+- `MsgReject` settles the bond through the same "lock already gone" tolerance, so the council can still reject a zeroed contributor's PROPOSED contribution the hook missed. The holdback mint at completion is part of the same step, so a refused holdback mint is retried rather than dropped.
 
 Per tranche:
 
@@ -699,6 +710,8 @@ func (k Keeper) ProcessDeadlines(ctx context.Context) error {
 | Reveal | `reveal_deadline_epochs` | 14 (~2 wk) | Tranche enters BACKED | Fail tranche, return stakes, slash all remaining bond, burn holdback |
 | Verification | `verification_period_epochs` | 14 (~2 wk) | Tranche enters REVEALED | Auto-tally; pass or dispute |
 | Dispute | `dispute_resolution_epochs` | 30 (~1 mo) | Tranche enters DISPUTED | Auto-REJECT: slash 50% of remaining bond, burn holdback, cancel remaining tranches |
+
+A deadline is exclusive for the action it bounds: from the deadline height on, `MsgStake` (stake deadline), `MsgReveal` (reveal deadline) and `MsgVerify` (verification deadline) are refused with `ErrDeadlinePassed` (1177), even if the EndBlocker has not yet processed the tranche (transactions run before the EndBlocker in the deadline block, and a backlog can delay it further). A late reveal therefore cannot escape the reveal-timeout slash (REV-103).
 
 ## Withdrawal Rules
 
@@ -1087,3 +1100,11 @@ Stakes are returned on every outcome (verified, failed, cancelled), so stakers l
 **Attack**: A rejected contributor immediately re-proposes the same content, wasting council review time.
 
 **Mitigation**: `proposal_cooldown_epochs` (default 14, ~2 weeks) enforced per-contributor. After rejection, `proposal_eligible_at` is set on the contribution, and `MsgPropose` checks that the contributor has no active cooldown.
+
+## Invariants
+
+Run by `go test ./app -run TestInvariants` (x/crisis is not wired): `reveal/contribution-indexes`
+(`ContributionsByStatus` and `ContributionsByContributor` agree with the `Contribution` map in both
+directions) and `reveal/deadline-index` (`ContributionDeadlines` and `ContributionNextDeadline` are
+the same set and every entry points at an `IN_PROGRESS` contribution). Registered in
+`keeper/invariants.go`; `TestInvariantsRegistered` pins the module.

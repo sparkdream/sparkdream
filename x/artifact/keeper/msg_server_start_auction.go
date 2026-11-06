@@ -73,7 +73,7 @@ func (k msgServer) StartAuction(ctx context.Context, msg *types.MsgStartAuction)
 		Id:              seq + 1,
 		ClassId:         t.ClassId,
 		TokenId:         t.Id,
-		Seller:          msg.Seller,
+		Seller:          t.Owner, // the stored owner, which a migrated signer acts for (ART-102)
 		ReservePrice:    msg.ReservePrice,
 		MinIncrementBps: msg.MinIncrementBps,
 		CreatedAt:       now(ctx),

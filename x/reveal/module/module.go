@@ -132,6 +132,11 @@ func (AppModule) ConsensusVersion() uint64 { return 1 }
 
 // BeginBlock contains the logic that is automatically triggered at the beginning of each block.
 // The begin block implementation is optional.
+// RegisterInvariants registers the x/reveal invariants (run by app's TestInvariants).
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
+}
+
 func (am AppModule) BeginBlock(_ context.Context) error {
 	return nil
 }

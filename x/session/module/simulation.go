@@ -45,6 +45,8 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		{"op_weight_msg_revoke_grant", 20, sessionsimulation.SimulateMsgRevokeGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
 		{"op_weight_msg_decline_grant", 20, sessionsimulation.SimulateMsgDeclineGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
 		{"op_weight_msg_retry_scheduled_oneshot", 25, sessionsimulation.SimulateMsgRetryScheduledOneshot(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_accept_grant", 30, sessionsimulation.SimulateMsgAcceptGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_disallow_granter", 10, sessionsimulation.SimulateMsgDisallowGranter(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
 	}
 	operations := make([]simtypes.WeightedOperation, 0, len(defs))
 	for _, d := range defs {

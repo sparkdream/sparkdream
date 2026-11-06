@@ -135,6 +135,67 @@ else
     exit 1
 fi
 
+# --- 2b. NEGATIVE: voting_period above the compiled cap is refused (COM-203) ---
+# MaxVotingPeriodSeconds (x/commons/keeper/decision_policy_bounds.go) caps
+# DecisionPolicy.voting_period at 90 days. The proposal itself is accepted by
+# the Commons Council; it is the MsgRegisterGroup handler that refuses, so the
+# execute-proposal tx fails (the proposal stays ACCEPTED, never EXECUTED) and
+# no group is created.
+echo "--- STEP 2b: REGISTER-GROUP WITH voting_period ABOVE THE 90-DAY CAP IS REFUSED ---"
+MAX_VOTING_PERIOD=$((90 * 24 * 3600))
+echo '{
+  "policy_address": "'$COMMONS_POLICY'",
+  "messages": [
+    {
+      "@type": "/sparkdream.commons.v1.MsgRegisterGroup",
+      "authority": "'$COMMONS_POLICY'",
+      "name": "Overlong Voting DAO",
+      "description": "voting_period one second above the cap",
+      "members": ["'$DAVE_ADDR'", "'$BOB_ADDR'"],
+      "member_weights": ["1", "1"],
+      "min_members": 2,
+      "max_members": 5,
+      "term_duration": 3600,
+      "vote_threshold": "1",
+      "policy_type": "threshold",
+      "voting_period": '$((MAX_VOTING_PERIOD + 1))',
+      "min_execution_period": 0,
+      "max_spend_per_epoch": "1000",
+      "update_cooldown": 3600,
+      "funding_weight": 0,
+      "futarchy_enabled": false
+    }
+  ],
+  "metadata": "Negative: voting_period above MaxVotingPeriodSeconds"
+}' > "$PROPOSAL_DIR/create_overlong_voting.json"
+
+SUBMIT_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/create_overlong_voting.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
+NEG_PROPOSAL_ID=$(get_proposal_id $TX_HASH)
+if [ -z "$NEG_PROPOSAL_ID" ]; then
+    echo "[FAIL] could not submit the over-cap register-group proposal: $(echo $SUBMIT_RES | jq -r '.raw_log // .' | cut -c1-200)"
+    exit 1
+fi
+echo "Over-cap Prop ID: $NEG_PROPOSAL_ID"
+$BINARY tx commons vote-proposal $NEG_PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 5
+$BINARY tx commons vote-proposal $NEG_PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 5
+NEG_EXEC_RES=$($BINARY tx commons execute-proposal $NEG_PROPOSAL_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --output json)
+NEG_EXEC_HASH=$(echo $NEG_EXEC_RES | jq -r '.txhash // empty')
+sleep 5
+NEG_EXEC_CODE=$($BINARY query tx $NEG_EXEC_HASH --output json 2>/dev/null | jq -r '.code // "0"')
+NEG_EXEC_LOG=$($BINARY query tx $NEG_EXEC_HASH --output json 2>/dev/null | jq -r '.raw_log // ""')
+NEG_PROP_STATUS=$($BINARY query commons get-proposal $NEG_PROPOSAL_ID --output json | jq -r '.proposal.status')
+NEG_GROUP=$($BINARY query commons get-group "Overlong Voting DAO" --output json 2>&1)
+if [ -n "$NEG_EXEC_HASH" ] && [ "$NEG_EXEC_CODE" != "0" ] && echo "$NEG_EXEC_LOG" | grep -qi "voting_period.*exceeds the maximum" \
+   && [ "$NEG_PROP_STATUS" != "PROPOSAL_STATUS_EXECUTED" ] && echo "$NEG_GROUP" | grep -q "not found"; then
+    echo "[ OK ] register-group with voting_period $((MAX_VOTING_PERIOD + 1)) refused (code $NEG_EXEC_CODE, proposal $NEG_PROP_STATUS, no group created)"
+else
+    echo "[FAIL] over-cap voting_period not refused: exec_code=$NEG_EXEC_CODE status=$NEG_PROP_STATUS log=$(echo "$NEG_EXEC_LOG" | cut -c1-200)"
+    exit 1
+fi
+
 # --- 3. UPDATE CONFIG ---
 echo "--- STEP 3: PARENT UPDATES BUDGET ---"
 

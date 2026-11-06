@@ -214,11 +214,15 @@ func (k Keeper) pruneHistory(ctx context.Context) {
 	logErr("nomination", k.pruneOldNominations(ctx, season.Number, uint64(params.SnapshotRetentionSeasons), historyPruneBudget))
 
 	// Closed display-name moderation records (not active, no appeal stake
-	// outstanding) past closedModerationRetentionBlocks.
+	// outstanding) past closedModerationRetentionBlocks. A record that
+	// carries blocked names is kept: it is where MsgSetDisplayName reads the
+	// block, which the spec makes permanent (SEA-102). One record per
+	// member, at most MaxBlockedDisplayNames names, so the kept set is
+	// bounded by the member count.
 	height := sdkCtx.BlockHeight()
 	logErr("displayNameModeration", rollingPrune(ctx, k, "displayNameModeration", k.DisplayNameModeration, historyPruneBudget,
 		func(_ string, v types.DisplayNameModeration) bool {
-			if v.Active || v.ModeratedAt+closedModerationRetentionBlocks >= height {
+			if v.Active || len(v.BlockedNames) > 0 || v.ModeratedAt+closedModerationRetentionBlocks >= height {
 				return false
 			}
 			if v.AppealChallengeId != "" {

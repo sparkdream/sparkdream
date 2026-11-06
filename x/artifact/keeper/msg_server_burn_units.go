@@ -29,7 +29,10 @@ func (k msgServer) BurnUnits(ctx context.Context, msg *types.MsgBurnUnits) (*typ
 	if err != nil {
 		return nil, err
 	}
-	holder := k.balanceHolder(ctx, c.Id, e.Id, msg.Owner)
+	holder, err := k.balanceHolder(ctx, c.Id, e.Id, msg.Owner)
+	if err != nil {
+		return nil, err
+	}
 	if err := k.debit(ctx, &e, holder, msg.Amount, false); err != nil {
 		return nil, err
 	}

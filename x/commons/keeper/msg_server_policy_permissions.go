@@ -73,9 +73,19 @@ func (k msgServer) CreatePolicyPermissions(ctx context.Context, msg *types.MsgCr
 	}
 	// Self-registration is for group policies: a plain account has no use
 	// for an allowlist, and the row would only be state spam.
-	if govAddr := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String(); msg.Authority != govAddr &&
-		!k.IsGroupPolicyAddress(ctx, msg.PolicyAddress) {
+	govAddr := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String()
+	if msg.Authority != govAddr && !k.IsGroupPolicyAddress(ctx, msg.PolicyAddress) {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "%s is not a registered group policy", msg.PolicyAddress)
+	}
+	// Ratchet down, as on update: a policy may never grant itself a message.
+	// Every group policy gets its allowlist at registration, so a policy
+	// that creates its own row has just deleted it (an empty allowlist).
+	// Without this, MsgDeletePolicyPermissions followed by
+	// MsgCreatePolicyPermissions in one proposal swapped in an arbitrary
+	// allowlist (CMN-106). Only x/gov grants messages.
+	if msg.Authority != govAddr && len(msg.AllowedMessages) > 0 {
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized,
+			"ratchet down violation: a policy cannot grant itself permissions. Submit a Governance Proposal to expand powers.")
 	}
 
 	// Pass the Authority to the validation function
@@ -193,7 +203,18 @@ func (k msgServer) DeletePolicyPermissions(ctx context.Context, msg *types.MsgDe
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, err.Error())
 	}
 
-	if err := k.PolicyPermissions.Remove(ctx, msg.PolicyAddress); err != nil {
+	// A group policy keeps an empty row (COM-201): deleting it is the same
+	// narrowing (no executable message is allowed), but without a row
+	// SubmitProposal refuses even a signaling proposal, and only x/gov can
+	// create a row with messages again (CMN-106), so a body that deleted
+	// its own row had silenced itself for good. Rows of addresses that are
+	// not group policies are removed outright.
+	if k.IsGroupPolicyAddress(ctx, msg.PolicyAddress) {
+		empty := types.PolicyPermissions{PolicyAddress: msg.PolicyAddress}
+		if err := k.PolicyPermissions.Set(ctx, msg.PolicyAddress, empty); err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "failed to clear policyPermissions")
+		}
+	} else if err := k.PolicyPermissions.Remove(ctx, msg.PolicyAddress); err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "failed to remove policyPermissions")
 	}
 

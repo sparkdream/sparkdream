@@ -17,7 +17,7 @@ func TestResumePeer(t *testing.T) {
 	// Set to SUSPENDED
 	peer, _ := f.keeper.Peers.Get(f.ctx, "resume-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_SUSPENDED
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "resume-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	// Resume
 	_, err := ms.ResumePeer(f.ctx, &types.MsgResumePeer{

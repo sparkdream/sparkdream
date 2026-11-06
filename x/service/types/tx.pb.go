@@ -1113,9 +1113,12 @@ func (m *MsgContestSlashResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgContestSlashResponse proto.InternalMessageInfo
 
-// MsgResolveReportByJury is the only path to apply a tier-2 slash.
-// Signer is the x/rep module account (§5.2 + §6.2); rejected from any
-// other signer with ErrUnauthorizedJuryAuthority.
+// MsgResolveReportByJury relays a tallied tier-2 jury verdict (§5.2 +
+// §6.2). jury_authority is a member of the Commons Operations Committee
+// (any other signer: ErrUnauthorizedCouncilResolver); REDUCE and
+// dissolve=true need the committee or Commons Council policy address, or
+// governance. An UPHOLD nobody relays is applied by the EndBlocker at
+// max_escalated_blocks as ACCEPT at the proposed slash, without dissolve.
 type MsgResolveReportByJury struct {
 	JuryAuthority string      `protobuf:"bytes,1,opt,name=jury_authority,json=juryAuthority,proto3" json:"jury_authority,omitempty"`
 	ReportId      uint64      `protobuf:"varint,2,opt,name=report_id,json=reportId,proto3" json:"report_id,omitempty"`

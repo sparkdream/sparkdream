@@ -46,6 +46,29 @@ func (k msgServer) AbandonInterim(ctx context.Context, msg *types.MsgAbandonInte
 		return nil, errorsmod.Wrap(types.ErrInvalidRequest, "an adjudication interim cannot be abandoned")
 	}
 
+	// A project review is the committee's seat, not one member's work: an
+	// assignee who abandons it gives up only their own seat (and its share),
+	// the review stays live for the rest and still settles when the project
+	// is approved (REP-E-206). With the last seat gone it expires unpaid.
+	if IsProjectReviewInterimType(interim.Type) {
+		var own []string
+		for _, assignee := range interim.Assignees {
+			if k.Keeper.CanActAs(ctx, msg.Creator, assignee) {
+				own = append(own, assignee)
+			}
+		}
+		if err := k.Keeper.dropInterimAssignees(ctx, interim, own, "abandoned: "+msg.Reason); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update interim")
+		}
+		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+			"interim_abandoned",
+			sdk.NewAttribute("interim_id", fmt.Sprintf("%d", interim.Id)),
+			sdk.NewAttribute("assignee", msg.Creator),
+			sdk.NewAttribute("reason", msg.Reason),
+		))
+		return &types.MsgAbandonInterimResponse{}, nil
+	}
+
 	// Mark interim as abandoned/expired
 	interim.Status = types.InterimStatus_INTERIM_STATUS_EXPIRED
 	interim.CompletionNotes = msg.Reason

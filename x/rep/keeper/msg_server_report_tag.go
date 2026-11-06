@@ -14,7 +14,10 @@ import (
 // ReportTag allows members to report a tag for review. The reporter escrows
 // DefaultTagReportBond DREAM (locked on their account); ResolveTagReport
 // refunds the bonds when it acts on the report and burns them when it
-// dismisses it.
+// dismisses it. A tag is reportable when it has a Tag row or a reservation:
+// a reserved tag seeded at genesis, or reserved after its Tag row expired,
+// has no row, and a report is the only way to reach the restore action that
+// releases it (REP-R-203).
 func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*types.MsgReportTagResponse, error) {
 	creatorBytes, err := k.addressCodec.StringToBytes(msg.Creator)
 	if err != nil {
@@ -34,7 +37,13 @@ func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*typ
 		return nil, errorsmod.Wrapf(err, "failed to check tag %q", msg.TagName)
 	}
 	if !tagFound {
-		return nil, errorsmod.Wrap(types.ErrTagNotFound, fmt.Sprintf("tag %s not found", msg.TagName))
+		reserved, rErr := k.IsReservedTag(ctx, msg.TagName)
+		if rErr != nil {
+			return nil, errorsmod.Wrapf(rErr, "failed to check reservation of %q", msg.TagName)
+		}
+		if !reserved {
+			return nil, errorsmod.Wrap(types.ErrTagNotFound, fmt.Sprintf("tag %s not found", msg.TagName))
+		}
 	}
 
 	reportBond := types.DefaultTagReportBond
@@ -74,7 +83,7 @@ func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*typ
 			TagName:       msg.TagName,
 			TotalBond:     reportBond.String(),
 			FirstReportAt: now,
-			UnderReview:   false,
+			UnderReview:   true, // open until an authority resolves it
 			Reporters:     []string{msg.Creator},
 		}
 		if err := k.TagReport.Set(ctx, msg.TagName, report); err != nil {

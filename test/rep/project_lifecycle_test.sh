@@ -184,7 +184,7 @@ convert_op_params_for_proposal() {
 import json, sys
 DEC_FIELDS = [
     'unstaked_decay_rate', 'transfer_tax_rate',
-    'min_reputation_multiplier', 'referral_reward_rate',
+    'referral_reward_rate',
     'invitation_cost_multiplier',
     'challenger_reward_rate', 'jury_super_majority',
     'min_juror_reputation', 'solo_expert_bonus_rate',
@@ -237,7 +237,7 @@ build_op_params_with_override() {
       transfer_tax_rate, max_tip_amount, max_tips_sent_per_epoch,
       max_gift_per_invitee,
       gift_only_to_invitees: (.gift_only_to_invitees // false),
-      min_reputation_multiplier, default_review_period_epochs,
+      default_review_period_epochs,
       default_challenge_period_epochs, min_invitation_stake,
       invitation_accountability_epochs, referral_reward_rate,
       invitation_cost_multiplier, min_challenge_stake,
@@ -245,8 +245,7 @@ build_op_params_with_override() {
       min_juror_reputation, simple_complexity_budget,
       standard_complexity_budget, complex_complexity_budget,
       expert_complexity_budget, solo_expert_bonus_rate,
-      interim_deadline_epochs, max_active_challenges_per_committee,
-      max_new_challenges_per_epoch, challenge_queue_max_size,
+      interim_deadline_epochs,
       project_completion_bonus_rate, member_stake_revenue_share,
       tag_stake_revenue_share, min_stake_duration_seconds,
       allow_self_member_stake: (.allow_self_member_stake // false),
@@ -599,8 +598,7 @@ echo "--- TEST 7: project cancel cascades to OPEN and in-flight initiatives ---"
 
 CASCADE_OK=1
 
-# 7a. Propose a small budget-backed project (5,000 DREAM, under the 10,000
-# large-project threshold so alice can approve it directly).
+# 7a. Propose a small budget-backed project (5,000 DREAM).
 TX_RES=$($BINARY tx rep propose-project \
     "lifecycle-cascade" "Cancel cascade target" "infrastructure" \
     "Technical Council" "5000000000" "0" \
@@ -612,14 +610,11 @@ if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
 fi
 CASCADE_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
 
-# 7b. Approve it (alice is on the Ops Committee; budget under threshold).
+# 7b. Approve it through the Technical Operations Committee.
 if [ "$CASCADE_OK" == "1" ]; then
-    TX_RES=$($BINARY tx rep approve-project-budget \
-        "$CASCADE_PID" "5000000000" "0" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-        echo "  Failed to approve cascade project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    # alice created it, so a committee proposal approves it (REP-E-105).
+    if ! ops_approve_project_budget "$CASCADE_PID" "5000000000" "0"; then
+        echo "  Failed to approve cascade project: $OPS_COMMITTEE_ERROR"
         CASCADE_OK=0
     fi
 fi
@@ -736,12 +731,9 @@ if [ "$T8_OK" == "1" ]; then
         --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
         VOID_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
-        TX_RES=$($BINARY tx rep approve-project-budget \
-            "$VOID_PID" "5000000000" "0" \
-            --from alice --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-            echo "  Failed to approve void-target project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        # alice created it, so a committee proposal approves it (REP-E-105).
+        if ! ops_approve_project_budget "$VOID_PID" "5000000000" "0"; then
+            echo "  Failed to approve void-target project: $OPS_COMMITTEE_ERROR"
             T8_OK=0
         fi
     else
@@ -875,7 +867,7 @@ echo "--- TEST 9: project cancel releases project stakes ---"
 STAKE_OK=1
 STAKER_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
 
-# 9a. A small budget-backed project alice can approve directly.
+# 9a. A small budget-backed project.
 TX_RES=$($BINARY tx rep propose-project \
     "lifecycle-stake-release" "Stake release target" "infrastructure" \
     "Technical Council" "5000000000" "0" \
@@ -888,12 +880,9 @@ fi
 STAKE_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
 
 if [ "$STAKE_OK" == "1" ]; then
-    TX_RES=$($BINARY tx rep approve-project-budget \
-        "$STAKE_PID" "5000000000" "0" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-        echo "  Failed to approve stake-release project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    # alice created it, so a committee proposal approves it (REP-E-105).
+    if ! ops_approve_project_budget "$STAKE_PID" "5000000000" "0"; then
+        echo "  Failed to approve stake-release project: $OPS_COMMITTEE_ERROR"
         STAKE_OK=0
     fi
 fi
@@ -986,12 +975,9 @@ fi
 COMPLETE_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
 
 if [ "$COMPLETE_OK" == "1" ]; then
-    TX_RES=$($BINARY tx rep approve-project-budget \
-        "$COMPLETE_PID" "5000000000" "0" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-        echo "  Failed to approve completion project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    # alice created it, so a committee proposal approves it (REP-E-105).
+    if ! ops_approve_project_budget "$COMPLETE_PID" "5000000000" "0" "Commons Operations Committee"; then
+        echo "  Failed to approve completion project: $OPS_COMMITTEE_ERROR"
         COMPLETE_OK=0
     fi
 fi

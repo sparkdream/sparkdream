@@ -509,3 +509,44 @@ func TestDisapprovalReleasesCommittedReviewBonds(t *testing.T) {
 	require.Equal(t, "0", after.TotalCommittedBond,
 		"the terminal exit must release every bond it strands")
 }
+
+// REP-R-204: the reviewer path goes through the shared EligibleForRole gate
+// (min_age_blocks, demotion) instead of its own copy, and still demands a
+// NORMAL bond on top.
+func TestQualifiedReviewerUsesTheSharedGate(t *testing.T) {
+	rf := setupReview(t, 1)
+	k, ctx := rf.f.keeper, rf.f.ctx.WithBlockHeight(50)
+	initiative, err := k.GetInitiative(ctx, rf.initiative)
+	require.NoError(t, err)
+	project, err := k.GetProject(ctx, rf.projectID)
+	require.NoError(t, err)
+
+	require.NoError(t, k.QualifiedReviewer(ctx, initiative, project, rf.reviewer.String()))
+
+	// Too new: the shared age gate, surfaced as ErrUnauthorized too.
+	cfg, err := k.GetBondedRoleConfig(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER)
+	require.NoError(t, err)
+	cfg.MinAgeBlocks = 100
+	require.NoError(t, k.SetBondedRoleConfig(ctx, cfg))
+	err = k.QualifiedReviewer(ctx, initiative, project, rf.reviewer.String())
+	require.ErrorIs(t, err, types.ErrRoleTooNew)
+	require.ErrorIs(t, err, types.ErrUnauthorized)
+	cfg.MinAgeBlocks = 0
+	require.NoError(t, k.SetBondedRoleConfig(ctx, cfg))
+
+	// RECOVERY passes the shared gate but is not NORMAL.
+	role, err := k.GetBondedRole(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, rf.reviewer.String())
+	require.NoError(t, err)
+	role.BondStatus = types.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY
+	require.NoError(t, k.SetBondedRole(ctx, role))
+	err = k.QualifiedReviewer(ctx, initiative, project, rf.reviewer.String())
+	require.ErrorIs(t, err, types.ErrUnauthorized)
+	require.Contains(t, err.Error(), "not NORMAL")
+
+	// DEMOTED is refused by the shared gate.
+	role.BondStatus = types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
+	require.NoError(t, k.SetBondedRole(ctx, role))
+	err = k.QualifiedReviewer(ctx, initiative, project, rf.reviewer.String())
+	require.ErrorIs(t, err, types.ErrRoleDemoted)
+	require.ErrorIs(t, err, types.ErrUnauthorized)
+}

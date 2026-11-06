@@ -143,6 +143,7 @@ PROJECT_RES=$($BINARY tx rep propose-project \
   --tags "concurrent,testing" \
   --deliverables "Feature 1,Feature 2,Feature 3,Feature 4,Feature 5" \
   --milestones "Phase 1,Phase 2" \
+  --gas 400000 \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -165,8 +166,9 @@ fi
 echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Approve project with 100 DREAM budget
-$BINARY tx rep approve-project-budget "$PROJECT_ID" "1000000000" "100000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
-sleep 1
+# A member cannot approve their own project alone (REP-E-105): alice's
+# projects are approved by an Operations Committee proposal.
+ops_approve_project_budget "$PROJECT_ID" "1000000000" "100000000" > /dev/null 2>&1
 
 PROJECT_DETAIL=$($BINARY query rep get-project "$PROJECT_ID" --output json)
 PROJECT_BUDGET=$(echo "$PROJECT_DETAIL" | jq -r '.project.approved_budget // "0"')
@@ -947,6 +949,7 @@ BUDGET_RES=$($BINARY tx rep propose-project \
   "10000000000" \
   "50000000" \
   --tags "budget,testing" \
+  --gas 400000 \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -968,8 +971,7 @@ if [ -n "$BUDGET_TX" ] && [ "$BUDGET_TX" != "null" ]; then
 fi
 
 # Approve with specific budget (10,000 DREAM = 10000000000 micro-DREAM)
-$BINARY tx rep approve-project-budget "$BUDGET_PROJECT_ID" "10000000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
-sleep 1
+ops_approve_project_budget "$BUDGET_PROJECT_ID" "10000000000" "50000000" > /dev/null 2>&1
 
 echo "[ OK ] Limited budget project created: ID $BUDGET_PROJECT_ID (10,000 DREAM)"
 
@@ -1196,6 +1198,7 @@ PROJECT2_RES=$($BINARY tx rep propose-project \
   "100000000" \
   "50000000" \
   --tags "cross-project" \
+  --gas 400000 \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
@@ -1217,8 +1220,7 @@ if [ -n "$PROJECT2_TX" ] && [ "$PROJECT2_TX" != "null" ]; then
 fi
 
 # Approve with 100 DREAM budget
-$BINARY tx rep approve-project-budget "$PROJECT2_ID" "100000000" "50000000" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
-sleep 1
+ops_approve_project_budget "$PROJECT2_ID" "100000000" "50000000" > /dev/null 2>&1
 
 echo "[ OK ] Secondary project created: ID $PROJECT2_ID"
 

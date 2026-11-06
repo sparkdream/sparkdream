@@ -31,6 +31,9 @@ type lateKeepers struct {
 	// rate limit). Empty by default; hooks are registered via
 	// SetClaimHooks from app.go post-depinject.
 	claimHooks types.GrantClaimMultiHook
+	// distrKeeper receives forfeited pending-grant deposits (community
+	// pool). Optional: nil sends them to the fee collector.
+	distrKeeper types.DistributionKeeper
 }
 
 type Keeper struct {
@@ -56,6 +59,8 @@ type Keeper struct {
 	GrantsByGranter collections.KeySet[collections.Pair[string, uint64]]
 	// (grantee, id) -> empty
 	GrantsByGrantee collections.KeySet[collections.Pair[string, uint64]]
+	// (grantee, type, id) -> empty — per-class grantee caps + typed listings
+	GrantsByGranteeAndType collections.KeySet[collections.Triple[string, int32, uint64]]
 	// (expires_at_unix, id) -> empty — pruning index
 	GrantsByExpiration collections.KeySet[collections.Pair[int64, uint64]]
 	// (type, granter, id) -> empty — per-type listings + per-(granter, type) caps
@@ -91,6 +96,21 @@ type Keeper struct {
 	// GrantCreatorModule: grant_id -> creating module address, written by
 	// CreateGrantOnBehalfOf and cleared with the grant.
 	GrantCreatorModule collections.Map[uint64, string]
+
+	// Grantee consent (SES-102). AllowedGranters: (grantee, granter) ->
+	// empty, with AllowedGranteesByGranter as its (granter, grantee)
+	// reverse for the migration hook. PendingGrantDeposit: grant_id ->
+	// escrowed Coin. PendingGrantsByDeadline: (deadline_unix, grant_id) for
+	// PENDING grants, deadline = min(created_at + TTL, expires_at).
+	// PendingGrantCountByGranter: granter -> PENDING grants it holds.
+	AllowedGranters            collections.KeySet[collections.Pair[string, string]]
+	AllowedGranteesByGranter   collections.KeySet[collections.Pair[string, string]]
+	PendingGrantDeposit        collections.Map[uint64, sdk.Coin]
+	PendingGrantsByDeadline    collections.KeySet[collections.Pair[int64, uint64]]
+	PendingGrantCountByGranter collections.Map[string, uint32]
+	// PendingGrantsByGrantee: (grantee, grant_id) -> empty for PENDING
+	// grants; the grantee's query-only discovery index (SES-202).
+	PendingGrantsByGrantee collections.KeySet[collections.Pair[string, uint64]]
 }
 
 func NewKeeper(
@@ -132,6 +152,10 @@ func NewKeeper(
 		GrantsByGrantee: collections.NewKeySet(
 			sb, types.GrantsByGranteeKey, "grants_by_grantee",
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		GrantsByGranteeAndType: collections.NewKeySet(
+			sb, types.GrantsByGranteeAndTypeKey, "grants_by_grantee_and_type",
+			collections.TripleKeyCodec(collections.StringKey, collections.Int32Key, collections.Uint64Key),
 		),
 		GrantsByExpiration: collections.NewKeySet(
 			sb, types.GrantsByExpirationKey, "grants_by_expiration",
@@ -177,6 +201,31 @@ func NewKeeper(
 			sb, types.GrantCreatorModuleKey, "grant_creator_module",
 			collections.Uint64Key, collections.StringValue,
 		),
+		AllowedGranters: collections.NewKeySet(
+			sb, types.AllowedGrantersKey, "allowed_granters",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
+		),
+		AllowedGranteesByGranter: collections.NewKeySet(
+			sb, types.AllowedGranteesByGranterKey, "allowed_grantees_by_granter",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
+		),
+		PendingGrantDeposit: collections.NewMap(
+			sb, types.PendingGrantDepositKey, "pending_grant_deposit",
+			collections.Uint64Key,
+			codec.CollValue[sdk.Coin](cdc),
+		),
+		PendingGrantsByDeadline: collections.NewKeySet(
+			sb, types.PendingGrantsByDeadlineKey, "pending_grants_by_deadline",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		PendingGrantCountByGranter: collections.NewMap(
+			sb, types.PendingGrantCountByGranterKey, "pending_grant_count_by_granter",
+			collections.StringKey, collections.Uint32Value,
+		),
+		PendingGrantsByGrantee: collections.NewKeySet(
+			sb, types.PendingGrantsByGranteeKey, "pending_grants_by_grantee",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
 	}
 
 	schema, err := sb.Build()
@@ -219,6 +268,13 @@ func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
 // resolution. Called from app.go post-depinject.
 func (k Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
 	k.late.identityKeeper = idk
+}
+
+// SetDistrKeeper late-binds the distribution keeper that receives forfeited
+// pending-grant deposits. Called from app.go post-depinject; without it the
+// forfeit goes to the fee collector.
+func (k Keeper) SetDistrKeeper(dk types.DistributionKeeper) {
+	k.late.distrKeeper = dk
 }
 
 // BondDenom returns the chain's bond denom from the wired identity keeper.

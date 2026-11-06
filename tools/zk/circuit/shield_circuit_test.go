@@ -1,10 +1,11 @@
 package circuit
 
 import (
-	"github.com/stretchr/testify/require"
 	"math"
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"

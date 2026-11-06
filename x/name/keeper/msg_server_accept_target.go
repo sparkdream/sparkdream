@@ -40,6 +40,11 @@ func (k msgServer) AcceptTarget(goCtx context.Context, msg *types.MsgAcceptTarge
 	if err := k.AcceptedTargets.Set(ctx, collections.Join(record.Target, name)); err != nil {
 		return nil, err
 	}
+	// Accepting a target is owner-driven x/name activity (spec §7.3); a
+	// no-op for a target that owns no name of its own.
+	if err := k.RecordOwnerActivity(ctx, msg.Authority); err != nil {
+		return nil, err
+	}
 
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent("name_target_accepted",

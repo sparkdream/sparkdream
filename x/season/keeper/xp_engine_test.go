@@ -178,6 +178,8 @@ func TestQuestObjectivesProgressAndClaim(t *testing.T) {
 	require.NoError(t, k.OnVoteCast(ctx, member, 2))
 	require.NoError(t, k.OnVoteCast(ctx, member, 3))
 	require.NoError(t, k.OnInitiativeCompleted(ctx, member, 55))
+	// Vote objectives land at EndBlock (SEA-103).
+	k.ApplyPendingVoteQuestProgress(ctx)
 
 	progress, err := k.MemberQuestProgress.Get(ctx, memberStr+":civic")
 	require.NoError(t, err)

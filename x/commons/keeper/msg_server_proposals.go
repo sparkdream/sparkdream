@@ -7,12 +7,14 @@ import (
 	"slices"
 	commontypes "sparkdream/x/common/types"
 	"strconv"
+	"strings"
 
 	"sparkdream/x/commons/types"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -103,6 +105,13 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 		if !isAllowed {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "msg %s not allowed for policy %s", typeURL, msg.PolicyAddress)
 		}
+	}
+
+	// 5b. Proposal fee: a top-level message was floored by the ante (credit
+	// consumed here), a nested one pays from the proposer now
+	// (proposal_fee.go).
+	if err := k.chargeProposalFee(ctx, msg); err != nil {
+		return nil, err
 	}
 
 	// 6. Get decision policy for timing
@@ -196,6 +205,10 @@ func (k msgServer) VoteProposal(goCtx context.Context, msg *types.MsgVoteProposa
 		return nil, errorsmod.Wrapf(types.ErrBallotMode, "proposal %d is a secret ballot; vote with MsgAnonymousVoteProposal through x/shield", msg.ProposalId)
 	}
 
+	if err := k.refuseInvalidatedVote(ctx, proposal); err != nil {
+		return nil, err
+	}
+
 	// Check voter is a member
 	isMember, err := k.HasMember(ctx, proposal.CouncilName, msg.Voter)
 	if err != nil {
@@ -263,19 +276,38 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 			"execution window of proposal %d closed at %d", msg.ProposalId, executionDeadline(proposal))
 	}
 
-	// Check policy version hasn't changed (veto check)
-	currentVersion, err := k.GetPolicyVersion(ctx, proposal.PolicyAddress)
-	if err != nil {
-		return nil, err
-	}
-	if currentVersion != proposal.PolicyVersion {
-		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_VETOED
-		proposal.FailedReason = "policy version changed (vetoed)"
+	// A proposal that can never execute is closed with a terminal status
+	// (VETOED or FAILED) that persists: the tx succeeds and carries the
+	// outcome in its execute_proposal event. Returning an error would roll
+	// the status back with the rest of the tx, and the proposal would read
+	// ACCEPTED until its execution window expired (CMN-108). Every such
+	// check runs before any inner message, so nothing executes first.
+	terminate := func(status types.ProposalStatus, reason string) (*types.MsgExecuteProposalResponse, error) {
+		if err := k.dequeueProposal(ctx, proposal); err != nil {
+			return nil, err
+		}
+		proposal.Status = status
+		proposal.FailedReason = reason
 		if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
 			return nil, err
 		}
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
-			"proposal %d was invalidated by a policy version change (veto)", msg.ProposalId)
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			"execute_proposal",
+			sdk.NewAttribute("proposal_id", fmt.Sprintf("%d", msg.ProposalId)),
+			sdk.NewAttribute("executor", msg.Executor),
+			sdk.NewAttribute("status", strings.TrimPrefix(status.String(), "PROPOSAL_STATUS_")),
+			sdk.NewAttribute("reason", reason),
+		))
+		return &types.MsgExecuteProposalResponse{Status: status}, nil
+	}
+
+	// A proposal accepted before a veto (or other policy change) closes here.
+	invalidated, err := k.proposalInvalidated(ctx, proposal)
+	if err != nil {
+		return nil, err
+	}
+	if invalidated {
+		return terminate(types.ProposalStatus_PROPOSAL_STATUS_VETOED, "policy version changed (vetoed)")
 	}
 
 	// Check term expiration
@@ -307,34 +339,23 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 	// leaves every accepted proposal able to run the removed messages.
 	if len(proposal.Messages) > 0 {
 		if err := k.checkProposalPermissions(ctx, proposal); err != nil {
-			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
-			proposal.FailedReason = err.Error()
-			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-				return nil, err
-			}
-			return nil, err
+			return terminate(types.ProposalStatus_PROPOSAL_STATUS_FAILED, err.Error())
 		}
 	}
 
 	// Execute messages as the policy address via msg router
 	if len(proposal.Messages) > 0 && k.late.router == nil {
-		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
-		proposal.FailedReason = "msg router not wired"
-		if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-			return nil, err
-		}
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "msg router not wired into commons keeper")
 	}
 
+	// Pre-flight every message: unpack, signer and handler. These fail the
+	// same way on every attempt, so they end the proposal.
+	sdkMsgs := make([]sdk.Msg, len(proposal.Messages))
+	handlers := make([]baseapp.MsgServiceHandler, len(proposal.Messages))
 	for i, anyMsg := range proposal.Messages {
 		var sdkMsg sdk.Msg
 		if err := k.cdc.UnpackAny(anyMsg, &sdkMsg); err != nil {
-			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
-			proposal.FailedReason = fmt.Sprintf("failed to unpack message %d: %v", i, err)
-			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-				return nil, err
-			}
-			return nil, err
+			return terminate(types.ProposalStatus_PROPOSAL_STATUS_FAILED, fmt.Sprintf("failed to unpack message %d: %v", i, err))
 		}
 
 		// SECURITY: Verify that the message's authority/signer matches the
@@ -342,24 +363,21 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		// a malicious proposer crafts messages with Authority set to a
 		// higher-privilege address (e.g., x/gov).
 		if err := k.validateMsgAuthority(sdkMsg, proposal.PolicyAddress); err != nil {
-			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
-			proposal.FailedReason = fmt.Sprintf("message %d authority mismatch: %v", i, err)
-			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-				return nil, err
-			}
-			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %d: %v", i, err)
+			return terminate(types.ProposalStatus_PROPOSAL_STATUS_FAILED, fmt.Sprintf("message %d authority mismatch: %v", i, err))
 		}
 
 		handler := k.late.router.Handler(sdkMsg)
 		if handler == nil {
-			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
-			proposal.FailedReason = fmt.Sprintf("no handler for message %d: %s", i, sdk.MsgTypeURL(sdkMsg))
-			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-				return nil, err
-			}
-			return nil, errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "no handler for %s", sdk.MsgTypeURL(sdkMsg))
+			return terminate(types.ProposalStatus_PROPOSAL_STATUS_FAILED, fmt.Sprintf("no handler for message %d: %s", i, sdk.MsgTypeURL(sdkMsg)))
 		}
+		sdkMsgs[i], handlers[i] = sdkMsg, handler
+	}
 
+	// Inner handlers can read which proposal dispatched them
+	// (commontypes.ExecutingProposalID): x/rep attributes a project approval
+	// to the members who voted on this proposal when it pays the review.
+	execCtx := ctx.WithValue(commontypes.ContextKeyExecutingProposal, proposal.Id)
+	for i, sdkMsg := range sdkMsgs {
 		// baseapp's MsgServiceRouter wraps the context with a fresh
 		// EventManager before calling the handler, so events emitted by the
 		// inner message are isolated to res.GetEvents() and don't propagate
@@ -367,13 +385,13 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		// context here, otherwise downstream observers (e.g. e2e tests
 		// scraping a tx for `grant_created` from a proposal-executed
 		// MsgScheduleRecurringSpend) never see the event.
-		res, err := handler(ctx, sdkMsg)
+		//
+		// A handler error reverts the whole tx and leaves the proposal
+		// ACCEPTED: it may be transient (an unfunded treasury, a cooldown),
+		// so the proposal can be executed again until its execution window
+		// closes.
+		res, err := handlers[i](execCtx, sdkMsg)
 		if err != nil {
-			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
-			proposal.FailedReason = fmt.Sprintf("message %d execution failed: %v", i, err)
-			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-				return nil, err
-			}
 			return nil, errorsmod.Wrapf(err, "message %d execution failed", i)
 		}
 		if res != nil {
@@ -398,7 +416,34 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		),
 	)
 
-	return &types.MsgExecuteProposalResponse{}, nil
+	return &types.MsgExecuteProposalResponse{Status: proposal.Status}, nil
+}
+
+// proposalInvalidated reports whether the proposal's policy version has
+// changed since it was submitted (a veto, a config change, narrowed
+// permissions, a renewal). The version only grows, so an invalidated
+// proposal can never pass or run again: tallies end it VETOED, votes on it
+// are refused, and execution closes it VETOED.
+func (k Keeper) proposalInvalidated(ctx context.Context, proposal types.Proposal) (bool, error) {
+	current, err := k.GetPolicyVersion(ctx, proposal.PolicyAddress)
+	if err != nil {
+		return false, err
+	}
+	return current != proposal.PolicyVersion, nil
+}
+
+// refuseInvalidatedVote refuses a vote on a proposal whose policy version
+// has changed; the EndBlocker closes it VETOED at its voting deadline.
+func (k Keeper) refuseInvalidatedVote(ctx context.Context, proposal types.Proposal) error {
+	invalidated, err := k.proposalInvalidated(ctx, proposal)
+	if err != nil {
+		return err
+	}
+	if invalidated {
+		return errorsmod.Wrapf(sdkerrors.ErrInvalidRequest,
+			"proposal %d was invalidated by a policy change (vetoed); it closes VETOED at its voting deadline", proposal.Id)
+	}
+	return nil
 }
 
 // acceptIfThresholdMet accepts a proposal early once its threshold is met
@@ -567,9 +612,14 @@ func thresholdMet(decPolicy types.DecisionPolicy, changesMembership bool, yesWei
 }
 
 // membershipMsgTypeURLs are the messages that change who sits on a body.
+// x/rep's MsgForceMigration is one: a COUNCIL-path migration re-keys the
+// member's whole identity, every commons seat included, so one member of a
+// two-member HR committee could otherwise move a peer's (or any council
+// member's) seats to a key of their own (CMN-102).
 var membershipMsgTypeURLs = map[string]bool{
 	"/sparkdream.commons.v1.MsgUpdateGroupMembers": true,
 	"/sparkdream.commons.v1.MsgRenewGroup":         true,
+	"/sparkdream.rep.v1.MsgForceMigration":         true,
 }
 
 // proposalChangesMembership reports whether the proposal carries a

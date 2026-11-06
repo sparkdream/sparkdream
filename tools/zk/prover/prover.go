@@ -66,6 +66,11 @@ type ShieldProofInput struct {
 	// RateLimitEpoch is the epoch for rate-limit nullifier binding
 	RateLimitEpoch uint64
 
+	// GroupTree marks a PROOF_DOMAIN_GROUP_TREE exec (a secret-ballot vote):
+	// its RateLimitEpoch public input is the epoch bound to the scope
+	// (crypto.GroupTreeRateLimitEpoch), as the chain's verifier expects.
+	GroupTree bool
+
 	// MessageHash binds the proof to its inner message (crypto.ShieldMessageHash)
 	MessageHash []byte
 
@@ -99,6 +104,9 @@ type ShieldProofOutput struct {
 
 	// RateLimitEpoch is the epoch the rate limit nullifier is bound to
 	RateLimitEpoch uint64
+
+	// GroupTree is the input's GroupTree flag
+	GroupTree bool
 
 	// MessageHash is the inner-message hash the proof is bound to
 	MessageHash []byte
@@ -220,7 +228,8 @@ func (p *ShieldProver) GenerateProof(input *ShieldProofInput) (*ShieldProofOutpu
 
 	// Compute nullifiers
 	nullifier := crypto.ComputeScopedNullifier(input.SecretKey, input.Domain, input.Scope)
-	rateLimitNullifier := crypto.ComputeRateLimitNullifier(input.SecretKey, input.RateLimitEpoch)
+	rlEpoch := rateLimitEpochElement(input.Domain, input.Scope, input.RateLimitEpoch, input.GroupTree)
+	rateLimitNullifier := crypto.ComputeRateLimitNullifierAt(input.SecretKey, rlEpoch)
 
 	// Build circuit assignment
 	assignment := &circuit.ShieldCircuit{
@@ -229,7 +238,7 @@ func (p *ShieldProver) GenerateProof(input *ShieldProofInput) (*ShieldProofOutpu
 		RateLimitNullifier: crypto.BytesToFieldElement(rateLimitNullifier),
 		MinTrustLevel:      input.MinTrustLevel,
 		Scope:              crypto.BytesToFieldElement(crypto.ScopeElement(input.Domain, input.Scope)),
-		RateLimitEpoch:     input.RateLimitEpoch,
+		RateLimitEpoch:     crypto.BytesToFieldElement(rlEpoch),
 		MessageHash:        crypto.BytesToFieldElement(input.MessageHash),
 		SecretKey:          crypto.BytesToFieldElement(input.SecretKey),
 		TrustLevel:         input.TrustLevel,
@@ -275,6 +284,7 @@ func (p *ShieldProver) GenerateProof(input *ShieldProofInput) (*ShieldProofOutpu
 		Domain:             input.Domain,
 		Scope:              input.Scope,
 		RateLimitEpoch:     input.RateLimitEpoch,
+		GroupTree:          input.GroupTree,
 		MessageHash:        input.MessageHash,
 		ProvingTime:        provingTime,
 	}, nil
@@ -342,7 +352,8 @@ func PreviewProof(input *ShieldProofInput) (*ShieldProofOutput, error) {
 	}
 
 	nullifier := crypto.ComputeScopedNullifier(input.SecretKey, input.Domain, input.Scope)
-	rateLimitNullifier := crypto.ComputeRateLimitNullifier(input.SecretKey, input.RateLimitEpoch)
+	rateLimitNullifier := crypto.ComputeRateLimitNullifierAt(input.SecretKey,
+		rateLimitEpochElement(input.Domain, input.Scope, input.RateLimitEpoch, input.GroupTree))
 
 	return &ShieldProofOutput{
 		ProofBytes:         nil, // No proof in preview
@@ -353,8 +364,18 @@ func PreviewProof(input *ShieldProofInput) (*ShieldProofOutput, error) {
 		Domain:             input.Domain,
 		Scope:              input.Scope,
 		RateLimitEpoch:     input.RateLimitEpoch,
+		GroupTree:          input.GroupTree,
 		MessageHash:        input.MessageHash,
 	}, nil
+}
+
+// rateLimitEpochElement is the RateLimitEpoch public input (32 bytes): the
+// plain epoch, or for a group-tree exec the epoch bound to the scope.
+func rateLimitEpochElement(domain uint32, scope, epoch uint64, groupTree bool) []byte {
+	if groupTree {
+		return crypto.GroupTreeRateLimitEpoch(domain, scope, epoch)
+	}
+	return crypto.Uint64ToBytes(epoch)
 }
 
 // ============================================================
@@ -405,7 +426,7 @@ func (v *ShieldVerifier) Verify(output *ShieldProofOutput) error {
 		RateLimitNullifier: crypto.BytesToFieldElement(output.RateLimitNullifier),
 		MinTrustLevel:      output.MinTrustLevel,
 		Scope:              crypto.BytesToFieldElement(crypto.ScopeElement(output.Domain, output.Scope)),
-		RateLimitEpoch:     output.RateLimitEpoch,
+		RateLimitEpoch:     crypto.BytesToFieldElement(rateLimitEpochElement(output.Domain, output.Scope, output.RateLimitEpoch, output.GroupTree)),
 		MessageHash:        crypto.BytesToFieldElement(output.MessageHash),
 	}
 

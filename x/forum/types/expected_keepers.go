@@ -60,8 +60,8 @@ type BankKeeper interface {
 	SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromModuleToModule(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
+	// Burner-only: the forum module account has no Minter permission.
 	BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
-	MintCoins(ctx context.Context, moduleName string, amt sdk.Coins) error
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.
@@ -166,6 +166,10 @@ type RepKeeper interface {
 	// source of truth — no forum-local copies). See docs/x-rep-spec.md (RoleActivity).
 	RecordRoleAction(ctx context.Context, roleType reptypes.RoleType, addr, kind string) error
 	RecordRoleOutcome(ctx context.Context, roleType reptypes.RoleType, addr, kind string, upheld bool) error
+	// RecordRoleRejection is an accuracy miss without a verdict: no streak,
+	// no overturn cooldown, no demotion (REP-R-207). Used for an author's
+	// rejection of a curation proposal.
+	RecordRoleRejection(ctx context.Context, roleType reptypes.RoleType, addr, kind string) error
 	RoleOverturnCooldownUntil(ctx context.Context, roleType reptypes.RoleType, addr string) int64
 	RoleEpochActionCount(ctx context.Context, roleType reptypes.RoleType, addr, kind string) uint64
 	GetRoleActivity(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.RoleActivity, error)

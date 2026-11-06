@@ -65,7 +65,8 @@ func simPeers(simState *module.SimulationState) ([]types.Peer, []types.PeerPolic
 	peers := make([]types.Peer, 0, len(specs))
 	policies := make([]types.PeerPolicy, 0, len(specs))
 	for _, s := range specs {
-		peers = append(peers, types.Peer{
+		sparkDream := s.typ == types.PeerType_PEER_TYPE_SPARK_DREAM
+		peer := types.Peer{
 			Id:           s.id,
 			DisplayName:  s.name,
 			Type:         s.typ,
@@ -73,8 +74,12 @@ func simPeers(simState *module.SimulationState) ([]types.Peer, []types.PeerPolic
 			RegisteredAt: now,
 			LastActivity: now,
 			RegisteredBy: gov,
-		})
-		sparkDream := s.typ == types.PeerType_PEER_TYPE_SPARK_DREAM
+		}
+		if sparkDream {
+			// a Spark Dream peer is pinned to its chain (FED-106)
+			peer.ExpectedChainId = s.id
+		}
+		peers = append(peers, peer)
 		policies = append(policies, types.PeerPolicy{
 			PeerId:                       s.id,
 			OutboundContentTypes:         append([]string(nil), federable...),

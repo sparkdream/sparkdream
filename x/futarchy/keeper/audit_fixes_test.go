@@ -193,11 +193,19 @@ func requireDecNear(t *testing.T, want string, got math.LegacyDec, tol string) {
 func TestLMSRMathRangeReduction(t *testing.T) {
 	ctx := initLedgerFixture(t).ctx.WithGasMeter(storetypes.NewInfiniteGasMeter())
 
-	e60 := types.Exp(ctx, math.LegacyNewDec(-60))
+	e60, err := types.Exp(ctx, math.LegacyNewDec(-60))
+	require.NoError(t, err)
 	require.False(t, e60.IsNegative())
 	require.True(t, e60.LT(math.LegacyMustNewDecFromStr("0.000000000001")))
-	requireDecNear(t, "0.000045399929762485", types.Exp(ctx, math.LegacyNewDec(-10)), "0.000000000000001")
-	requireDecNear(t, "22026.465794806716516958", types.Exp(ctx, math.LegacyNewDec(10)), "0.0000001")
+	e10, err := types.Exp(ctx, math.LegacyNewDec(-10))
+	require.NoError(t, err)
+	requireDecNear(t, "0.000045399929762485", e10, "0.000000000000001")
+	p10, err := types.Exp(ctx, math.LegacyNewDec(10))
+	require.NoError(t, err)
+	requireDecNear(t, "22026.465794806716516958", p10, "0.0000001")
+	// Above the reduced-form bound Exp refuses instead of flattening.
+	_, err = types.Exp(ctx, math.LegacyNewDec(101))
+	require.Error(t, err)
 
 	ln, err := types.Ln(ctx, math.LegacyMustNewDecFromStr("0.000000001"))
 	require.NoError(t, err)

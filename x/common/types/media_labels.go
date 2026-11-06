@@ -9,7 +9,7 @@ import (
 	"sparkdream/tools/datauri"
 )
 
-// Media labelling, rules version 2. The chain labels every content record at
+// Media labelling, rules version 3. The chain labels every content record at
 // write time from information it already has (content_type, which URI fields
 // are set) plus one deterministic data-URI scan of uncompressed text. It never
 // decompresses GZIP/ZSTD bodies and never parses or fetches links: that is the
@@ -26,7 +26,12 @@ import (
 // off-chain scanners through tools/datauri. Version 1 missed
 // data:image/png;base64&#44;..., data&#58;..., a newline before the comma and
 // media types longer than 256 characters.
-const MediaRulesVersion uint32 = 2
+//
+// Version 3: numeric character references are read with any number of digits
+// and leading zeros (&#0000000058; is ':'), and a CSS backslash before a
+// newline is a line continuation that reads as nothing (da\<LF>ta: is
+// data:). Version 2 missed both.
+const MediaRulesVersion uint32 = 3
 
 // ContainsDataURI reports whether s contains a data URI under the current
 // rules version (tools/datauri).

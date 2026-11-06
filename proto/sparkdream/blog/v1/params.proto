@@ -54,58 +54,58 @@ message Params {
   uint32 max_reactions_per_day = 11;
 
   // TTL in seconds for ephemeral content (default: 604800 = 7 days; 0 = no expiry)
-  int64 ephemeral_content_ttl = 17;
+  int64 ephemeral_content_ttl = 12;
 
   // Minimum trust level to pin ephemeral content (default: 2 = ESTABLISHED)
-  uint32 pin_min_trust_level = 18;
+  uint32 pin_min_trust_level = 13;
 
   // Max pins per address per day
-  uint32 max_pins_per_day = 19;
+  uint32 max_pins_per_day = 14;
 
   // Governance-only floor for ephemeral_content_ttl (default: 86400 = 1 day)
-  int64 min_ephemeral_content_ttl = 20;
+  int64 min_ephemeral_content_ttl = 15;
 
   // Governance-only ceiling for cost_per_byte_amount.
-  string max_cost_per_byte_amount = 21 [
+  string max_cost_per_byte_amount = 16 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Governance-only ceiling for reaction_fee_amount.
-  string max_reaction_fee_amount = 22 [
+  string max_reaction_fee_amount = 17 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Min conviction score to renew anonymous content at TTL expiry (default: 100.0; 0 = disabled)
-  string conviction_renewal_threshold = 23 [
+  string conviction_renewal_threshold = 18 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
-  int64 conviction_renewal_period = 24;
+  int64 conviction_renewal_period = 19;
 
   // Maximum number of tags that may be attached to a post (default: 5)
-  uint32 max_tags_per_post = 25;
+  uint32 max_tags_per_post = 20;
 
   // Maximum length in bytes of any single tag name (default: 32)
-  uint32 max_tag_length = 26;
+  uint32 max_tag_length = 21;
 
   // Maximum number of ephemeral posts/replies promoted to permanent per block
   // by the EndBlocker membership-promotion drain. 0 disables the drain
   // (relies on lazy TTL-time promotion). Default: 50.
-  uint32 max_promotions_per_block = 27;
+  uint32 max_promotions_per_block = 22;
 
   // Minimum trust level to call MsgMakePostPermanent / MsgMakeReplyPermanent
   // (default: 1 = PROVISIONAL). Separate gate from pin_min_trust_level — making
   // content permanent is a lower-impact curator action than featuring it.
-  uint32 make_permanent_min_trust_level = 28;
+  uint32 make_permanent_min_trust_level = 23;
 
   // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day.
   // Independent of max_pins_per_day and max_posts_per_day — promoting an
   // ephemeral to permanent is a distinct curator action with its own quota.
-  uint32 max_make_permanent_per_day = 29;
+  uint32 max_make_permanent_per_day = 24;
 
   // Media rules (docs/content-scanning.md §9). Apply to writes the chain
   // labels as media (media_flags != 0); plain text is never affected.
@@ -113,13 +113,13 @@ message Params {
   // media_min_trust_level is the trust level (0-4) an active member needs to
   // post media without a bond (default 1 = PROVISIONAL). Anonymous
   // (shield-routed) content can never carry media.
-  uint32 media_min_trust_level = 30;
+  uint32 media_min_trust_level = 25;
 
   // media_author_bond_min is the DREAM author bond (micro-DREAM) that lets an
   // active member below media_min_trust_level post media at creation. A
   // confirmed abuse verdict costs the author this bond. 0 disables the bond
   // path.
-  string media_author_bond_min = 31 [
+  string media_author_bond_min = 26 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -128,7 +128,7 @@ message Params {
   // whose media labels are non-zero. It prices the off-chain scanning work
   // media creates (and media spam); 0 disables it. Scanner pay itself comes
   // from commons recurring spend (§8.5).
-  string media_scan_fee = 32 [
+  string media_scan_fee = 27 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -169,23 +169,23 @@ message BlogOperationalParams {
   uint32 max_reactions_per_day = 7;
 
   // TTL for ephemeral content
-  int64 ephemeral_content_ttl = 12;
+  int64 ephemeral_content_ttl = 8;
 
   // Max pins per address per day
-  uint32 max_pins_per_day = 13;
+  uint32 max_pins_per_day = 9;
 
   // Operations Committee can adjust conviction renewal threshold
-  string conviction_renewal_threshold = 14 [
+  string conviction_renewal_threshold = 10 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Operations Committee can adjust conviction renewal period
-  int64 conviction_renewal_period = 15;
+  int64 conviction_renewal_period = 11;
 
   // Per-block cap on EndBlocker membership-promotion drain (0 = disabled).
-  uint32 max_promotions_per_block = 16;
+  uint32 max_promotions_per_block = 12;
 
   // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day.
-  uint32 max_make_permanent_per_day = 17;
+  uint32 max_make_permanent_per_day = 13;
 }

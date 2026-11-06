@@ -21,12 +21,17 @@ import (
 )
 
 type mockSessionKeeper struct {
-	session sessiontypes.Session
-	spent   []sdk.Coin
+	session   sessiontypes.Session
+	spent     []sdk.Coin
+	acceptErr error
 }
 
 func (m *mockSessionKeeper) GetSession(_ context.Context, _, _ string) (sessiontypes.Session, error) {
 	return m.session, nil
+}
+
+func (m *mockSessionKeeper) CheckSessionAcceptable(_ context.Context, _, _ string) error {
+	return m.acceptErr
 }
 
 func (m *mockSessionKeeper) UpdateSessionSpent(_ context.Context, _, _ string, fee sdk.Coin) error {
@@ -168,4 +173,24 @@ func TestSessionFee_NonSessionTxUsesDeduct(t *testing.T) {
 	deduct, _, err := run(newCtx(t), &mockSessionKeeper{}, &mockBank{}, feeTx{gas: 1})
 	require.NoError(t, err)
 	require.Equal(t, 1, deduct.ran)
+}
+
+// A PENDING key whose acceptance the msg server would refuse is refused in
+// the ante, before any fee moves (SES-203).
+func TestSessionFee_PendingKeyAcceptanceRefused(t *testing.T) {
+	sk := &mockSessionKeeper{session: activeSession(0, 1_000_000), acceptErr: sessiontypes.ErrTooManyGrantsForGrantee}
+	bank := &mockBank{}
+	tx := feeTx{msgs: []sdk.Msg{execMsg(1)}, fees: sdk.NewCoins(sdk.NewInt64Coin("uspark", 500)), gas: 100_000}
+	deduct, _, err := run(newCtx(t), sk, bank, tx)
+	require.ErrorIs(t, err, sessiontypes.ErrTooManyGrantsForGrantee)
+	require.Empty(t, bank.charges, "no fee charged")
+	require.Empty(t, sk.spent, "no spend debited")
+	require.Zero(t, deduct.ran)
+
+	// Acceptable: the granter pays as for an active key.
+	sk.acceptErr = nil
+	deduct, _, err = run(newCtx(t), sk, bank, tx)
+	require.NoError(t, err)
+	require.Len(t, bank.charges, 1)
+	require.Zero(t, deduct.ran, "standard fee deduction skipped: the granter paid")
 }

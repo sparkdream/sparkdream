@@ -79,11 +79,13 @@ expect_ok "alice mints an estate to bob" mint "$ESTATES" "$LICENSE" --entries "{
 expect_fail "an unpriced estate is not for sale in its grace period" "not for sale" force-buy "$ESTATES" 1 "1000000${BOND_DENOM}" --from carol
 expect_fail "a positive price needs a tax grant" "grant" set-harberger-price "$ESTATES" 1 100000000 --from bob
 
-# 36.5%/yr of 100 SPARK for one day = 0.1 SPARK.
+# 36.5%/yr of 100 SPARK for one day = 0.1 SPARK. The grant's per-day cap
+# must leave room for two pulls (a pull delayed into the next one's day).
 MODULE_ADDR=$($BINARY q auth module-account artifact --output json | jq -r '.account.value.address // .account.base_account.address // .account.address')
 create_tax_grant() {
     local amount=$1 res hash
     res=$($BINARY tx session create-recurring-pull "$MODULE_ADDR" "${amount}${BOND_DENOM}" 86400 +720h \
+        --max-per-epoch "$((amount * 2))" \
         --grant-note "harberger tax" --from bob --chain-id "$CHAIN_ID" --keyring-backend test \
         --gas 500000 --fees ${FEES}${BOND_DENOM} -y --output json 2>&1)
     hash=$(echo "$res" | jq -r '.txhash // empty')
@@ -98,6 +100,13 @@ check "bob created a tax grant" "$([ -n "$GRANT" ] && echo yes || echo no)" "yes
 expect_ok "bob assesses his estate at 100 SPARK" set-harberger-price "$ESTATES" 1 100000000 --grant-id "$GRANT" --from bob
 Q=$(q harberger-quote "$ESTATES" 1)
 check "the quote shows the daily tax" "$(echo "$Q" | jq -r '.tax_per_period')" "100000"
+# The time until the grant's first pull is charged at the assessed price up
+# front (ART-201), rounded up. The grant was created a few blocks before the
+# price, so that gap is a few seconds short of a full period: expect the
+# per-period tax minus at most two minutes' worth.
+PAID_UP_FRONT=$(echo "$Q" | jq -r '.state.tax_paid')
+check "the gap to the first pull was paid up front" \
+    "$([ "$PAID_UP_FRONT" -le 100000 ] && [ "$PAID_UP_FRONT" -ge 99800 ] && echo "in range" || echo "$PAID_UP_FRONT")" "in range"
 check "the grant is recorded" "$(echo "$Q" | jq -r '.state.grant_id')" "$GRANT"
 check "the first pull is scheduled" "$(( $(echo "$Q" | jq -r '.state.next_due') > $(block_time_unix) ))" "1"
 check "the estate is for sale at its assessment" "$(echo "$Q" | jq -r '.for_sale // false')" "true"

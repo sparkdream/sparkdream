@@ -16,6 +16,12 @@ func (r ShieldedOpRegistration) Validate() error {
 		r.BatchMode != ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY {
 		return errorsmod.Wrapf(ErrOwnershipBatchMode, "%s: ownership operations need batch_mode IMMEDIATE_ONLY", r.MessageTypeUrl)
 	}
+	// A group-tree proof's root is named by the inner message's module, which
+	// a batch submission (payload sealed) cannot show at submission.
+	if r.ProofDomain == ProofDomain_PROOF_DOMAIN_GROUP_TREE &&
+		r.BatchMode != ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY {
+		return errorsmod.Wrapf(ErrInvalidProofDomain, "%s: group-tree operations need batch_mode IMMEDIATE_ONLY", r.MessageTypeUrl)
+	}
 	if r.EpochWindow > 1 && (r.NullifierScopeType != NullifierScopeType_NULLIFIER_SCOPE_EPOCH ||
 		r.NullifierMode == NullifierMode_NULLIFIER_MODE_OWNERSHIP) {
 		return errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "%s: epoch_window only applies to EPOCH-scoped one-time nullifiers", r.MessageTypeUrl)

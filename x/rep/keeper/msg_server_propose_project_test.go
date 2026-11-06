@@ -72,7 +72,7 @@ func TestMsgServerProposeProject(t *testing.T) {
 		creator := sdk.AccAddress([]byte("creator-over-bud"))
 		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
-			DreamBalance:     PtrInt(math.ZeroInt()),
+			DreamBalance:     PtrInt(math.NewInt(100_000_000)), // covers the creation fee
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
@@ -122,7 +122,7 @@ func TestMsgServerProposeProject(t *testing.T) {
 		creator := sdk.AccAddress([]byte("creator-over-spk"))
 		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
-			DreamBalance:     PtrInt(math.ZeroInt()),
+			DreamBalance:     PtrInt(math.NewInt(100_000_000)), // covers the creation fee
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
@@ -155,7 +155,7 @@ func TestMsgServerProposeProject(t *testing.T) {
 		creator := sdk.AccAddress([]byte("creator"))
 		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
-			DreamBalance:     PtrInt(math.ZeroInt()),
+			DreamBalance:     PtrInt(math.NewInt(100_000_000)), // covers the creation fee
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"cosmossdk.io/collections"
+
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/federation/keeper"
@@ -76,6 +78,39 @@ func TestRemovePeer_BlockedWhenActiveBridgesExist(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, types.ErrPeerHasActiveBridges) ||
 		errorContainsAny(err, "still has", "active bridges"))
+}
+
+// FED-102: the stranded-peer escape hatch. An operator that never unbonds
+// cannot block removal: once the peer is suspended, MsgRemovePeer goes
+// through and Phase 9 prunes the binding with its indexes.
+func TestRemovePeer_SuspendedPeerWithBridgesIsRemoved(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "mastodon.social")
+	registerTestBridge(t, f, ms, "mastodon.social", "op1")
+
+	_, err := ms.SuspendPeer(f.ctx, &types.MsgSuspendPeer{
+		Authority: f.authority, PeerId: "mastodon.social", Reason: "abandoned",
+	})
+	require.NoError(t, err)
+	_, err = ms.RemovePeer(f.ctx, &types.MsgRemovePeer{
+		Authority: f.authority, PeerId: "mastodon.social", Reason: "abandoned",
+	})
+	require.NoError(t, err)
+
+	ctx := cleanupCtx(f)
+	runEndBlockerUntilPeerGone(t, f, ctx, "mastodon.social")
+	n := 0
+	require.NoError(t, f.keeper.BridgeBindings.Walk(ctx, nil, func(_ collections.Pair[string, string], _ types.BridgeBinding) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n)
+	require.NoError(t, f.keeper.BindingsByOperator.Walk(ctx, nil, func(collections.Triple[string, string, string]) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n)
 }
 
 func TestRemovePeer_AllowedWhenNoBridges(t *testing.T) {

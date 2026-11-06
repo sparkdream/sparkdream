@@ -32,6 +32,12 @@ var (
 	// A group that is another group's parent or electoral authority cannot
 	// be deleted: the dependent would keep a policy that no longer exists.
 	ErrGroupHasDependents = errors.Register(ModuleName, 1615, "group is the parent or electoral authority of another group")
+	// ErrPollRateLimit: the creator opened MaxPollOpensPerCreatorPerDay polls
+	// today already; cancelling one does not give the slot back.
+	ErrPollRateLimit = errors.Register(ModuleName, 1616, "too many polls opened today")
+	// ErrInsufficientProposalFee: the proposer cannot pay Params.proposal_fee
+	// for a MsgSubmitProposal the ante did not floor (a nested submission).
+	ErrInsufficientProposalFee = errors.Register(ModuleName, 1617, "proposer cannot pay the proposal fee")
 
 	// Recurring Spend Errors
 	ErrRecurringSpendNotFound      = errors.Register(ModuleName, 1700, "recurring spend schedule not found")

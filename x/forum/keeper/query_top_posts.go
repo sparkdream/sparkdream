@@ -51,7 +51,7 @@ func (q queryServer) TopPosts(ctx context.Context, req *types.QueryTopPostsReque
 			return since == 0 || p.CreatedAt >= since, nil
 		},
 		func(key collections.Pair[uint64, uint64], _ collections.NoValue) (types.Post, error) {
-			return q.k.Post.Get(ctx, key.K2())
+			return q.k.getWithheldPost(ctx, key.K2())
 		},
 	)
 	if err != nil {

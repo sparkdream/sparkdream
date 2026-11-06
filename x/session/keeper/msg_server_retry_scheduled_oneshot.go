@@ -77,6 +77,13 @@ func (k msgServer) RetryScheduledOneshot(ctx context.Context, msg *types.MsgRetr
 	newFireAt := sdkCtx.BlockTime().Unix()
 	so.FireAt = newFireAt
 	so.FireError = ""
+	// Only the granter restarts the paused-TTL clock. A grantee retry that
+	// pauses again keeps first_paused_at, so a grantee cannot keep the
+	// oneshot (and its deposit) alive past paused_oneshot_ttl_seconds by
+	// retrying (SES-104).
+	if msg.Caller == grant.Granter {
+		so.FirstPausedAt = 0
+	}
 	grant.Payload = &types.Grant_ScheduledOneshot{ScheduledOneshot: so}
 	grant.Status = types.GrantStatus_GRANT_STATUS_ACTIVE
 

@@ -3,10 +3,11 @@ package keeper_test
 import (
 	"context"
 
-	"cosmossdk.io/collections"
 	"encoding/hex"
 	"testing"
 	"time"
+
+	"cosmossdk.io/collections"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"

@@ -34,12 +34,14 @@ package app
 
 import (
 	"context"
-	"cosmossdk.io/log"
 	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"cosmossdk.io/log"
 
 	gateway "github.com/cosmos/gogogateway"
 	golangproto "github.com/golang/protobuf/proto" //nolint:staticcheck // grpc-gateway v1 runtime options take the legacy proto.Message
@@ -168,7 +170,7 @@ func installGatewayFix(apiSvr *api.Server, mm *module.Manager, logger log.Logger
 			path := strings.TrimPrefix(r.URL.Path, "/")
 
 			// Pre-intercept: block endpoints (time.Time marshaling issue)
-			if bz, ok := preIntercept(cdc, grpcConn, path); ok {
+			if bz, ok := preIntercept(r.Context(), cdc, grpcConn, path); ok {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(200)
 				_, _ = w.Write(bz) // the response is already committed; nothing to do on a failed write
@@ -192,15 +194,21 @@ func installGatewayFix(apiSvr *api.Server, mm *module.Manager, logger log.Logger
 	})
 }
 
+// preInterceptTimeout caps one pre-intercepted block lookup.
+const preInterceptTimeout = 10 * time.Second
+
 // preIntercept answers the endpoints that have to bypass the gateway
 // marshaler: the block endpoints, whose *time.Time (stdtime) fields the
 // gogogateway JSONPb marshaler cannot render. Everything else falls through
-// to the mux.
-func preIntercept(cdc *codec.ProtoCodec, conn *grpc.ClientConn, path string) ([]byte, bool) {
+// to the mux. The gRPC call is bounded by the request context (so a client
+// that goes away cancels it) and preInterceptTimeout, so a stalled in-process
+// gRPC server cannot pin REST handler goroutines for good (APP-202).
+func preIntercept(parent context.Context, cdc *codec.ProtoCodec, conn *grpc.ClientConn, path string) ([]byte, bool) {
 	if conn == nil {
 		return nil, false
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(parent, preInterceptTimeout)
+	defer cancel()
 
 	// Block endpoints — time.Time fields panic in gogogateway marshaler
 	if path == "cosmos/base/tendermint/v1beta1/blocks/latest" {

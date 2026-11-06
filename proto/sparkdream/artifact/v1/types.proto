@@ -397,6 +397,11 @@ message Token {
   TokenRef parent = 23;
   // Tokens nested under this one, at any depth.
   uint32 descendants = 24;
+  // Set when the deposit was paid through a delegated x/session key: the
+  // granter that paid it, who receives the refund instead of the holder or
+  // burner (a leaked key cannot mint to itself and burn for the granter's
+  // deposits). Empty = the usual recipient.
+  string deposit_payer = 25 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 
 // TokenRef addresses one token.
@@ -435,6 +440,8 @@ message PendingMint {
   int64 expires_at = 8;
   repeated MetadataStage schedule = 9 [(gogoproto.nullable) = false];
   bool unrevealed = 10;
+  // Carried to Token.deposit_payer on acceptance.
+  string deposit_payer = 11 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 
 // Listing is a fixed-price offer to sell. Nothing is escrowed.
@@ -557,6 +564,16 @@ message HarbergerState {
   int64 foreclosed_at = 5;
   // Tax paid by the current holder so far.
   string tax_paid = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // The price the paid-through window (now to PaidThrough) was assessed
+  // at: the arrival price for the grace period, the price at each pull or
+  // up-front charge after. A re-assessment above it within the window
+  // charges the difference up front, so lowering the price never makes
+  // the time already paid for cheaper to hold at a higher one.
+  string paid_price = 7 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -692,6 +709,11 @@ message Balance {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+  // Set when the deposit was paid through a delegated x/session key: the
+  // granter that paid it, who receives the refund instead of the holder
+  // who empties the record (a leaked key cannot mint units to itself and
+  // burn them for the granter's deposits). Empty = the usual recipient.
+  string deposit_payer = 9 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 
 // EditionRef addresses one edition.
@@ -721,6 +743,8 @@ message PendingUnits {
   ];
   int64 created_at = 9;
   int64 expires_at = 10;
+  // Carried to Balance.deposit_payer when a mint creates the record.
+  string deposit_payer = 11 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
 
 // UnitListing offers units of an edition at a fixed per-unit price. The

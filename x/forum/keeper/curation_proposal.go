@@ -146,16 +146,20 @@ func (k Keeper) confirmCurationProposal(ctx context.Context, metadata *types.Thr
 
 	// The reward and the upheld accuracy tick need a real endorsement and
 	// stay bounded per epoch:
+	//   - the endorser (the thread author) must be an active member at arm's
+	//     length from the sentinel (independentCurationEndorser); a free
+	//     non-member account or the sentinel's own invitee would let the
+	//     sentinel confirm its own proposals (FRM-101);
 	//   - an auto-confirm counts only if the thread author was active after
 	//     the proposal (saw it and let it stand); a silent author (an
 	//     abandoned or sock thread) endorses nothing;
 	//   - at most MaxRewardedCurationsPerEpoch curations per sentinel reward
 	//     epoch are rewarded.
 	// The reply is accepted either way.
-	rewarded := true
-	if autoConfirmed {
-		if thread, terr := k.Post.Get(ctx, metadata.ThreadId); terr != nil ||
-			k.getAuthorLastActive(ctx, thread.Author) <= proposedAt {
+	rewarded := false
+	if thread, terr := k.Post.Get(ctx, metadata.ThreadId); terr == nil {
+		rewarded = k.independentCurationEndorser(ctx, thread.Author, sentinel)
+		if rewarded && autoConfirmed && k.getAuthorLastActive(ctx, thread.Author) <= proposedAt {
 			rewarded = false
 		}
 	}
@@ -197,6 +201,35 @@ func (k Keeper) confirmCurationProposal(ctx context.Context, metadata *types.Thr
 		),
 	)
 	return nil
+}
+
+// independentCurationEndorser reports whether a thread author's confirmation
+// of a sentinel's accepted-reply proposal is an endorsement by someone else:
+// the author is an active x/rep member, is not the sentinel under another
+// key, and neither invited the other. This excludes the cheap rings (a free
+// non-member account, the sentinel's own invitee or inviter); like
+// IsStakerExternalTo in x/rep it does not resist a sock invited through an
+// unrelated member.
+func (k Keeper) independentCurationEndorser(ctx context.Context, author, sentinel string) bool {
+	if k.repKeeper == nil || author == "" || sentinel == "" {
+		return false
+	}
+	if k.sameMember(ctx, author, sentinel) {
+		return false
+	}
+	authorAddr, err := k.addressCodec.StringToBytes(author)
+	if err != nil || !k.repKeeper.IsActiveMember(ctx, authorAddr) {
+		return false
+	}
+	if m, err := k.repKeeper.GetMember(ctx, authorAddr); err == nil && m.InvitedBy != "" && k.sameMember(ctx, m.InvitedBy, sentinel) {
+		return false
+	}
+	if sentinelAddr, err := k.addressCodec.StringToBytes(sentinel); err == nil {
+		if m, err := k.repKeeper.GetMember(ctx, sentinelAddr); err == nil && m.InvitedBy != "" && k.sameMember(ctx, m.InvitedBy, author) {
+			return false
+		}
+	}
+	return true
 }
 
 // ProcessProposalAutoConfirm walks the auto-confirm queue for entries whose

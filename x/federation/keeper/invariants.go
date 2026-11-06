@@ -55,7 +55,7 @@ func EscrowSolvencyInvariant(k Keeper) sdk.Invariant {
 				fmt.Sprintf("walk error: %v", err)), true
 		}
 		moduleAddr := k.authKeeper.GetModuleAddress(types.ModuleName)
-		held := k.bankKeeper.GetBalance(ctx, moduleAddr, k.BondDenom(ctx)).Amount
+		held := k.BankKeeper().GetBalance(ctx, moduleAddr, k.BondDenom(ctx)).Amount
 		if held.LT(owed) {
 			return sdk.FormatInvariant(types.ModuleName, "escrow-solvency",
 				fmt.Sprintf("module account holds %s, open escrow is %s", held, owed)), true

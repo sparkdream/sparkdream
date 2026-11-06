@@ -31,7 +31,7 @@ func (k msgServer) SuspendPeer(ctx context.Context, msg *types.MsgSuspendPeer) (
 	}
 
 	peer.Status = types.PeerStatus_PEER_STATUS_SUSPENDED
-	if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {
+	if err := k.SetPeer(ctx, peer); err != nil {
 		return nil, err
 	}
 

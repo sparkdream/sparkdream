@@ -78,6 +78,10 @@ message GenesisState {
   uint64 pending_seasonal_pool_init = 30;
   // Running per-season aggregates read by the SeasonStats query (SEA-35).
   repeated SeasonStatsCounters season_stats_counters_list = 31 [(gogoproto.nullable) = false];
+  // Completed seasons, the full Season record of each (status COMPLETED,
+  // final end_block and extension counters), keyed by season number. At
+  // most snapshot_retention_seasons records are kept.
+  repeated Season season_history_list = 32 [(gogoproto.nullable) = false];
 }
 
 // TransitionAbortCount is one entry of the per-season abort counter.

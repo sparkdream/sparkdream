@@ -20,7 +20,7 @@ type fireEntry struct {
 
 const maxPrunePerBlock = 100
 
-// EndBlocker runs three ordered, independently-capped passes per Rev 2 §6:
+// EndBlocker runs four ordered, independently-capped passes per Rev 2 §6:
 //
 //  1. Fire scheduled oneshots whose `fire_at <= block_time`. Strict
 //     `(fire_at ASC, grant_id ASC)` ordering for deterministic replay.
@@ -52,7 +52,9 @@ func (k Keeper) EndBlocker(ctx sdk.Context) error {
 	if err := k.expirePass(ctx, blockTime, cap); err != nil {
 		return err
 	}
-	return nil
+	// 4. Drop PENDING access-class grants past their consent deadline and
+	//    forfeit the deposit (SES-102, pending.go).
+	return k.expirePendingPass(ctx, blockTime, cap)
 }
 
 // firePass fires ScheduledOneshot grants whose fire_at <= block_time in

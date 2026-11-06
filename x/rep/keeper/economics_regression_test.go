@@ -284,6 +284,9 @@ func TestREPE08_EpochClocksLocked(t *testing.T) {
 
 	changed := params
 	changed.EpochBlocks = 1
+	// Keep the ZK key delay's wall time unchanged so Validate's
+	// anonymous-action-window check (network builds) is not what refuses it.
+	changed.ZkKeyActivationDelay = params.ZkKeyActivationDelay * params.EpochBlocks
 	_, err = ms.UpdateParams(ctx, &types.MsgUpdateParams{Authority: f.keeper.GetAuthorityString(), Params: changed})
 	require.ErrorIs(t, err, types.ErrParamImmutable)
 }

@@ -34,6 +34,14 @@ var (
 	// KeyPendingDisputes: (filed_at_height, name) for every active,
 	// uncontested dispute the BeginBlocker may auto-resolve.
 	KeyPendingDisputes = collections.NewPrefix("pending_disputes")
+	// KeyClaimantDisputes: (claimant, name) for every active dispute, so the
+	// zeroing hook finds a member's disputes without walking the table.
+	KeyClaimantDisputes = collections.NewPrefix("claimant_disputes")
+	// KeyReviewDisputes: (filed_at_height, name) for every active dispute
+	// that waits for a council decision (contested, or uncontested and
+	// awaiting review); the BeginBlocker dismisses the ones the council
+	// leaves past the review window.
+	KeyReviewDisputes = collections.NewPrefix("review_disputes")
 )
 
 // Parameter keys

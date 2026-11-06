@@ -10,10 +10,9 @@ import (
 	"sparkdream/x/rep/types"
 )
 
-// memberInterimTypes are the interim types a member may open (ADJUDICATION
-// and JURY_DUTY are system-only).
+// memberInterimTypes are the interim types a member may open (ADJUDICATION,
+// JURY_DUTY and EXPERT_TESTIMONY are system-only).
 var memberInterimTypes = []types.InterimType{
-	types.InterimType_INTERIM_TYPE_EXPERT_TESTIMONY,
 	types.InterimType_INTERIM_TYPE_DISPUTE_MEDIATION,
 	types.InterimType_INTERIM_TYPE_PROJECT_APPROVAL,
 	types.InterimType_INTERIM_TYPE_BUDGET_REVIEW,

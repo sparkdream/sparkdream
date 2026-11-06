@@ -39,11 +39,21 @@ func SimulateMsgCreateSession(
 				break
 			}
 			msg := e.buildCreateSession(granter, grantee)
+			// The handler escrows the consent deposit when the grantee has
+			// not allowed the granter yet (SES-102).
+			spent, err := e.consentDeposit(msg.Granter, msg.Grantee)
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if why := e.usable(granter, spent); why != "" {
+				reason = why
+				continue
+			}
 			if err := e.dryRun(msg); err != nil {
 				reason = "handler would reject: " + err.Error()
 				continue
 			}
-			return e.deliver(granter, msg, math.ZeroInt())
+			return e.deliver(granter, msg, spent)
 		}
 		return noOp(label, reason)
 	})

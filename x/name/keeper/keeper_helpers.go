@@ -80,22 +80,42 @@ func (k Keeper) GetParams(ctx context.Context) types.Params {
 
 // --- Dispute Helpers ---
 
-// SetDispute stores a dispute and keeps the PendingDisputes index in step:
-// an active, uncontested dispute not yet left to council review is indexed at
-// its filing height, anything else is not.
+// SetDispute stores a dispute and keeps the derived indexes in step: an
+// active, uncontested dispute not yet left to council review is in
+// PendingDisputes at its filing height; an active dispute that waits for a
+// council decision (contested, or uncontested and awaiting_review) is in
+// ReviewDisputes at its filing height; a closed dispute is in neither.
 func (k Keeper) SetDispute(ctx context.Context, dispute types.Dispute) error {
 	if old, err := k.Disputes.Get(ctx, dispute.Name); err == nil {
-		if err := k.PendingDisputes.Remove(ctx, collections.Join(old.FiledAt, old.Name)); err != nil {
+		if err := k.removeDisputeIndexes(ctx, old); err != nil {
 			return err
 		}
 	}
 	if err := k.Disputes.Set(ctx, dispute.Name, dispute); err != nil {
 		return err
 	}
-	if dispute.Active && dispute.ContestChallengeId == "" && !dispute.AwaitingReview {
-		return k.PendingDisputes.Set(ctx, collections.Join(dispute.FiledAt, dispute.Name))
+	if !dispute.Active {
+		return nil
 	}
-	return nil
+	if err := k.ClaimantDisputes.Set(ctx, collections.Join(dispute.Claimant, dispute.Name)); err != nil {
+		return err
+	}
+	if dispute.ContestChallengeId != "" || dispute.AwaitingReview {
+		return k.ReviewDisputes.Set(ctx, collections.Join(dispute.FiledAt, dispute.Name))
+	}
+	return k.PendingDisputes.Set(ctx, collections.Join(dispute.FiledAt, dispute.Name))
+}
+
+// removeDisputeIndexes drops every derived index entry of a stored dispute
+// (KeySet.Remove is a no-op on a missing key).
+func (k Keeper) removeDisputeIndexes(ctx context.Context, old types.Dispute) error {
+	if err := k.PendingDisputes.Remove(ctx, collections.Join(old.FiledAt, old.Name)); err != nil {
+		return err
+	}
+	if err := k.ReviewDisputes.Remove(ctx, collections.Join(old.FiledAt, old.Name)); err != nil {
+		return err
+	}
+	return k.ClaimantDisputes.Remove(ctx, collections.Join(old.Claimant, old.Name))
 }
 
 func (k Keeper) GetDispute(ctx context.Context, name string) (types.Dispute, bool) {
@@ -108,7 +128,7 @@ func (k Keeper) GetDispute(ctx context.Context, name string) (types.Dispute, boo
 
 func (k Keeper) RemoveDispute(ctx context.Context, name string) error {
 	if old, err := k.Disputes.Get(ctx, name); err == nil {
-		if err := k.PendingDisputes.Remove(ctx, collections.Join(old.FiledAt, old.Name)); err != nil {
+		if err := k.removeDisputeIndexes(ctx, old); err != nil {
 			return err
 		}
 	}

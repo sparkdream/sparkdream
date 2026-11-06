@@ -29,6 +29,9 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 		return nil, types.ErrInvalidVerdict
 	}
 	// IMPROVE and REJECT carry feedback for the contributor.
+	if err := types.ValidateFieldLength("reason", msg.Reason, types.MaxReasonLength); err != nil {
+		return nil, err
+	}
 	if msg.Verdict != types.DisputeVerdict_DISPUTE_VERDICT_ACCEPT && strings.TrimSpace(msg.Reason) == "" {
 		return nil, types.ErrReasonRequired
 	}

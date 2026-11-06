@@ -2,7 +2,9 @@ package keeper_test
 
 import (
 	"context"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"testing"
+	"time"
 
 	"cosmossdk.io/collections"
 	"github.com/stretchr/testify/require"
@@ -18,16 +20,17 @@ import (
 func setupIBCPeerForLink(t *testing.T, f *fixture, ms types.MsgServer, peerID, channelID string) {
 	t.Helper()
 	_, err := ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
-		Authority:    f.authority,
-		PeerId:       peerID,
-		DisplayName:  "IBC Peer " + peerID,
-		Type:         types.PeerType_PEER_TYPE_SPARK_DREAM,
-		IbcChannelId: channelID,
+		Authority:       f.authority,
+		PeerId:          peerID,
+		DisplayName:     "IBC Peer " + peerID,
+		Type:            types.PeerType_PEER_TYPE_SPARK_DREAM,
+		IbcChannelId:    channelID,
+		ExpectedChainId: testPeerChainID,
 	})
 	require.NoError(t, err)
 	peer, _ := f.keeper.Peers.Get(f.ctx, peerID)
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, peerID, peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 	// The fixture has no open IBC channel; MsgLinkIdentity fails on a send
 	// error (FED-30), so stand in a send that succeeds.
 	f.keeper.SetSendPacketOverrideForTest(func(context.Context, string, []byte) (uint64, error) { return 1, nil })
@@ -120,7 +123,7 @@ func TestOnRecvIdentityConfirmPacket_RejectsChallengeMismatch(t *testing.T) {
 func TestIsActivePeerChannel(t *testing.T) {
 	f := initFixture(t)
 	set := func(id string, typ types.PeerType, status types.PeerStatus, fed, transfer string) {
-		require.NoError(t, f.keeper.Peers.Set(f.ctx, id, types.Peer{
+		require.NoError(t, f.keeper.SetPeer(f.ctx, types.Peer{
 			Id: id, Type: typ, Status: status, IbcChannelId: fed, IbcTransferChannelId: transfer,
 		}))
 	}
@@ -178,4 +181,64 @@ func TestOnRecvContentPacket_License(t *testing.T) {
 		return false, nil
 	}))
 	require.ElementsMatch(t, []string{"CC0-1.0", "PDM-1.0"}, licenses)
+}
+
+// FED-205: a replayed content hash is charged to the sending peer's own
+// sliding window (so replays still cost the peer its inbound budget) but
+// never to the global per-block cap, which only new content consumes; one
+// peer's replays therefore cannot starve the other peers in a block.
+func TestOnRecvContentPacket_DuplicateChargesPeerWindowOnly(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	setupIBCPeerForLink(t, f, ms, "phoenix-1", "channel-7")
+	setupIBCPeerForLink(t, f, ms, "aurora-1", "channel-8")
+	for _, id := range []string{"phoenix-1", "aurora-1"} {
+		require.NoError(t, f.keeper.PeerPolicies.Set(f.ctx, id, types.PeerPolicy{
+			PeerId: id, InboundContentTypes: []string{"blog_post"}, InboundRateLimitPerEpoch: 3,
+		}))
+	}
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxInboundPerBlock = 2
+	params.RateLimitWindow = time.Hour
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	recv := func(channel string, hash byte) error {
+		return f.keeper.OnRecvContentPacket(f.ctx, "federation", channel, &types.ContentPacket{
+			ContentType: "blog_post", RemoteContentId: "p", Creator: "phoenix1creator",
+			ContentHash: testHash(hash), License: "CC0-1.0",
+		})
+	}
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	height := sdkCtx.BlockHeight()
+	window := sdkCtx.BlockTime().Unix() - sdkCtx.BlockTime().Unix()%int64(time.Hour.Seconds())
+	globalCount := func() uint64 {
+		n, err := f.keeper.InboundPerBlock.Get(f.ctx, height)
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	peerCount := func(id string) uint64 {
+		n, err := f.keeper.InboundRateLimits.Get(f.ctx, collections.Join(id, window))
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+
+	require.NoError(t, recv("channel-7", 1))
+	require.NoError(t, recv("channel-7", 1)) // duplicate: idempotent success
+	require.NoError(t, recv("channel-7", 1))
+	require.Equal(t, uint64(1), globalCount(), "replays do not touch the global cap")
+	require.Equal(t, uint64(3), peerCount("phoenix-1"), "replays are charged to the peer's window")
+
+	// the peer's window is now full: even a replay is refused
+	require.ErrorIs(t, recv("channel-7", 1), types.ErrRateLimitExceeded)
+
+	// the other peer still has global budget (cap 2, one used)
+	require.NoError(t, recv("channel-8", 2))
+	require.Equal(t, uint64(2), globalCount())
+	require.ErrorIs(t, recv("channel-8", 3), types.ErrRateLimitExceeded)
+	require.ErrorContains(t, recv("channel-8", 3), "global per-block")
 }

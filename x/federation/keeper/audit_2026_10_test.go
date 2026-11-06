@@ -47,7 +47,7 @@ func setPeerStatus(t *testing.T, f *fixture, peerID string, st types.PeerStatus)
 	peer, err := f.keeper.Peers.Get(f.ctx, peerID)
 	require.NoError(t, err)
 	peer.Status = st
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, peerID, peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 }
 
 // FED-02: only an ACTIVE peer's packets are accepted. A suspended peer gets
@@ -78,7 +78,7 @@ func TestInboundRejectsNonActivePeers(t *testing.T) {
 // new peer, never the removed one.
 func TestFindPeerByChannelSkipsRemoved(t *testing.T) {
 	f := initFixture(t)
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "aaa-old", types.Peer{
+	require.NoError(t, f.keeper.SetPeer(f.ctx, types.Peer{
 		Id: "aaa-old", Type: types.PeerType_PEER_TYPE_SPARK_DREAM, Status: types.PeerStatus_PEER_STATUS_REMOVED, IbcChannelId: "channel-9",
 	}))
 	ibcPeer(t, f, "zenith-1", "channel-9")
@@ -500,6 +500,36 @@ func TestNoQuorumDisbursesChallengeFee(t *testing.T) {
 	require.True(t, rec.EscrowedChallengeFee.IsZero(), "fee must be disbursed, not stranded")
 	c, _ := f.keeper.Content.Get(later, contentID)
 	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED, c.Status)
+}
+
+// FED-103: content TTL-pruned mid-dispute must not strand the escrowed fee
+// on the no-quorum path.
+func TestNoQuorumDisbursesFeeOfPrunedContent(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "phoenix.social")
+	op := registerTestBridge(t, f, ms, "phoenix.social", "nqp-op")
+	h := sha256.Sum256([]byte("no quorum pruned"))
+	contentID := submitTestContent(t, f, ms, op, "phoenix.social", h[:])
+	verifier := bondTestVerifier(t, f, ms, "nqp-verifier")
+	_, err := ms.VerifyContent(f.ctx, &types.MsgVerifyContent{Creator: verifier, ContentId: contentID, ContentHash: h[:]})
+	require.NoError(t, err)
+	_, err = ms.ChallengeVerification(f.ctx, &types.MsgChallengeVerification{Creator: testAddr(t, f, "nqp-chal"), ContentId: contentID})
+	require.NoError(t, err)
+	rec, _ := f.keeper.VerificationRecords.Get(f.ctx, contentID)
+	require.True(t, rec.EscrowedChallengeFee.IsPositive())
+
+	// the content record goes (TTL prune) while the dispute is open
+	require.NoError(t, f.keeper.Content.Remove(f.ctx, contentID))
+
+	params, _ := f.keeper.Params.Get(f.ctx)
+	later := f.sdkCtx().WithBlockTime(f.sdkCtx().BlockTime().Add(params.ArbiterResolutionWindow + time.Second))
+	require.NoError(t, f.keeper.EndBlocker(later))
+
+	rec, err = f.keeper.VerificationRecords.Get(later, contentID)
+	require.NoError(t, err)
+	require.True(t, rec.EscrowedChallengeFee.IsZero(), "fee of pruned content must be disbursed, not stranded")
+	require.True(t, rec.CommitmentReleased)
 }
 
 // FED-20: the operational path validates the merged params against the

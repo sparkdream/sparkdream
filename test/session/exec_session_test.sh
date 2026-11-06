@@ -186,7 +186,9 @@ TX_RES=$($BINARY tx bank send alice "$EXEC_GRANTEE_ADDR" 10000000${BOND_DENOM} \
     --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 sleep 6
 
-# Create session: granter delegates blog post creation to exec_grantee
+# Create session: granter delegates blog post creation to exec_grantee.
+# exec_grantee has not allowed session_granter, so the grant is PENDING and
+# the first exec below accepts it before executing (x-session-spec §31).
 EXPIRATION=$(get_future_expiration 2)
 TX_RES=$($BINARY tx session create-session \
     "$EXEC_GRANTEE_ADDR" \

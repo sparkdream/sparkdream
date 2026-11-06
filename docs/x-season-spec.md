@@ -136,13 +136,24 @@ message Season {
 }
 
 enum SeasonStatus {
-  SEASON_STATUS_ACTIVE = 0;
-  SEASON_STATUS_NOMINATION = 1;      // Nomination window open (last nomination_window_epochs of season)
-  SEASON_STATUS_ENDING = 2;          // Transition in progress
-  SEASON_STATUS_MAINTENANCE = 3;     // Blocking user actions during critical transition phases
-  SEASON_STATUS_COMPLETED = 4;
+  SEASON_STATUS_UNSPECIFIED = 0;
+  SEASON_STATUS_ACTIVE = 1;
+  SEASON_STATUS_ENDING = 2;          // Transition in progress, outside the maintenance phases
+  SEASON_STATUS_MAINTENANCE = 3;     // Transition in a maintenance phase (SNAPSHOT .. RESET_XP)
+  SEASON_STATUS_COMPLETED = 4;       // Archived in SeasonHistory
+  SEASON_STATUS_NOMINATION = 5;      // Nomination window open (last nomination_window_epochs of season)
 }
 ```
+
+**Lifecycle.** The live season (`Season`, a single item) runs `ACTIVE -> NOMINATION -> ENDING -> MAINTENANCE -> ENDING -> COMPLETED`:
+- `ACTIVE` from the start; `NOMINATION` once the nomination window opens.
+- `ENDING` when the transition starts (`season_transition_started`), through RETRO_REWARDS and RETURN_NOMINATION_STAKES.
+- `MAINTENANCE` while `SeasonTransitionState.maintenance_mode` is on, that is from the first batch of SNAPSHOT through RESET_XP (`maintenance_mode_started`); back to `ENDING` when TITLES begins (`maintenance_mode_ended`). The status mirrors the flag, which stays the source of truth for `IsInMaintenanceMode` (x/season's own gates and x/rep's `InMaintenanceMode`). The flag is always `TransitionPhase.IsMaintenance()` of the state's phase: the keeper derives it whenever a phase begins, and genesis `Validate` refuses a `SeasonTransitionState` whose `maintenance_mode` disagrees with its phase, since an imported stale flag would be re-derived only when a batch commits and would leave reputation moving under a SNAPSHOT that keeps failing (SEA-203). `MsgSkipTransitionPhase` moves the status with the phase; `MsgAbortSeasonTransition` restores `ACTIVE`. `ENDING` and `MAINTENANCE` both mean "transition in progress": `MsgExtendSeason`, nominations and nomination stakes refuse both.
+- `COMPLETED` on the record archived into `SeasonHistory` at TRANSITION_PHASE_COMPLETE, right before the next `ACTIVE` season replaces the live item. The live season is never `COMPLETED`.
+
+### SeasonHistory
+
+`SeasonHistory` (`season/history/{number} -> Season`) holds the full record of every completed season: name, theme, start and final end block (after extensions), extension counters, `status = COMPLETED`. It is written at TRANSITION_PHASE_COMPLETE and bounded like the member snapshots: the CLEANUP phase of a transition drops records older than `snapshot_retention_seasons`, so once the ending season is archived the history holds at most that many records. The `SeasonByNumber` query answers from it; for a season older than the history it falls back to `SeasonSnapshot` (no name or theme, the snapshot block as end block). Exported and imported as `season_history_list`.
 
 ### SeasonSnapshot
 
@@ -501,6 +512,9 @@ message Params {
   repeated uint64 level_thresholds = 13;
 
   // Reputation reset
+  // Governance-only. The value every tag a member held during the season
+  // restarts the next one at (RESET_REPUTATION, x/rep ArchiveSeasonalReputation);
+  // 0 clears the tags. Non-negative.
   string baseline_reputation = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
 
   // Guilds
@@ -586,7 +600,7 @@ message Params {
 }
 ```
 
-> **Pruning (implementation).** Every block the BeginBlocker examines up to 50 records of each history collection from a persisted rolling cursor and deletes those past retention: `EpochXpTracker` older than `epoch_tracker_retention_epochs`, `VoteXpRecord` older than `vote_xp_record_retention_seasons` seasons, `ForumXpCooldown` older than the longer of `forum_cooldown_retention_epochs` and the forum cooldowns, and `MemberSeasonSnapshot` older than `snapshot_retention_seasons` seasons. The same `snapshot_retention_seasons` bounds the retro-PGF history: `RetroRewardRecord` of older seasons is deleted, and so are older `Nomination` records (with their `NominationsBySeason` entry) once no `NominationStake` is left on them (a stake keeps its nomination until its owner unstakes). Closed `DisplayNameModeration` records (not active, no appeal stake outstanding) are deleted about 90 days (1,296,000 blocks) after `moderated_at`. `GuildMemberCount` is derived state and is rebuilt at InitGenesis from the imported memberships. Every `invite_cleanup_interval_blocks` blocks it expires up to `invite_cleanup_batch_size` guild invites past their expiry and frees the guild's pending slot; `MsgInviteToGuild` also frees the guild's expired slots before its capacity check. Display-name moderations auto-resolve from a `(moderated_at, member)` queue of active unappealed records, each in its own cache context. A failed auto-resolution commits nothing and is re-queued in `ModerationRetryQueue` at `(auto_resolve_retry_at, member)` with doubling backoff (100, 200, 400, 800 blocks; `display_name_moderation_auto_resolve_deferred`); after `MaxModerationAutoResolveAttempts = 5` failures the record stays active with its report stake, leaves the queues (`display_name_moderation_auto_resolve_abandoned`) and waits for `MsgResolveUnappealedModeration`. First attempts and retries share the 50-per-block budget. Quest prerequisites (`prerequisite_quest`, `required_achievement`) must exist and must not loop.
+> **Pruning (implementation).** Every block the BeginBlocker examines up to 50 records of each history collection from a persisted rolling cursor and deletes those past retention: `EpochXpTracker` older than `epoch_tracker_retention_epochs`, `VoteXpRecord` older than `vote_xp_record_retention_seasons` seasons, `ForumXpCooldown` older than the longer of `forum_cooldown_retention_epochs` and the forum cooldowns, and `MemberSeasonSnapshot` older than `snapshot_retention_seasons` seasons. The same `snapshot_retention_seasons` bounds the retro-PGF history: `RetroRewardRecord` of older seasons is deleted, and so are older `Nomination` records (with their `NominationsBySeason` entry) once no `NominationStake` is left on them (a stake keeps its nomination until its owner unstakes). Closed `DisplayNameModeration` records (not active, no appeal stake outstanding) are deleted about 90 days (1,296,000 blocks) after `moderated_at`, except a record whose `blocked_names` is non-empty: it holds the permanent name block and is kept (one record per member, at most 5 names; SEA-102). `GuildMemberCount` is derived state and is rebuilt at InitGenesis from the imported memberships. Every `invite_cleanup_interval_blocks` blocks it expires up to `invite_cleanup_batch_size` guild invites past their expiry and frees the guild's pending slot; `MsgInviteToGuild` also frees the guild's expired slots before its capacity check. Display-name moderations auto-resolve from a `(moderated_at, member)` queue of active unappealed records, each in its own cache context. A failed auto-resolution commits nothing and is re-queued in `ModerationRetryQueue` at `(auto_resolve_retry_at, member)` with doubling backoff (100, 200, 400, 800 blocks; `display_name_moderation_auto_resolve_deferred`); after `MaxModerationAutoResolveAttempts = 5` failures the record stays active with its report stake, leaves the queues (`display_name_moderation_auto_resolve_abandoned`) and waits for `MsgResolveUnappealedModeration`. First attempts and retries share the 50-per-block budget. Quest prerequisites (`prerequisite_quest`, `required_achievement`) must exist and must not loop.
 
 
 ## Timing Units: Epochs
@@ -1526,9 +1540,10 @@ type QuestProgressHooks interface {
 > - `GrantXP` creates the profile on first touch, so members admitted before the hook existed still earn XP. `ClaimQuestReward` goes through `GrantXP` (quest bucket, epoch cap applies; a claim at the cap completes the quest with zero XP).
 > - `OnVoteCast` returns early past `max_vote_xp_per_epoch`, so votes beyond the cap neither pay XP nor count toward vote achievements, exactly as written below. The per-epoch vote count is `EpochXpTracker.votes_counted`, incremented on each accepted vote grant (SEA-33), so proposal XP and a cap-truncated grant no longer skew it. The field rides on the tracker write the hook already makes (TestVoteHookGas).
 > - Achievements are evaluated against `MemberProfile` counters plus x/rep for `INITIATIVES_COMPLETED`, `REPUTATION_EARNED` (sum of current per-tag scores) and `SEASONS_ACTIVE` (`current season - joined season + 1`). `TOP_XP` is decided once per season in the SNAPSHOT phase; `GENESIS` is only ever seeded. Non-seasonal titles unlock in the same pass.
+> - **Zeroing hook (`ZeroingHook.AfterMemberZeroed`, registered with x/rep).** x/rep burns a zeroed member's whole balance, locked DREAM included, so season drops every lock record it holds for the member's addresses: nomination stakes (taken out of their nominations' totals and conviction) and display-name report and appeal stakes (SEA-101). The moderation case itself stays open and resolves as usual; its resolution finds no stake for the zeroed side and settles only the other one. Each lookup goes through a by-staker index (`NominationStake.ByStaker`, `DisplayNameReportStake.ByReporter`, `DisplayNameAppealStake.ByAppellant`; derived, kept by the IndexedMaps, rebuilt at InitGenesis), so the hook costs what the member holds, not the table size (SEA-104). As a fallback for a record the hook missed, the three display-name resolution paths settle through `dreamutil.UnlockOrGone` / `BurnLockedOrGone` / `SettleStakesOrGone`, which treat x/rep's "lock already gone" (`ErrInsufficientStake`, `ErrMemberNotFound`) as settled. Dropping the records is the primary fix, not the fallback: a record kept past an overturned zeroing would unlock DREAM of an unrelated lock once the member has a balance again.
 > - `OnMemberZeroed` resets season XP and the progress counters, drops in-progress quests and removes the member from their guild: officer rank is dropped, the member count decremented, and a zeroed founder freezes the guild so any remaining member can take it over with `MsgClaimGuildFounder` (founders cannot pass through `MsgLeaveGuild`). The username release in the draft below is not done here; x/name's own inactivity scavenging covers it.
 > - Quests carry objectives from `MsgCreateQuest.objectives` / `MsgUpdateQuest.objectives` (`repeated QuestObjective`); every objective needs a type and a positive target. A quest without objectives is claimable immediately.
-> - **Gas.** Every hook runs inside another module's transaction (a council vote, a forum reply), so the voter or poster pays for it against a default 200000-gas limit that the accepting vote on a params proposal already nearly fills. The engine therefore loads `Params` once per hook (`xpEnv`), writes the profile once per hook (XP, counter and any unlocked achievement are applied in memory first), reads only a member's open (not completed) quest progress through the `MemberQuestProgress` `Open` index (`(member|open, key)`, maintained by the IndexedMap on every write), so completed and claimed quests cost the voter nothing, and reads achievement and title definitions through `(requirement_type, id)` indexes (`AchievementsByRequirement`, `TitlesByRequirement`, kept by `SetAchievement`/`SetTitle`) so a vote touches the three VOTES_CAST definitions, not all 23. `TestVoteHookGas` pins the cost (about 36k steady, 44k when an achievement unlocks).
+> - **Gas.** Every hook runs inside another module's transaction (a council vote, a forum reply), so the voter or poster pays for it against a default 200000-gas limit that the accepting vote on a params proposal already nearly fills. The engine therefore loads `Params` once per hook (`xpEnv`), writes the profile once per hook (XP, counter and any unlocked achievement are applied in memory first), reads only a member's open (not completed) quest progress through the `MemberQuestProgress` `Open` index (`(member|open, key)`, maintained by the IndexedMap on every write), so completed and claimed quests cost the voter nothing, and reads achievement and title definitions through `(requirement_type, id)` indexes (`AchievementsByRequirement`, `TitlesByRequirement`, kept by `SetAchievement`/`SetTitle`) so a vote touches the three VOTES_CAST definitions, not all 23. `TestVoteHookGas` pins the cost (about 36k steady, 44k when an achievement unlocks). Vote quest objectives are not advanced inside the vote: each open quest cost a quest read and a progress write, about 17k gas, which at the default 10 open quests put the hook alone over 200k (SEA-103). The hook writes one `PendingVoteQuestProgress (member, proposal)` key, only when the voter has an open quest, and the season EndBlocker of the same block applies the block's votes to each voter's open quests (each member in its own cache context; a failure drops that member's pending votes, which are quest progress, not funds). The key is the deduplication: a vote changed on the same proposal within one block advances `VOTES_CAST` once, the same rule `VoteXpRecord` applies to vote XP (before the deferral each `OnVoteCast` counted). Votes on different proposals, or on the same proposal in different blocks, each count. The set is empty at the end of every block, so it is not exported. `MsgStartQuest` and `MsgClaimQuestReward` apply the signer's pending votes first, so a claim in the same block as the vote sees it and a quest started after a vote does not count it. The set is drained every block and is not in genesis. `TestVoteHookGasWithOpenQuests` pins the hook at about 41k steady with 10 open vote quests.
 > - Seasonal titles are permanent. Eligibility is decided in the SNAPSHOT phase (season XP still intact), one batch of profiles per block: threshold titles are recorded per member on `MemberSeasonSnapshot.eligible_title_ids`, and `TOP_XP` titles keep a running top-K list in `SeasonTitleEligibility` (K = the title's threshold, capped at 100). The TITLES phase grants `s<N>_<title>` from both; `UnlockTitle` rolls the oldest titles into `archived_titles` past `max_displayable_titles`.
 > - Only **base** definitions (`seasonal && requirement_season == 0`) are evaluated. The per-season copy `s<N>_<title>` carries `requirement_season = N`, so it is never treated as a base and the definitions do not multiply from season to season.
 > - Every hook runs in a cache context and commits only on success, so a hook that fails part-way leaves no partial XP, counter or quest write behind (the caller still only logs the error).
@@ -2121,7 +2136,7 @@ During the season transition:
 > - `rep/initiative/{id}` must name a **completed** x/rep initiative whose `completed_at` (unix seconds, must be set) is not before the current season's `start_time`; its assignee is the content author. `rep/jury/{address}` must be a canonical address of an x/rep member who completed a jury duty **in the current season** (`MemberProfile.last_jury_duty_season`, stamped by the jury-duty hook); that member is the author. `artifact/certificate/{class}/{edition}` must be a visible impact certificate created in the current season; its creator is the author (`ArtifactKeeper.ImpactCertificateInfo`). Blog and forum posts resolve their author through `GetPostAuthor`; collections through their owner (SEA-30).
 > - Blog and forum posts must be ACTIVE (`LivePostCreatedAt`: not hidden, deleted or archived) and collections ACTIVE (`LiveCollection`: not pending or hidden), and all three must be created in the current season (see Seasonal scope). Initiatives are checked by completion time, certificates by creation time, jury refs by the season of the duty.
 > - When the author is known, `MsgNominate` requires an active member as author and stores it on the nomination (`Nomination.author`). `MsgStakeNomination` refuses a stake by that author (alias-aware) as well as by the nominator. A nomination without a stored author re-resolves its ref, and a ref that no longer resolves (hidden, deleted) refuses the stake: the ban fails closed (SEA-30).
-> - Stake amounts must be whole micro-DREAM (`ErrStakeAmountFractional`): only the integer part is locked, so only it may score conviction (SEA-31).
+> - Stake amounts must be whole micro-DREAM (`ErrStakeAmountFractional`): only the integer part is locked, so only it may score conviction (SEA-31). An amount beyond the uint64 range is refused with `ErrStakeAmountTooHigh` (SEA-105).
 > - `MsgStakeNomination` stores `total_staked` only; it does not recompute conviction (that walks every stake on the nomination). The nomination queries compute live conviction while the season takes stakes, and the retro phase stores the final value. `MsgNominate` checks duplicates and the per-member cap with point reads of a `(season, content_ref)` set and a `(season, nominator)` counter, both derived and rebuilt at InitGenesis (SEA-20). The payout block still reads and sorts the season's unpaid nominations once (bounded by `max_nominations_per_member` x members).
 > - `MsgStakeNomination` refuses nominations from an earlier season.
 > - Stakes are refunded in full and do not decay, so conviction costs only the lock. This is decided (2026-10-26): conviction is a signal, not a cost; the self-stake ban and the active-member and season-scoped content checks carry the anti-gaming load.
@@ -2198,32 +2213,37 @@ During critical transition phases (reputation archival/reset), the system enters
 - Governance voting (x/gov, x/commons)
 - DREAM transfers (tips/gifts)
 
-**Duration:** Maintenance mode is only active during `PhaseArchiveReputation`, `PhaseResetReputation`, and `PhaseResetXP` phases. Other transition phases run without blocking.
+**Duration:** Maintenance mode is active from `PhaseSnapshot` through `PhaseResetXP` (SEA-16: the reputation and DREAM the snapshot records must stop moving while it is taken). Other transition phases run without blocking. While it is on the live season's status is `SEASON_STATUS_MAINTENANCE`; it returns to `SEASON_STATUS_ENDING` when `PhaseTitles` begins.
 
 ### Transition State Machine
 
 ```go
 type SeasonTransitionState struct {
     Phase           TransitionPhase
-    ProcessedCount  uint64
-    TotalCount      uint64
-    LastProcessed   string
+    ProcessedCount  uint64            // Items processed so far in the phase
+    TotalCount      uint64            // Items the phase will walk, counted when the phase starts (progress only, see below)
+    LastProcessed   string            // Resume cursor
     TransitionStart int64
     MaintenanceMode bool              // True during blocking phases
 }
+```
+
+`TotalCount` is informational, for the `SeasonTransitionState` query: a phase ends when its walk is exhausted, never when `ProcessedCount` reaches `TotalCount`. It is counted only when the BeginBlocker begins a phase (the transition start and each phase change), at block time: the season's nominations (`NominationsBySeason`) for RETRO_REWARDS and RETURN_NOMINATION_STAKES, the season profiles (`MemberProfile`) for SNAPSHOT, ARCHIVE_REPUTATION, RESET_XP and TITLES, x/rep's member set (paged through `MembersAfter`, the set RESET_REPUTATION walks; the profiles when x/rep is not wired) for RESET_REPUTATION, the `MemberQuestProgress` records for CLEANUP, 0 for COMPLETE. Items added after the count (a quest progress written mid-phase) make `ProcessedCount` exceed it. The recovery messages never count: the walk charges gas per record (about 1-2k per x/rep member through the `gaskv` iterator) and would stop fitting the committee's `MsgExecuteProposal` in a block past some tens of thousands of members (SEA-201). `MsgRetrySeasonTransition` restarts the same phase and keeps the previous `TotalCount`; `MsgSkipTransitionPhase` enters a new phase with `TotalCount = 0`, which means unknown.
+
+```go
 
 type TransitionPhase int
 
 const (
-    PhaseRetroRewards TransitionPhase = iota  // Process retroactive public goods rewards
-    PhaseReturnNominationStakes               // Return nomination stakes to stakers
-    PhaseSnapshot                              // Snapshot member state
+    PhaseRetroRewards TransitionPhase = iota  // Process retroactive public goods rewards (status ENDING)
+    PhaseReturnNominationStakes               // Return nomination stakes to stakers (status ENDING)
+    PhaseSnapshot                              // Snapshot member state; maintenance mode ON (status MAINTENANCE)
     PhaseArchiveReputation                     // Maintenance mode ON
     PhaseResetReputation                       // Maintenance mode ON
     PhaseResetXP                               // Maintenance mode ON
-    PhaseTitles                                // Grant seasonal titles
-    PhaseCleanup                               // Prune old data (trackers, cooldowns, snapshots, nominations)
-    PhaseComplete
+    PhaseTitles                                // Grant seasonal titles; maintenance mode OFF (status ENDING)
+    PhaseCleanup                               // Expire season quests, prune SeasonHistory past retention
+    PhaseComplete                              // Archive the season as COMPLETED, start the next
 )
 ```
 
@@ -2254,23 +2274,15 @@ func (k Keeper) ProcessSeasonTransitionBatch(ctx sdk.Context, batchSize int) (do
         state.LastProcessed = ""
 
     case PhaseSnapshot:
+        // Maintenance mode is already on: beginTransitionPhase(PhaseSnapshot)
+        // set state.MaintenanceMode, season.Status = SeasonStatus_MAINTENANCE
+        // and emitted maintenance_mode_started when the phase began.
         done, err := k.snapshotMembersBatch(ctx, state, batchSize)
         if done {
-            // Pre-compute title eligibility BEFORE any state changes
-            // This captures accurate rankings at snapshot time
-            k.ComputeSeasonTitleEligibility(ctx)
-
-            state.Phase = PhaseArchiveReputation
-            state.LastProcessed = ""
-            // Enter maintenance mode for critical phases
-            state.MaintenanceMode = true
-            season.Status = SeasonStatus_MAINTENANCE
-            k.SetSeason(ctx, season)
-            ctx.EventManager().EmitEvent(
-                sdk.NewEvent("maintenance_mode_started",
-                    sdk.NewAttribute("season_number", fmt.Sprintf("%d", season.Number)),
-                ),
-            )
+            // Title eligibility was accumulated batch by batch while
+            // season XP was intact; finish the top-K lists.
+            k.finishSeasonTitleEligibility(ctx, season.Number)
+            k.beginTransitionPhase(ctx, state, PhaseArchiveReputation)
         }
 
     case PhaseArchiveReputation:
@@ -2290,16 +2302,10 @@ func (k Keeper) ProcessSeasonTransitionBatch(ctx sdk.Context, batchSize int) (do
     case PhaseResetXP:
         done, err := k.resetXPBatch(ctx, state, batchSize)
         if done {
-            state.Phase = PhaseTitles
-            // Exit maintenance mode
-            state.MaintenanceMode = false
-            season.Status = SeasonStatus_ENDING
-            k.SetSeason(ctx, season)
-            ctx.EventManager().EmitEvent(
-                sdk.NewEvent("maintenance_mode_ended",
-                    sdk.NewAttribute("season_number", fmt.Sprintf("%d", season.Number)),
-                ),
-            )
+            // Exit maintenance mode: beginTransitionPhase(PhaseTitles) clears
+            // state.MaintenanceMode, sets season.Status = SeasonStatus_ENDING
+            // and emits maintenance_mode_ended.
+            k.beginTransitionPhase(ctx, state, PhaseTitles)
         }
 
     case PhaseTitles:
@@ -2309,20 +2315,27 @@ func (k Keeper) ProcessSeasonTransitionBatch(ctx sdk.Context, batchSize int) (do
         state.Phase = PhaseCleanup
 
     case PhaseCleanup:
-        // Prune old data to prevent unbounded state growth
-        k.PruneOldSnapshots(ctx)
-        k.PruneOldEpochTrackers(ctx)
-        k.PruneOldForumXPCooldowns(ctx)
-        k.PruneOldVoteXPRecords(ctx)
-        state.Phase = PhaseComplete
+        // Expire the season's quests, drop open progress on them and prune
+        // SeasonHistory past snapshot_retention_seasons (the other history
+        // collections are pruned by the rolling BeginBlocker pass).
+        done, err := k.cleanupBatch(ctx, state, batchSize)
+        if done {
+            k.beginTransitionPhase(ctx, state, PhaseComplete)
+        }
 
     case PhaseComplete:
         season.Status = SeasonStatus_COMPLETED
-        k.SetSeason(ctx, season)
+        k.SeasonHistory.Set(ctx, season.Number, season)   // archived with its final end_block and extension counters
         k.DeleteTransitionState(ctx)
-        k.StartNewSeason(ctx, getNextSeasonName(), getNextSeasonTheme())
+        k.StartNewSeason(ctx, getNextSeasonName(), getNextSeasonTheme())   // replaces the live item, status ACTIVE
         return true, nil
     }
+
+    // beginTransitionPhase(ctx, state, phase) is the one place a phase
+    // starts: it resets the cursor, derives MaintenanceMode from the phase,
+    // counts TotalCount and syncs the season status (MAINTENANCE while the
+    // flag is on, ENDING when it goes off). The BeginBlocker, MsgSkipTransitionPhase
+    // and MsgRetrySeasonTransition all go through it.
 
     k.SetTransitionState(ctx, state)
     return false, nil
@@ -2426,10 +2439,11 @@ The season transition can fail mid-process due to various reasons (unexpected st
 > - **Recovery mode halts processing.** After `transition_max_retries` consecutive failures `recovery_mode` is set and the BeginBlocker skips the transition entirely until `MsgRetrySeasonTransition` (resets the phase cursor and the failure count), `MsgSkipTransitionPhase` or `MsgAbortSeasonTransition`.
 > - **Watchdog.** When a transition has run for more than `max_transition_epochs`, `season_transition_overdue` is emitted once. It only signals; recovery stays a human decision.
 > - **Abort window.** Abort is accepted only in `RETRO_REWARDS`. That phase tallies convictions in batches and pays out in the block that finishes the tally, advancing the phase in the same block, so an abort can only land before any payout. Any later abort would re-run the retro payout after the grace period. Nominations already marked `rewarded` are skipped on any re-run as a second guard. Each season accepts at most `MaxTransitionAbortsPerSeason` (2) aborts.
-> - **Maintenance mode** is on from SNAPSHOT through RESET_XP, so the reputation and DREAM the snapshot records stop moving while it is taken.
+> - **Maintenance mode** is on from SNAPSHOT through RESET_XP, so the reputation and DREAM the snapshot records stop moving while it is taken. The live season's status is `MAINTENANCE` while the flag is on and `ENDING` otherwise during a transition; at COMPLETE the season is archived into `SeasonHistory` with status `COMPLETED` (see State).
 > - **Bounded batches.** Every multi-block phase resumes strictly after its cursor (no rescan from the first key). RETRO_REWARDS walks only the season's nominations through a `(season, id)` index and each nomination's own stakes by key prefix. RETURN_NOMINATION_STAKES also returns stakes left on earlier seasons' nominations. An unlock failure there is reported as `nomination_stake_return_failed`, never as a return: if x/rep says the lock is already gone (zeroed or missing member) the record is dropped, otherwise it is kept for the next transition.
+> - **Reset target.** RESET_REPUTATION archives each tag's seasonal score to lifetime and restarts the tag at `baseline_reputation` (governance-only, non-negative; 0 clears the tag, which is what the networks ship at 0.5 did not do before this param was wired). Tags the member never held stay absent, so the baseline is a floor for returning members, not a grant. "Held" means a positive seasonal score at reset: a tag deducted to zero by moderation is archived as zero and cleared, not re-seeded, so the floor cannot grow with the number of tag keys a member once carried; and only an `ACTIVE` member is re-seeded (a zeroed member's scores are archived and cleared, so zeroing is not undone by the next season).
 > - **Reset coverage.** ARCHIVE/RESET_REPUTATION walk season profiles, so a rep member without a season profile is not reset; archive errors are logged and emitted (`reputation_archive_failed`). Driving the reset from x/rep's member set needs a rep iteration API (tracked for the x/rep work).
-> - **Not implemented (known gaps, decided 2026-10-26 to leave as is).** `SEASON_STATUS_MAINTENANCE` and `SEASON_STATUS_COMPLETED` are never set (maintenance is the `SeasonTransitionState.maintenance_mode` flag); past seasons are not stored (`Season` is a single item; history lives in `SeasonSnapshot` / `MemberSeasonSnapshot`); `baseline_reputation` is unused; genesis does not bootstrap Season 1 (the network genesis files seed it).
+> - **Known gap.** Genesis does not bootstrap Season 1 (the network genesis files seed it).
 > - **Alias horizon.** `Params.Validate` requires `season_duration_epochs + season_transition_epochs + max_season_extensions * max_extension_epochs + 2 * ceil(transition_grace_period / epoch_blocks)` to stay inside x/rep's alias dedup horizon.
 
 ### TransitionRecoveryState
@@ -3200,8 +3214,8 @@ Display names are not pre-moderated - offensive content is handled through commu
 > - **Unappealed** reports are upheld after `display_name_appeal_period_blocks` (BeginBlocker, or `MsgResolveUnappealedModeration`): the reporter's stake is returned.
 > - **Appealed** reports are resolved by `MsgResolveDisplayNameAppeal` from the Commons Operations Committee policy address (or the Commons Council policy address, or x/gov), never one member. An appeal nobody resolves within `AppealResolutionPeriodMultiplier` (3) x `display_name_appeal_period_blocks` of the appeal **times out** (`AppealQueue`, `display_name_appeal_timed_out`): with no verdict neither side is penalised, both stakes are returned, the name is restored and not blocked. Stakes and the member's ability to set a name are therefore never locked for good.
 > - **Decided defaults (user decision, 2026-10-26).** Both behaviours above are deliberate and stay: a timed-out appeal refunds both stakes and restores the name (no verdict means no penalty), and the appeal resolution window is a compiled constant, `AppealResolutionPeriodMultiplier` (3) times the report-appeal window `display_name_appeal_period_blocks`, not a separate param.
-> - **Blocked names.** Whenever a report is upheld (appeal rejected or unappealed), the rejected name (trimmed, case-folded) is added to `DisplayNameModeration.blocked_names` (at most `MaxBlockedDisplayNames` = 5, oldest dropped). The list survives the case's closure and later reports, and `MsgSetDisplayName` refuses those names for that member (`ErrDisplayNameModerated`).
-> - **Migration (SEA-29).** x/rep member migration is vetoed while the member has an active moderation; a closed record (with its blocked names) moves to the new address.
+> - **Blocked names.** Whenever a report is upheld (appeal rejected or unappealed), the rejected name (trimmed, case-folded) is added to `DisplayNameModeration.blocked_names` (at most `MaxBlockedDisplayNames` = 5, oldest dropped). The list survives the case's closure, later reports and history pruning (a record carrying blocked names is never pruned, SEA-102), and `MsgSetDisplayName` refuses those names for that member (`ErrDisplayNameModerated`).
+> - **Migration (SEA-29, REP-R-101).** A KEY-path migration is vetoed while the member has an active moderation. RECOVERY and COUNCIL are never blocked by it (anyone can file a report, so a veto would let a thief or griefer fail every recovery reveal and burn the victim's recovery commitments): the record moves to the new address with its queue entries and the report stake (re-keyed `dn:<new>:<moderated_at>`); the appeal stake stays under its challenge id and is released through the alias. A closed record (with its blocked names) moves on every path. The resolution paths (`MsgResolveDisplayNameAppeal`, `MsgResolveUnappealedModeration`, the timeouts) resolve the member address through the alias, so naming the old address still reaches the record.
 > - **Characters (SEA-34).** Display names must be valid UTF-8 without control characters (`unicode.IsControl`) or Unicode format characters (category Cf: bidi overrides, zero-width joiners), `ErrDisplayNameInvalidChars`.
 
 ```protobuf
@@ -4472,8 +4486,8 @@ All hooks validate the calling module to prevent unauthorized XP grants.
 # Module store prefix: 0x01 (season)
 
 # Season data
-season/current                           -> Season (current active season)
-season/{season_number}                   -> Season (historical seasons)
+season/value/                            -> Season (the live season)
+season/history/{season_number}           -> Season (completed seasons, status COMPLETED, last snapshot_retention_seasons)
 season/transition_state                  -> SeasonTransitionState
 season/transition_recovery               -> TransitionRecoveryState
 season/next_info                         -> NextSeasonInfo
@@ -4532,9 +4546,9 @@ To prevent unbounded state growth, the module prunes old season snapshots based 
 
 **Pruning Strategy:**
 - Keep the last N seasons of member snapshots (default: 10)
-- Keep all season metadata (Season struct) forever for historical reference
-- Prune during season transitions in a batched phase
-- If `snapshot_retention_seasons = 0`, keep all snapshots (not recommended for production)
+- Keep the last N completed `Season` records (`SeasonHistory`) under the same param, pruned in the CLEANUP phase; the per-season `SeasonSnapshot` stays
+- Member snapshots are pruned by the rolling BeginBlocker pass (see Params)
+- `snapshot_retention_seasons` must be positive (`Params.Validate`)
 
 ```go
 // PruneOldSnapshots removes member snapshots older than retention limit
@@ -4810,7 +4824,7 @@ func (k Keeper) InviteToGuild(ctx sdk.Context, inviter sdk.AccAddress, guildID u
 message GenesisState {
   Params params = 1;
   Season current_season = 2;
-  repeated Season past_seasons = 3;
+  repeated Season past_seasons = 3;      // season_history_list in the generated code
   repeated MemberProfile profiles = 4;
   repeated Achievement achievements = 5;
   repeated Title titles = 6;
@@ -4841,7 +4855,7 @@ message NextSeasonInfo {
 ```
 
 > **Implementation notes (genesis and invariants, SEA-25, SEA-36).**
-> - The generated `GenesisState` also exports `transition_abort_list` (the per-season `MsgAbortSeasonTransition` count, so the `MaxTransitionAbortsPerSeason` cap survives export/import) and `pending_seasonal_pool_init`. The rolling prune cursor is not exported; after an import pruning restarts from the first key.
+> - The generated `GenesisState` also exports `transition_abort_list` (the per-season `MsgAbortSeasonTransition` count, so the `MaxTransitionAbortsPerSeason` cap survives export/import), `pending_seasonal_pool_init` and `season_history_list` (the completed seasons; `Validate` requires unique numbers, each below the live season's, status `COMPLETED`; an absent list imports as empty). The rolling prune cursor is not exported; after an import pruning restarts from the first key.
 > - Derived state is rebuilt at InitGenesis: guild member counters, the guild/invite/username/name indexes, the nomination duplicate-ref set and per-nominator counters, the moderation and appeal queues, and the failed-payout retry queue.
 > - The round trip is exact apart from the prune cursor. `season_transition_state`, `transition_recovery_state` and `next_season_info` export as nil when the item is unset (not as an empty record, which the import would store). A guild's member counter and the active-guild counter are removed when they reach zero rather than stored as 0, as InitGenesis rebuilds only non-zero counters; an absent member counter reads as a recount of the guild's (empty) membership index. Covered by `TestGenesisRoundTripIsExact` and the app-level `TestAppImportExport`.
 > - `Validate` checks relations as well as duplicates: active memberships and invites point at existing guilds (memberships at non-dissolved ones), invites de-duplicate on `(guild_id, invitee)`, nomination stakes point at existing nominations and sum to their `total_staked`, display-name stakes belong to active moderations, the transition phase is a defined value, and quest `xp_reward` is at most `HardMaxQuestXpReward`. Guild ids start at 1, so the highest id may equal `guild_count`.

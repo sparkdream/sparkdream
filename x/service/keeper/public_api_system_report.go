@@ -352,25 +352,29 @@ func (k Keeper) sweepSystemReportDedup(ctx context.Context, params types.Params,
 	}
 	processed := 0
 	for _, key := range due {
-		if err := k.SystemReportDedupExpiry.Remove(ctx, key); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Remove failed", "err", err)
-		}
-		pk := collections.Join(key.K2(), key.K3())
-		reportID, gerr := k.SystemReportDedup.Get(ctx, pk)
-		if gerr != nil {
-			continue
-		}
-		if report, rerr := k.Reports.Get(ctx, reportID); rerr == nil &&
-			(report.Status == types.ReportStatus_REPORT_STATUS_PENDING || report.Status == types.ReportStatus_REPORT_STATUS_ESCALATED) {
-			if err := k.SystemReportDedupExpiry.Set(ctx, collections.Join3(currentHeight+systemReportDedupRetention(params), key.K2(), key.K3())); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Set failed", "err", err)
+		if k.runIsolated(ctx, "system_report_dedup", func(ctx context.Context) (bool, error) {
+			if err := k.SystemReportDedupExpiry.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Remove failed", "err", err)
 			}
-			continue
+			pk := collections.Join(key.K2(), key.K3())
+			reportID, gerr := k.SystemReportDedup.Get(ctx, pk)
+			if gerr != nil {
+				return false, nil
+			}
+			if report, rerr := k.Reports.Get(ctx, reportID); rerr == nil &&
+				(report.Status == types.ReportStatus_REPORT_STATUS_PENDING || report.Status == types.ReportStatus_REPORT_STATUS_ESCALATED) {
+				if err := k.SystemReportDedupExpiry.Set(ctx, collections.Join3(currentHeight+systemReportDedupRetention(params), key.K2(), key.K3())); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Set failed", "err", err)
+				}
+				return false, nil
+			}
+			if err := k.SystemReportDedup.Remove(ctx, pk); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedup.Remove failed", "err", err)
+			}
+			return true, nil
+		}) {
+			processed++
 		}
-		if err := k.SystemReportDedup.Remove(ctx, pk); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedup.Remove failed", "err", err)
-		}
-		processed++
 	}
 	return processed, nil
 }

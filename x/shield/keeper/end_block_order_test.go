@@ -45,6 +45,9 @@ func TestForcedDemandIsJudged(t *testing.T) {
 	params, err := f.keeper.Params.Get(f.ctx)
 	require.NoError(t, err)
 	params.EncryptedBatchEnabled = true
+	// Batch-mode liveness: the beacon would demand every closed epoch, which
+	// this test counts as "no demand" (beacon liveness: beacon_test.go).
+	params.BeaconEnabled = false
 	params.ShieldEpochInterval = 10
 	params.MaxPendingEpochs = 2
 	params.MinBatchSize = 5 // never ready on size: only the max_pending_epochs rule
@@ -115,6 +118,9 @@ func TestLivenessRingCountsJudgedEpochs(t *testing.T) {
 	params, err := f.keeper.Params.Get(f.ctx)
 	require.NoError(t, err)
 	params.EncryptedBatchEnabled = true
+	// Batch-mode liveness: the beacon would demand every closed epoch, which
+	// this test counts as "no demand" (beacon liveness: beacon_test.go).
+	params.BeaconEnabled = false
 	params.ShieldEpochInterval = 10
 	params.TleMissWindow = 3
 	params.TleMissTolerance = 10

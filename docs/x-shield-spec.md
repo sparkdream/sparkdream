@@ -66,7 +66,8 @@ Operations are threshold-encrypted and queued. They are only decrypted and execu
 ├── A nullifier: the operation nullifier in immediate mode (replay prevention),
 │   the submission nullifier in encrypted batch mode (one per payload; the
 │   operation nullifier is sealed) — both unlinkable to identity by design
-├── The rate-limit nullifier (same for all ops by same member in same epoch — for rate limiting)
+├── The rate-limit nullifier (same for all trust-tree ops by same member in same epoch — for rate limiting;
+│   a group-tree vote's is unique to the member and the ballot, see Rate-limit linkability)
 ├── The Merkle root (same for ALL members in a tree snapshot)
 ├── The proof domain (trust tree)
 ├── The minimum trust level being proven
@@ -355,12 +356,17 @@ func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, bin
     // Public inputs: MerkleRoot, Nullifier, RateLimitNullifier, MinTrustLevel,
     // Scope (= binding.scope, the domain-separated scope element), RateLimitEpoch,
     // MessageHash (= binding.messageHash)
+    // RateLimitEpoch: the current epoch, or for PROOF_DOMAIN_GROUP_TREE the
+    // epoch bound to the scope (rateLimitEpochInput, see below)
     epoch := k.GetCurrentEpoch(ctx)
-    return k.verifyShieldProof(vk, proof, msg, binding, epoch)
+    return k.verifyShieldProof(vk, proof, msg, binding,
+        rateLimitEpochInput(msg.ProofDomain, binding.scope, epoch))
 }
 ```
 
 The ZK circuit proves that `RateLimitNullifier = H(member_secret, RateLimitDomainTag, epoch)`. Since it's a public input verified by the circuit, it cannot be forged where the proof is verified, which in both modes is the ante handler, before anything is paid: the operation proof for an immediate exec, the cleartext [submission proof](#the-submission-proof) for an encrypted-batch exec (whose sealed operation proof must then reproduce the same rate-limit nullifier at execution). Different members produce different rate-limit nullifiers, but the same member always produces the same one for a given epoch — enabling true per-identity rate limiting.
+
+**Rate-limit linkability.** The rate-limit nullifier depends only on the secret key and the `RateLimitEpoch` input, never on the operation, so every trust-tree exec one member makes in one shield epoch carries the same 32-byte value in cleartext. For trust-tree traffic (anonymity set: the whole membership) that is accepted: it links a member's anonymous actions to each other within one epoch (about five minutes), not to the member. Secret ballots (`PROOF_DOMAIN_GROUP_TREE`, x/commons §11.2/§11.4) prove against a council-sized voter tree with the same secret key, so the same value would link a member's votes on two ballots, and a vote to the member's anonymous posts in the same epoch (narrowing the post's author to one council). The verifier therefore supplies a different `RateLimitEpoch` for group-tree execs: `MiMC(ScopeElement(domain, scope), epoch)` (`crypto.GroupTreeRateLimitEpoch`; prover `GroupTree: true`, wasm `"group_tree": true`). The circuit is unchanged (`RateLimitEpoch` was always a verifier-supplied public input), so no new ceremony is needed. A vote's rate-limit nullifier is then unique to the member and the ballot, like its action nullifier, and links to nothing. A proof built with the plain epoch fails verification. Residual, not closed without a circuit change: trust-tree execs in one epoch stay linkable to each other (the rate limit needs one per-member value per epoch); and timing, fees, gas and the submitting account remain side channels a client must manage (use the public submitter, and do not send a vote in the same block as one's other anonymous actions).
 
 ### Merkle Tree Snapshots
 
@@ -468,10 +474,24 @@ message Params {
   // left is rejected before anything is paid (ErrEpochFeeBudgetExhausted);
   // the budget resets at the next shield epoch. Must be >= max_fee_per_exec.
   string max_fees_per_epoch = 21 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // Whether the randomness beacon is on: once a DKG has completed, the
+  // EndBlocker demands the TLE key of every epoch as it closes, batch or
+  // no batch (see "Randomness beacon"). Default true.
+  bool beacon_enabled = 22;
 }
 ```
 
-`max_fees_per_epoch` bounds what all identities together can spend: one identity may run `max_execs_per_identity_per_epoch` execs at up to `max_fee_per_exec` each (50 x 0.05 SPARK x 288 epochs = 720 SPARK a day at the defaults), far above `max_funding_per_day`. Size the budget so `max_fees_per_epoch x epochs per day <= max_funding_per_day` (0.65 SPARK x 288 = 187 SPARK at 6 s blocks and 50-block epochs; devnet's 25-block epochs use 0.325 SPARK). The reserve then never drains faster than it is funded. One busy identity can still use up one epoch's budget; the budget is fresh five minutes later. The fees paid so far in the current epoch are the `EpochFeeLedger` singleton (exported in genesis as `epoch_fee_ledger`).
+`max_fees_per_epoch` bounds what all identities together can spend: one identity may run `max_execs_per_identity_per_epoch` execs at up to `max_fee_per_exec` each (50 x 0.05 SPARK x 288 epochs = 720 SPARK a day at the defaults), far above `max_funding_per_day`. Size the budget so `max_fees_per_epoch x epochs per day <= max_funding_per_day` (0.65 SPARK x 288 = 187 SPARK at 6 s blocks and 50-block epochs; devnet's 25-block epochs use 0.325 SPARK). The reserve then never drains faster than it is funded. Two compiled shares divide the budget (`x/shield/types/params.go`) so neither one member nor trust-tree traffic can lock everyone else out, and secret-ballot governance cannot be starved:
+
+- **Per-identity share** (`IdentityFeeShareDivisor = 10`): the fees paid for one identity's execs in an epoch, keyed by its rate-limit nullifier like the identity rate limit, may not pass `max(max_fees_per_epoch / 10, max_fee_per_exec)` (`ErrIdentityFeeShareExhausted`). Without it, 13 max-fee execs by one member (which need not even succeed: the ante books the fee before the inner message runs) took the whole mainnet budget every epoch, freezing every anonymous op including secret-ballot votes. Exhausting it now takes ten members acting together.
+- **Group-tree reserve** (`GroupTreeFeeReserveDivisor = 5`): execs other than `PROOF_DOMAIN_GROUP_TREE` may take the epoch's paid fees only to `max_fees_per_epoch - max_fees_per_epoch / 5` (never below one `max_fee_per_exec`); group-tree execs (secret-ballot votes and polls) may use the whole budget. A group-tree exec's rate-limit nullifier is per ballot (see Rate-limit linkability), so its share is per member and ballot; one vote per ballot is all its nullifier allows anyway. The explicit bound: a member with `k` secret ballots and polls open in one epoch can spend up to `k x max_fee_per_exec` of it, not a tenth of the budget, and holds `k` separate `max_execs_per_identity_per_epoch` quotas. Only governance opens ballots (members cannot), each admits one vote per member, and a budget that is exhausted refuses the next vote for that epoch only, so this is bounded growth, not an attacker's lever. Keying the share by a member-level value instead would need a second public input that is stored but never emitted, which the circuit does not have; the per-ballot bound is accepted and documented instead.
+
+Both are compiled rather than params: they decide how the one budget param is divided. The fees paid so far in the current epoch are the `EpochFeeLedger` singleton (exported in genesis as `epoch_fee_ledger`); the per-identity amounts are `IdentityEpochFees` (`(epoch, rate_limit_nullifier_hex) → paid`, exported as `identity_epoch_fees`, pruned with the rate limits). A refused fee is not booked.
+
+**Refund of unused gas.** The ante charges the declared fee in full (it cannot know the gas yet), and a post handler (`FeeRefundDecorator`, `x/shield/ante/fee_refund.go`, chained after `app/relayrefund`'s in `app.go`) returns what the gas actually used did not cost: `fee - ceil(fee x gas_used / gas_limit)` per denom, at the price the submitter implied by its own fee and gas limit. The charged part rounds up, so the fee collector never gets less than gas used at that price; a tx that used all its gas gets nothing back. The refund moves from the fee collector back to the shield module account and `RefundEpochFee` unbooks it from the `EpochFeeLedger` and the identity's `IdentityEpochFees` entry (both saturating at zero, and only in the epoch the fee was charged in: a refund whose epoch is no longer current unbooks nothing). So the budget and the per-identity share measure the gas anonymous execs **used**, not the gas limits their submitters declared: a member who declares the 200k default limit for an exec that uses 60k is booked for 30% of the fee. The ante records what it charged (fee, gas limit, epoch, rate-limit nullifier) in an in-memory, per-block map keyed by tx hash (`FeeMarks`, the same shape as relayrefund's `Marks`: the ante chain's returned context does not reliably reach the post handler), only in finalize mode, so CheckTx and simulation neither mark nor refund. The refund's own writes run under an infinite gas meter (a tx that used nearly all its gas is not failed by its own refund), and a refund the fee collector cannot pay is logged and skipped: the exec stands and the module is out the unused part. Event `shield_fee_refund` (`amount`, `gas_used`, `gas_limit`).
+
+A **failed exec is not refunded**: baseapp runs the post handler for a failed tx too, but in the message state it then discards, while the ante's fee payment and booking are already committed, so no refund could land. A failing exec therefore costs the reserve its declared fee, as it costs its member the nullifier and the rate-limit slot (see PrecheckExec below), bounded by `max_fee_per_exec` and the identity's share. Residual: a member can still spend its share faster by sending execs that fail, which is the same budget as before the refund and already what the share caps.
 
 ### Registered Operations
 
@@ -554,7 +574,7 @@ enum ShieldBatchMode {
 }
 ```
 
-`ShieldedOpRegistration.Validate()` (`x/shield/types/registration.go`) requires a non-empty `message_type_url` and rejects `NULLIFIER_MODE_OWNERSHIP` with any batch mode other than `IMMEDIATE_ONLY` (`ErrOwnershipBatchMode`), and rejects `epoch_window > 1` unless `nullifier_scope_type` is EPOCH and the mode is CONSUME (`sdkerrors.ErrInvalidRequest`). Both genesis validation and `MsgRegisterShieldedOp` run it.
+`ShieldedOpRegistration.Validate()` (`x/shield/types/registration.go`) requires a non-empty `message_type_url` and rejects `NULLIFIER_MODE_OWNERSHIP` with any batch mode other than `IMMEDIATE_ONLY` (`ErrOwnershipBatchMode`), rejects `PROOF_DOMAIN_GROUP_TREE` with any batch mode other than `IMMEDIATE_ONLY` (`ErrInvalidProofDomain`; the root is resolved from the cleartext inner message, so the immediate-only guarantee rests on the registration rule, with the batch-path refusals as a second layer), and rejects `epoch_window > 1` unless `nullifier_scope_type` is EPOCH and the mode is CONSUME (`sdkerrors.ErrInvalidRequest`). Both genesis validation and `MsgRegisterShieldedOp` run it.
 
 ### Used Nullifiers
 
@@ -635,7 +655,7 @@ message ShieldDecryptionShare {
 
 ### Decryption Demands
 
-`DecryptionDemands` (`collections.Map[uint64 epoch, int64]`) records, per closed epoch, the height at which the EndBlocker decided the epoch's batch was ready and asked validators for their shares. It is the gate between "ops are queued" and "the key may exist": validators produce shares only for demanded epochs, every share-acceptance path refuses shares for undemanded epochs, and TLE liveness judges only demanded epochs, one full `shield_epoch_interval` after the demand (the stored value turns negative, `-(height+1)`, once judged, so it is judged exactly once while late shares stay acceptable until the epoch's ops expire). Exported in genesis as `decryption_demands`.
+`DecryptionDemands` (`collections.Map[uint64 epoch, int64]`) records, per closed epoch, the height at which the EndBlocker asked validators for their shares: because the epoch's batch was ready, or because the randomness beacon demands every closing epoch (see "Randomness beacon"). It is the gate between "ops are queued" and "the key may exist": validators produce shares only for demanded epochs, every share-acceptance path refuses shares for undemanded epochs, and TLE liveness judges only demanded epochs, one full `shield_epoch_interval` after the demand (the stored value turns negative, `-(height+1)`, once judged, so it is judged exactly once while late shares stay acceptable until the epoch's ops expire). Exported in genesis as `decryption_demands`.
 
 ## Messages
 
@@ -654,7 +674,8 @@ message MsgShieldedExec {
   // --- Immediate mode fields (cleartext) ---
 
   // The operation to execute, encoded as Any
-  // The inner message's signer field MUST be set to the shield module account address
+  // Every signer of the inner message MUST be the shield module account address
+  // (all declared signers are checked, not only the first)
   // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode
   google.protobuf.Any inner_message = 2;
 
@@ -670,7 +691,10 @@ message MsgShieldedExec {
   bytes nullifier = 4;
 
   // 32-byte rate-limit nullifier: MiMC(secret_key, MaxUint64, epoch)
-  // Same for ALL operations by the same member in the same epoch.
+  // Same for ALL trust-tree operations by the same member in the same epoch;
+  // a group-tree exec binds the epoch to its scope instead
+  // (MiMC(ScopeElement(domain, scope), epoch)), so a secret-ballot vote's
+  // value is unique to the member and the ballot.
   // Used for per-identity rate limiting without breaking anonymity.
   // Proven correct by the ZK circuit (cannot be forged).
   bytes rate_limit_nullifier = 5;
@@ -860,7 +884,7 @@ message MsgRegisterShieldedOp {
 message MsgRegisterShieldedOpResponse {}
 ```
 
-A nullifier domain keeps one scoping rule: a registration is refused (`ErrNullifierDomainConflict`) when another registered op uses the same `nullifier_domain` with a different `nullifier_mode`, `nullifier_scope_type`, `scope_field_path` or epoch window. Uniqueness and pruning are per domain (`PruneEpochScopedNullifiers` prunes every domain an EPOCH op uses), so an EPOCH op in, say, the anonymous-vote domain would have pruning delete old vote nullifiers and re-open voting, and two windows in one domain would make different ops' nullifiers collide. Ops that share a domain on purpose (upvote and downvote of one target) have identical scoping. `GenesisState.Validate` applies the same rule to the genesis op table. Re-registering an op under a new domain resets its uniqueness (the old nullifiers stay under the old domain).
+A nullifier domain keeps one scoping rule: a registration is refused (`ErrNullifierDomainConflict`) when another registered op uses the same `nullifier_domain` with a different `nullifier_mode`, `nullifier_scope_type`, `scope_field_path` or epoch window. Uniqueness and pruning are per domain (`PruneEpochScopedNullifiers` prunes every domain an EPOCH op uses), so an EPOCH op in, say, the anonymous-vote domain would have pruning delete old vote nullifiers and re-open voting, and two windows in one domain would make different ops' nullifiers collide. Ops that share a domain on purpose (upvote and downvote of one target) have identical scoping. `GenesisState.Validate` applies the same rule to the genesis op table. An in-place update of an op that keeps its domain is checked against the registration it replaces as well, so an op alone in its domain cannot change its scope type, field or window in place (its stored nullifiers were written under the old rule; an EPOCH rescope would let pruning delete them and re-admit every action). Changing how an op is scoped needs a new domain: re-registering an op under a new domain resets its uniqueness (the old nullifiers stay under the old domain, which is retired).
 
 ### MsgDeregisterShieldedOp (Governance)
 
@@ -942,6 +966,9 @@ service Query {
 
   // IdentityRateLimit returns the remaining rate limit for a given rate-limit nullifier in the current epoch
   rpc IdentityRateLimit(QueryIdentityRateLimitRequest) returns (QueryIdentityRateLimitResponse);
+
+  // Beacon returns an epoch's randomness beacon value and status (0 = latest closed epoch)
+  rpc Beacon(QueryBeaconRequest) returns (QueryBeaconResponse);
 
   // DKGState returns the current DKG ceremony state
   rpc DKGState(QueryDKGStateRequest) returns (QueryDKGStateResponse);
@@ -1041,15 +1068,24 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
         return next(ctx, tx, simulate)
     }
 
-    // 5. Chain-wide per-epoch budget (max_fees_per_epoch).
-    if err := d.shieldKeeper.ChargeEpochFee(ctx, fees.AmountOf(bondDenom), params.MaxFeesPerEpoch); err != nil {
-        return ctx, err // ErrEpochFeeBudgetExhausted
+    // 5. Chain-wide per-epoch budget (max_fees_per_epoch), the identity's
+    //    share of it, and the group-tree reserve.
+    if err := d.shieldKeeper.ChargeEpochFee(ctx, fees.AmountOf(bondDenom), params, shieldMsg); err != nil {
+        return ctx, err // ErrEpochFeeBudgetExhausted / ErrIdentityFeeShareExhausted
     }
 
     // Deduct fees from shield module account → fee collector
     if err := d.bankKeeper.SendCoinsFromModuleToModule(ctx,
         shieldtypes.ModuleName, authtypes.FeeCollectorName, fees); err != nil {
         return ctx, shieldtypes.ErrShieldGasDepleted
+    }
+
+    // 6. DeliverTx only: record the charge (fee, gas limit, epoch, rate-limit
+    //    nullifier) for the FeeRefundDecorator post handler, which returns
+    //    fee - ceil(fee x gas_used / gas_limit) to the module after the
+    //    messages ran and unbooks it (RefundEpochFee).
+    if !simulate && ctx.ExecMode() == sdk.ExecModeFinalize {
+        d.marks.mark(ctx, FeeCharge{...})
     }
 
     // Set fee-paid flag so the standard DeductFeeDecorator skips this tx
@@ -1311,6 +1347,31 @@ If the decryption key is NOT produced for a demanded epoch (insufficient validat
 4. If ops hit `max_pending_epochs` without their epoch's decryption key, they are dropped with `EventShieldBatchExpired` and the demand is forgotten
 5. Immediate mode operations continue working normally regardless of TLE status
 
+## Randomness beacon
+
+The TLE epoch key `d = s·H1(epoch)` is a threshold BLS signature by the DKG master secret over the epoch number. For a given key set and epoch there is exactly one valid value; nobody holding fewer than `threshold` shares can compute it; and once `threshold` validators have released shares anyone can, and the pairing check in every acceptance path rejects any other value. That makes it a **randomness beacon**: a public value per shield epoch that no member, block proposer, or sub-threshold validator coalition can predict before the epoch closes or bias afterwards.
+
+**Trust assumption.** The value is deterministic in the epoch number, so a coalition holding `threshold` shares can compute it for any future epoch at any time; it cannot choose a different value (the pairing check rejects every other one), only know it early. This is inherent to a threshold-BLS beacon (drand has the same property). Every consumer therefore trusts that fewer than `threshold` key-set validators collude; a jury draw seeded from the beacon (x/rep) is unpredictable to members and proposers but not to such a coalition, which could time a review to a seed it knows. The DKG threshold is the security parameter for both batch secrecy and beacon unpredictability. Batch mode only ever reconstructed keys for epochs with a ready batch; the beacon reconstructs one for every epoch.
+
+**Mechanics.** With `beacon_enabled` (default true) and a completed DKG (a `TLEKeySet` with a master public key), the EndBlocker records a `DecryptionDemand` for the epoch that just closed at every epoch boundary (`recordBeaconDemand`), whether or not anything was submitted to it. From there the existing share pipeline carries it unchanged: validators embed their share for the oldest demanded epoch they have not served (`NextEpochNeedingShare`; `buildDecryptionShareExtension` no longer requires `encrypted_batch_enabled`, the demand is the gate), `VerifyVoteExtension` / `ProcessProposal` / the PreBlocker apply `VerifyValidatorDecryptionShare`, `TryReconstructEpochKey` stores the value as the epoch's `ShieldEpochDecryptionKey` (event `shield_decryption_key_available` with `source=beacon`; `source=batch` when the epoch holds pending ops), and TLE liveness judges the demand one interval later like any other, so a validator that stops serving the beacon is jailed like one that stops serving batches. The value is normally available one or two blocks after the boundary.
+
+**Validator contract.** With the beacon on, every closed epoch is a demand once a DKG has completed, batch mode or not: a key-set validator must serve decryption shares continuously from its first DKG onward, and one that stops is jailed by the liveness ring (`tle_miss_window` / `tle_miss_tolerance` / `tle_jail_duration`) even on a network that never enables encrypted batches. Before the beacon, misses were possible only in epochs that held a ready batch. Validators outside the key set (joined after the DKG, not yet re-keyed in) are not judged. `deploy/README.md` carries the operator-facing note.
+
+**Why releasing a key for an epoch with no batch leaks nothing.** The key only opens ciphertexts sealed to its own epoch: the epoch tag is a hash-to-curve of the epoch number (`tools/tle.EpochTag`), the keys of different epochs are independent, and the master secret is not derivable from any number of epoch keys. The epoch is closed before its demand is recorded, so no later submission can target it (the ante handler refuses a batch submission whose target epoch is not the current one), and nothing else in the module or its clients uses the epoch key.
+
+**Batch mode interaction.** With `encrypted_batch_enabled`, a closing epoch that holds pending ops is left to the batch readiness rule (`recordDecryptionDemands`), so a batch under `min_batch_size` keeps waiting encrypted for company rather than sitting decryptable; its beacon value arrives when the batch is demanded, at the latest after `max_pending_epochs`. An idle epoch is demanded at once. Batch behaviour is unchanged.
+
+**Read API** (`x/shield/keeper/beacon.go`), for other modules through a late-wired interface and for clients through the `Beacon` query (`beacon [epoch]`, `/sparkdream/shield/v1/beacon/{epoch}`, epoch 0 = latest closed epoch; returns `status`, `key_hex`, `reconstructed_at_height`, `current_epoch`):
+
+- `BeaconActive(ctx)`: the param is on and a DKG has completed.
+- `CurrentEpoch(ctx)`, `BeaconEpochInterval(ctx)`.
+- `BeaconKey(ctx, epoch) ([]byte, bool)`: the canonical G1 encoding of the epoch key.
+- `BeaconStatus(ctx, epoch)`: `AVAILABLE` (stored, whatever the param says now: it is already public); `PENDING` (the epoch is open or in the future, or closed and demanded without a key yet, or holds a small batch still waiting); `UNAVAILABLE` (beacon off or no DKG; the epoch is older than `max_pending_epochs`, so pruned; closed but never demanded, e.g. before the beacon was enabled; or its demand was judged for liveness without reaching the threshold, so a consumer should not wait for a late share). A re-key (`MsgTriggerDKG`, drift) retires every key and demand, so epochs sealed to the old key set become `UNAVAILABLE`.
+
+**Liveness and fallback contract.** The beacon is best effort: a consumer must tolerate `PENDING` for a bounded time and `UNAVAILABLE` at any time, and keep a seed of its own as the floor. Values live `max_pending_epochs` epochs (`ShieldDecryptionKeys` pruning, the same bound as batch keys), so a consumer reads the value within that window or not at all; today's only consumer reads it in the same block it is reconstructed.
+
+**Consumers.** x/rep jury draws (`docs/x-rep-spec.md` "Jury Selection"): a review queued for a draw records `seed_epoch = CurrentEpoch + 1` when the beacon is active and the EndBlocker seats it from SHA-256 over a domain tag, `BeaconKey(seed_epoch)` and the review id once `AVAILABLE`; it falls back to the block hash after 3 epoch intervals of `PENDING` or on `UNAVAILABLE`. Wired in `app.go` as `RepKeeper.SetBeaconSource(ShieldKeeper)` (x/shield already depends on x/rep).
+
 ## EndBlocker: Batch Execution
 
 The EndBlocker advances the shield epoch at each boundary and, when encrypted batch mode is enabled, runs the batch pipeline **every block**: a closed epoch's key arrives whenever enough shares have landed, and its batch runs in that block rather than at the next boundary. The epoch advances **whether or not** `encrypted_batch_enabled` is set: immediate mode reads it for EPOCH-scoped nullifiers and per-epoch identity rate limits, so a frozen epoch would turn those into lifetime limits. Pending ops expire whether or not batch mode is enabled, so disabling it (governance, a re-key) drains the queue instead of freezing it.
@@ -1445,7 +1506,7 @@ k.pruneStaleState(ctx, newEpoch)
 | `UsedNullifiers` (GLOBAL scope) | Never | Forever |
 | `UsedNullifiers` (MESSAGE_FIELD scope) | Never | Forever (scoped to entity) |
 | `DayFundings` | Every epoch boundary | Current + previous day |
-| `ShieldDecryptionKeys` | Every epoch boundary | `max_pending_epochs` |
+| `ShieldDecryptionKeys` (batch keys and beacon values alike) | Every epoch boundary | `max_pending_epochs` |
 | `ShieldDecryptionShares` | Every epoch boundary | `max_pending_epochs` |
 | `DecryptionDemands` | Every block (`expirePendingOps`) | `max_pending_epochs` |
 | `PendingOps` / `PendingNullifiers` | Every block (`expirePendingOps`), batch mode on or off | `max_pending_epochs` |
@@ -2108,6 +2169,7 @@ EventShieldDecryptionKeyAvailable {
   epoch:                    uint64
   shares_submitted:         uint32
   threshold_required:       uint32
+  source:                   string   // "batch" (the epoch holds pending ops) or "beacon"
 }
 
 // Emitted when decryption key reconstruction fails
@@ -2299,6 +2361,7 @@ var (
     ErrEpochFeeBudgetExhausted  = errorsmod.Register(ModuleName, 55, "shield epoch fee budget (max_fees_per_epoch) exhausted; retry next shield epoch")
     ErrNullifierDomainConflict  = errorsmod.Register(ModuleName, 56, "nullifier domain is already used by an operation with a different scope type, scope field or window")
     ErrOrderedPublicSubmitterTx = errorsmod.Register(ModuleName, 57, "txs signed by the public anonymous submitter must be unordered")
+    ErrIdentityFeeShareExhausted = errorsmod.Register(ModuleName, 58, "this identity's share of the shield epoch fee budget is used up; retry next shield epoch")
 )
 ```
 
@@ -2371,7 +2434,7 @@ Multiple layers prevent free gas exploitation:
 5. **Daily funding cap**: `max_funding_per_day` bounds community pool drain regardless of usage (independent of shield epoch interval)
 6. **Registered operations only**: Only governance-approved message types can be executed via shield (whitelist model)
 7. **Fee cap**: the submitter picks the fee but the module pays it, so `max_fee_per_exec` caps it (bond denom only); without it one exec could hand the whole reserve to the fee collector. In CheckTx the fee must also meet the node's minimum gas prices for the tx's gas limit, as for any other tx
-7b. **Epoch fee budget**: `max_fees_per_epoch` caps the fees the module pays per shield epoch across all identities, so in-quota successful execs can't drain the reserve faster than it is funded
+7b. **Epoch fee budget**: `max_fees_per_epoch` caps the fees the module pays per shield epoch across all identities, so in-quota successful execs can't drain the reserve faster than it is funded; one identity may use at most a tenth of it, and a fifth is reserved for group-tree (secret-ballot) execs; the unused part of a successful exec's fee (gas used against gas declared) is refunded to the module and unbooked by the post handler, so both budgets measure gas used
 7c. **Canonical public inputs**: non-canonical nullifier, rate-limit nullifier or root encodings are refused, so one proof has exactly one nullifier
 8. **No per-action charges on anonymous actions**: inner messages are signed by the shield module account, so target modules skip every per-action SPARK cost for it (storage fees, spam taxes, edit fees, blog reaction fee, downvote costs, collection/item deposits) — charging them would spend the gas reserve, not the member's SPARK. Anonymous volume is bounded instead by the per-identity exec limit and per-op rate-limit windows
 
@@ -2477,6 +2540,8 @@ message GenesisState {
 
   // Nullifier domains no live op uses, with the last op's registration.
   repeated ShieldedOpRegistration retired_domains = 23 [(gogoproto.nullable) = false];
+  // Fees paid per identity (rate-limit nullifier) in the current shield epoch
+  repeated IdentityEpochFeeEntry identity_epoch_fees = 24 [(gogoproto.nullable) = false];
 }
 
 // Helper messages for genesis export/import

@@ -123,6 +123,32 @@ func TestMsgServerPinPost(t *testing.T) {
 		require.Equal(t, uint64(5), updatedPost.PinPriority)
 	})
 
+	t.Run("category pin cap (ErrMaxPinnedPosts)", func(t *testing.T) {
+		category := f.createTestCategory(t, "pin-cap")
+		var posts []types.Post
+		for i := uint64(0); i < types.DefaultMaxPinnedPerCategory; i++ {
+			post := f.createTestPost(t, testCreator, 0, category.CategoryId)
+			_, err := f.msgServer.PinPost(f.ctx, &types.MsgPinPost{Creator: authority, PostId: post.PostId, Priority: 1})
+			require.NoError(t, err)
+			posts = append(posts, post)
+		}
+		extra := f.createTestPost(t, testCreator, 0, category.CategoryId)
+		_, err := f.msgServer.PinPost(f.ctx, &types.MsgPinPost{Creator: authority, PostId: extra.PostId, Priority: 1})
+		require.ErrorIs(t, err, types.ErrMaxPinnedPosts)
+
+		// Another category is unaffected.
+		other := f.createTestCategory(t, "pin-cap-other")
+		otherPost := f.createTestPost(t, testCreator, 0, other.CategoryId)
+		_, err = f.msgServer.PinPost(f.ctx, &types.MsgPinPost{Creator: authority, PostId: otherPost.PostId, Priority: 1})
+		require.NoError(t, err)
+
+		// Unpinning frees a slot.
+		_, err = f.msgServer.UnpinPost(f.ctx, &types.MsgUnpinPost{Creator: authority, PostId: posts[0].PostId})
+		require.NoError(t, err)
+		_, err = f.msgServer.PinPost(f.ctx, &types.MsgPinPost{Creator: authority, PostId: extra.PostId, Priority: 1})
+		require.NoError(t, err)
+	})
+
 	// Pin is display-only and now refuses ephemeral targets — the lifecycle
 	// change (ephemeral → permanent) lives in MsgMakePostPermanent.
 	t.Run("cannot pin ephemeral post (ErrCannotPinEphemeral)", func(t *testing.T) {

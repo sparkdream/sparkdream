@@ -40,6 +40,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		k.BootstrapTitlesAndAchievements(ctx)
 	}
 
+	for _, elem := range genState.SeasonHistoryList {
+		if err := k.SeasonHistory.Set(ctx, elem.Number, elem); err != nil {
+			return err
+		}
+	}
 	for _, elem := range genState.SeasonSnapshotMap {
 		if err := k.SeasonSnapshot.Set(ctx, elem.Season, elem); err != nil {
 			return err
@@ -250,6 +255,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if nextSeasonInfo, err := k.NextSeasonInfo.Get(ctx); err == nil {
 		genesis.NextSeasonInfo = &nextSeasonInfo
 	} else if !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
+	if err := k.SeasonHistory.Walk(ctx, nil, func(_ uint64, val types.Season) (bool, error) {
+		genesis.SeasonHistoryList = append(genesis.SeasonHistoryList, val)
+		return false, nil
+	}); err != nil {
 		return nil, err
 	}
 	if err := k.SeasonSnapshot.Walk(ctx, nil, func(_ uint64, val types.SeasonSnapshot) (stop bool, err error) {

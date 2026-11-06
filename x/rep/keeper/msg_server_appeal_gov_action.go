@@ -140,33 +140,22 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 	}
 
 	// Seat a jury on the appeal so it can be resolved by jury verdict (via
-	// TallyJuryVotes) rather than only by manual committee override. Exclude the
-	// parties to the dispute: the appellant, the action target, and (for forum
-	// moderation actions) the accused sentinel. Best-effort — if no jury can be
-	// seated the appeal still stands and falls back to committee resolution or
-	// timeout.
+	// TallyJuryVotes) rather than only by manual committee override. The
+	// parties to the dispute are recorded on the review and never drawn: the
+	// appellant, the action target, and (for moderation actions) the accused
+	// sentinel. The owning module marks its record appealed before calling
+	// here, so GetActionSentinel already sees it (COL-102). The jurors are
+	// drawn at the end of the block (REP-R-102). Best-effort — if no jury can
+	// be seated the appeal still stands and falls back to committee resolution
+	// or timeout.
 	excludes := []string{appellant.String(), actionTarget}
 	if fk := k.appealTarget(actionType); fk != nil {
 		if sentinel, sErr := fk.GetActionSentinel(ctx, actionType, actionTarget); sErr == nil && sentinel != "" {
 			excludes = append(excludes, sentinel)
 		}
 	}
-	if jurors, jErr := k.selectModerationAppealJury(ctx, initiativeID, excludes); jErr != nil {
-		sdkCtx.Logger().Warn("failed to seat appeal jury", "initiative_id", initiativeID, "error", jErr)
-	} else if len(jurors) > 0 {
-		if review, rErr := k.GetJuryReview(ctx, initiativeID); rErr == nil {
-			review.Jurors = jurors
-			review.RequiredVotes = commontypes.Saturate[uint32](k.appealRequiredVotes(ctx, len(jurors)))
-			if err := k.JuryReview.Set(ctx, initiativeID, review); err != nil {
-				sdkCtx.Logger().Warn("failed to attach appeal jury", "initiative_id", initiativeID, "error", err)
-			} else if err := k.AddJuryReviewToJurorIndex(ctx, review); err != nil {
-				sdkCtx.Logger().Warn("failed to index appeal jury seating", "initiative_id", initiativeID, "error", err)
-			} else if err := k.RecordJurySeating(ctx, jurors); err != nil {
-				// Best-effort, matching the rest of this block: a bookkeeping
-				// failure must not block the appeal from being filed.
-				sdkCtx.Logger().Warn("failed to record appeal jury seating", "initiative_id", initiativeID, "error", err)
-			}
-		}
+	if err := k.openAppealJury(ctx, initiativeID, excludes); err != nil {
+		return 0, 0, errorsmod.Wrap(err, "failed to open appeal jury")
 	}
 
 	appealID, err := k.GovActionAppealSeq.Next(ctx)

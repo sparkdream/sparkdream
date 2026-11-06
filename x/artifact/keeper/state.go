@@ -148,7 +148,9 @@ func (k Keeper) releasePayment(ctx context.Context, c types.Class, t *types.Toke
 
 // revealOverdue reports whether a token's holder may reclaim its mint price:
 // the class reveal deadline passed and the token (BLIND_METADATA) or the
-// class seed (GENERATIVE_SEED) is still unrevealed.
+// class seed (GENERATIVE_SEED) was not revealed before it. A reveal after
+// the deadline does not take the refund back (ART-205): a late seed leaves
+// the escrow the holders', a late token reveal refunds it at once.
 func revealOverdue(c types.Class, t types.Token, now int64) bool {
 	if !c.Reveal.Reveals() || now < c.Reveal.Deadline {
 		return false
@@ -157,9 +159,50 @@ func revealOverdue(c types.Class, t types.Token, now int64) bool {
 	case types.RevealKind_REVEAL_KIND_BLIND_METADATA:
 		return t.Unrevealed
 	case types.RevealKind_REVEAL_KIND_GENERATIVE_SEED:
-		return c.Reveal.RevealedAt == 0
+		return lateSeedReveal(c)
 	}
 	return false
+}
+
+// lateSeedReveal reports whether a generative class's seed is unrevealed
+// past its deadline or was revealed after it; either way its escrowed mint
+// prices belong to the holders.
+func lateSeedReveal(c types.Class) bool {
+	return c.Reveal.RevealedAt == 0 || c.Reveal.RevealedAt >= c.Reveal.Deadline
+}
+
+// releaseOrRefund releases a token's escrowed mint price to the class
+// (releasePayment), or refunds it to the holder when the reveal that
+// unlocked it came after the class deadline (ART-205). The caller saves
+// the token.
+func (k Keeper) releaseOrRefund(ctx context.Context, c types.Class, t *types.Token) error {
+	if t.Paid.IsNil() || !t.Paid.IsPositive() {
+		return nil
+	}
+	late := now(ctx) >= c.Reveal.Deadline
+	if c.Reveal.Kind == types.RevealKind_REVEAL_KIND_GENERATIVE_SEED {
+		late = lateSeedReveal(c)
+	}
+	if !late {
+		return k.releasePayment(ctx, c, t)
+	}
+	if err := k.refund(ctx, t.Owner, t.Paid); err != nil {
+		return err
+	}
+	emit(ctx, types.EventPaymentRefunded, classAttr(t.ClassId), tokenAttr(t.Id),
+		sdk.NewAttribute("amount", t.Paid.String()), sdk.NewAttribute("holder", t.Owner),
+		sdk.NewAttribute("reason", "late_reveal"))
+	t.Paid = math.ZeroInt()
+	return nil
+}
+
+// depositRefundee is who a destroyed token's deposit goes to: the granter
+// that paid it through a session key, else fallback (SES-101).
+func depositRefundee(t types.Token, fallback string) string {
+	if t.DepositPayer != "" {
+		return t.DepositPayer
+	}
+	return fallback
 }
 
 // moveToken is the only code path that changes Token.owner on an existing
@@ -171,8 +214,9 @@ func (k Keeper) moveToken(ctx context.Context, t *types.Token, newOwner string) 
 	return k.moveTokenAt(ctx, t, newOwner, math.Int{})
 }
 
-// moveTokenAt is moveToken for a Harberger token bought at price (nil =
-// the token's current price).
+// moveTokenAt is moveToken for a Harberger token bought at price. A nil
+// price is a gift, which carries the tax obligation over
+// (types.GiftedHarbergerState); a sale restarts it.
 func (k Keeper) moveTokenAt(ctx context.Context, t *types.Token, newOwner string, price math.Int) error {
 	if t.Lock != types.TokenLock_TOKEN_LOCK_NONE {
 		return errorsmod.Wrap(types.ErrTokenLocked, "moveToken requires an unlocked token")
@@ -191,9 +235,12 @@ func (k Keeper) moveTokenAt(ctx context.Context, t *types.Token, newOwner string
 			return err
 		}
 		if price.IsNil() {
-			price, _ = types.CurrentHarbergerPrice(c.Harberger, *t.Harberger, now(ctx))
-		}
-		if err := k.resetHarberger(ctx, c, t, price); err != nil {
+			// A gift: the new holder takes over the obligation.
+			if err := k.unindexHarbergerDue(ctx, *t); err != nil {
+				return err
+			}
+			t.Harberger = types.GiftedHarbergerState(c.Harberger, *t.Harberger, now(ctx))
+		} else if err := k.resetHarberger(ctx, c, t, price); err != nil {
 			return err
 		}
 	}
@@ -214,7 +261,7 @@ func (k Keeper) saveToken(ctx context.Context, t types.Token) error {
 }
 
 // destroyToken removes a token (burn, revoke or expiry), refunding its
-// deposit to refundTo. An escrowed public-mint price is refunded to the
+// deposit to refundTo, or to deposit_payer when a session key paid it. An escrowed public-mint price is refunded to the
 // holder when paidToHolder is set (issuer revoke, expiry, or a holder burn
 // after the reveal deadline), otherwise released to the class. Any listing
 // and media proposals are removed first; a pending transfer must already be
@@ -271,6 +318,11 @@ func (k Keeper) destroyToken(ctx context.Context, c *types.Class, t types.Token,
 	}
 	c.Supply--
 	c.Burned++
+	if t.DepositPayer != "" {
+		// A session key paid the deposit: it goes back to the granter,
+		// never to the burner (SES-101).
+		refundTo = t.DepositPayer
+	}
 	if err := k.refund(ctx, refundTo, t.Deposit); err != nil {
 		return err
 	}
@@ -442,8 +494,15 @@ func (k Keeper) resolvePendingMint(ctx context.Context, pm types.PendingMint, ou
 			}
 			deposit = math.ZeroInt()
 		}
-		if _, err := k.createToken(ctx, c, pm.TokenId, pm.To, pm.Minter, pm.Metadata, pm.Schedule, pm.Unrevealed, deposit, math.ZeroInt()); err != nil {
+		t, err := k.createToken(ctx, c, pm.TokenId, pm.To, pm.Minter, pm.Metadata, pm.Schedule, pm.Unrevealed, deposit, math.ZeroInt())
+		if err != nil {
 			return err
+		}
+		if pm.DepositPayer != "" && deposit.IsPositive() {
+			t.DepositPayer = pm.DepositPayer
+			if err := k.saveToken(ctx, t); err != nil {
+				return err
+			}
 		}
 		c.Supply++
 		emit(ctx, types.EventMinted, classAttr(pm.ClassId), tokenAttr(pm.TokenId),

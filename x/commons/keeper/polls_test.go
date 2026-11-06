@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/stretchr/testify/require"
@@ -254,4 +255,64 @@ func TestPoll_GenesisRoundTrip(t *testing.T) {
 	bad := *gs
 	bad.PollVotes = append(bad.PollVotes, types.PollVote{PollId: secret, Voter: members[2], Option: 0})
 	require.Error(t, bad.Validate(), "no open vote on a secret poll")
+}
+
+// CMN-107: the open-poll cap resets on cancel, so openings are also counted
+// per creator per UTC day. Three opens succeed, an open/cancel loop cannot
+// get a fourth that day, and the next day starts a fresh bucket.
+func TestCMN107_PollOpenRateLimit(t *testing.T) {
+	k, ctx, _ := setupCommonsKeeper(t)
+	// 01:00 UTC, so a six-hour step stays inside the day.
+	ctx = ctx.WithBlockTime(time.Unix(1_700_006_400+3600, 0))
+	_, members := setupBallotGroup(t, k, ctx, "ChurnCouncil", types.BallotMode_BALLOT_MODE_UNSPECIFIED, 2, 0)
+	creator, other := members[0], members[1]
+	ms := keeper.NewMsgServerImpl(k)
+	cancel := func(ctx sdk.Context, id uint64) {
+		_, err := ms.CancelPoll(ctx, &types.MsgCancelPoll{Creator: creator, PollId: id})
+		require.NoError(t, err)
+	}
+
+	// Open, cancel, open, cancel, open: never more than one open at a time,
+	// so the open-poll cap (3) is never the limit.
+	var last uint64
+	for i := 0; i < keeper.MaxPollOpensPerCreatorPerDay; i++ {
+		if last != 0 {
+			cancel(ctx, last)
+		}
+		id, err := openPoll(k, ctx, creator, "ChurnCouncil", false)
+		require.NoError(t, err, "open %d", i+1)
+		last = id
+	}
+	cancel(ctx, last)
+	open, err := k.OpenPollsByCouncil.Has(ctx, collections.Join("ChurnCouncil", last))
+	require.NoError(t, err)
+	require.False(t, open, "nothing open, the cap alone would allow a fourth")
+	_, err = openPoll(k, ctx, creator, "ChurnCouncil", false)
+	require.ErrorIs(t, err, types.ErrPollRateLimit, "the fourth opening of the day is refused")
+	bucket, err := k.PollOpenCounts.Get(ctx, creator)
+	require.NoError(t, err)
+	require.Equal(t, uint64(keeper.MaxPollOpensPerCreatorPerDay), bucket.Count)
+	require.Equal(t, ctx.BlockTime().Unix()/86400, bucket.UtcDay)
+
+	// Another member has a bucket of their own.
+	_, err = openPoll(k, ctx, other, "ChurnCouncil", false)
+	require.NoError(t, err)
+
+	// Later the same UTC day: still refused. The next day: allowed again.
+	sameDay := ctx.WithBlockTime(ctx.BlockTime().Add(6 * time.Hour))
+	require.Equal(t, ctx.BlockTime().Unix()/86400, sameDay.BlockTime().Unix()/86400)
+	_, err = openPoll(k, sameDay, creator, "ChurnCouncil", false)
+	require.ErrorIs(t, err, types.ErrPollRateLimit)
+	nextDay := ctx.WithBlockTime(ctx.BlockTime().Add(24 * time.Hour))
+	_, err = openPoll(k, nextDay, creator, "ChurnCouncil", false)
+	require.NoError(t, err, "a new UTC day starts a fresh bucket")
+	bucket, err = k.PollOpenCounts.Get(nextDay, creator)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), bucket.Count)
+	require.Equal(t, nextDay.BlockTime().Unix()/86400, bucket.UtcDay)
+
+	// A refused opening leaves no poll behind.
+	polls, err := keeper.NewQueryServerImpl(k).ListPolls(nextDay, &types.QueryListPollsRequest{CouncilName: "ChurnCouncil"})
+	require.NoError(t, err)
+	require.Len(t, polls.Polls, keeper.MaxPollOpensPerCreatorPerDay+2)
 }

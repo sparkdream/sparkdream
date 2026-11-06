@@ -431,6 +431,103 @@ func TestRequireReviewBridgeContent(t *testing.T) {
 	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED, e.status())
 }
 
+// FED-104: content held HIDDEN for review past its challenge window keeps
+// the verifier's commitment, and a restore opens a fresh challenge window.
+func TestHiddenVerificationStaysChallengeable(t *testing.T) {
+	e := newDispute(t, "r2", 0)
+	policy, err := e.f.keeper.PeerPolicies.Get(e.f.ctx, e.peerID)
+	require.NoError(t, err)
+	policy.RequireReview = true
+	require.NoError(t, e.f.keeper.PeerPolicies.Set(e.f.ctx, e.peerID, policy))
+
+	e.verify(e.hash)
+	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_HIDDEN, e.status())
+
+	// the review comes after the original window
+	late := e.params.ChallengeWindow + time.Hour
+	ctx := e.endBlock(late)
+	rec, err := e.f.keeper.VerificationRecords.Get(ctx, e.contentID)
+	require.NoError(t, err)
+	require.False(t, rec.CommitmentReleased, "a hidden verification keeps its commitment")
+	require.Equal(t, types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING, rec.Outcome)
+
+	_, err = e.ms.ModerateContent(ctx, &types.MsgModerateContent{
+		Authority: e.f.authority, ContentId: e.contentID, NewStatus: types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_ACTIVE,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED, e.status())
+
+	// challengeable for a full window after the restore
+	e.challenge(e.at(late + e.params.ChallengeWindow - time.Hour))
+	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_CHALLENGED, e.status())
+}
+
+// FED-202: a committee REJECT of verified content settles the pending
+// verification as OVERTURNED with no accuracy credit: the commitment is
+// released at once, the window entry is gone, Phase 6 never confirms it as
+// unchallenged, and the record cannot be restored to VERIFIED.
+func TestCommitteeRejectSettlesVerificationWithoutCredit(t *testing.T) {
+	e := newDispute(t, "r3", 0)
+	e.verify(e.hash)
+	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED, e.status())
+	rec := e.record()
+	require.False(t, rec.CommitmentReleased)
+	has, err := e.f.keeper.ChallengeWindow.Has(e.f.ctx, collections.Join(rec.ChallengeWindowEnds, e.contentID))
+	require.NoError(t, err)
+	require.True(t, has)
+
+	ctx := e.at(time.Hour)
+	_, err = e.ms.ModerateContent(ctx, &types.MsgModerateContent{
+		Authority: e.f.authority, ContentId: e.contentID,
+		NewStatus: types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_REJECTED, Reason: "fabricated",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, countEvents(ctx, types.EventTypeVerificationRejected))
+
+	rec = e.record()
+	require.Equal(t, types.VerificationOutcome_VERIFICATION_OUTCOME_OVERTURNED, rec.Outcome)
+	require.True(t, rec.CommitmentReleased, "the verifier's commitment is released, not slashed")
+	has, err = e.f.keeper.ChallengeWindow.Has(e.f.ctx, collections.Join(rec.ChallengeWindowEnds, e.contentID))
+	require.NoError(t, err)
+	require.False(t, has, "no challenge-window entry is left to lapse")
+
+	// the window passing credits nothing
+	e.endBlock(e.params.ChallengeWindow + time.Hour)
+	activity, err := e.f.keeper.VerifierActivity.Get(e.f.ctx, e.verifier)
+	if err == nil {
+		require.Zero(t, activity.UnchallengedVerifications)
+	}
+	require.Equal(t, types.VerificationOutcome_VERIFICATION_OUTCOME_OVERTURNED, e.record().Outcome)
+
+	// a rejected verification is not a standing one: no restore
+	_, err = e.ms.ModerateContent(e.at(2*time.Hour), &types.MsgModerateContent{
+		Authority: e.f.authority, ContentId: e.contentID,
+		NewStatus: types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_ACTIVE,
+	})
+	require.ErrorIs(t, err, types.ErrContentTerminal)
+}
+
+// FED-202 (Phase 6 path): a record whose content is REJECTED when its
+// window lapses is released without the unchallenged credit.
+func TestPhase6ReleasesRejectedVerificationWithoutCredit(t *testing.T) {
+	e := newDispute(t, "r4", 0)
+	e.verify(e.hash)
+	content, err := e.f.keeper.Content.Get(e.f.ctx, e.contentID)
+	require.NoError(t, err)
+	content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_REJECTED
+	require.NoError(t, e.f.keeper.Content.Set(e.f.ctx, e.contentID, content))
+
+	ctx := e.endBlock(e.params.ChallengeWindow + time.Hour)
+	require.Equal(t, 1, countEvents(ctx, types.EventTypeVerificationRejected))
+	rec := e.record()
+	require.Equal(t, types.VerificationOutcome_VERIFICATION_OUTCOME_OVERTURNED, rec.Outcome)
+	require.True(t, rec.CommitmentReleased)
+	activity, err := e.f.keeper.VerifierActivity.Get(e.f.ctx, e.verifier)
+	if err == nil {
+		require.Zero(t, activity.UnchallengedVerifications)
+	}
+}
+
 // activeServiceKeeper wires a mock x/service whose operators are all ACTIVE.
 func activeServiceKeeper(t *testing.T, f *fixture) *mockServiceKeeper {
 	sk := wireServiceKeeper(t, f)

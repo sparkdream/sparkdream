@@ -68,4 +68,8 @@ var (
 	// and no stake that leaves a remainder below it.
 	ErrTrancheBelowMinStake      = errors.Register(ModuleName, 1175, "tranche stake threshold is below min_stake_amount")
 	ErrStakeLeavesUnfillableRest = errors.Register(ModuleName, 1176, "stake would leave a tranche remainder below min_stake_amount")
+	// The tranche's current phase is past its deadline; the EndBlocker
+	// settles it (REV-103).
+	ErrDeadlinePassed = errors.Register(ModuleName, 1177, "the tranche deadline for this action has passed")
+	ErrFieldTooLong   = errors.Register(ModuleName, 1178, "free-text field exceeds its length cap")
 )

@@ -229,7 +229,7 @@ else
     # don't default to zero and break Validate.
     OP_PARAMS=$(echo "$PARAMS" | jq --argjson narrow "$NARROWED_TYPES" '
         .params
-        | del(.max_allowed_msg_types, .authorized_grant_creators)
+        | del(.max_allowed_msg_types, .authorized_grant_creators, .pending_grant_deposit)
         | .allowed_msg_types = $narrow
     ')
 
@@ -348,7 +348,7 @@ else
     # doesn't reject on zero-valued unspecified fields.
     OP_PARAMS=$(echo "$CURRENT_PARAMS" | jq --argjson full "$FULL_CEILING" '
         .params
-        | del(.max_allowed_msg_types, .authorized_grant_creators)
+        | del(.max_allowed_msg_types, .authorized_grant_creators, .pending_grant_deposit)
         | .allowed_msg_types = $full
     ')
 
@@ -408,7 +408,7 @@ else
 
     OP_PARAMS=$(echo "$CURRENT_PARAMS" | jq --argjson bad "$INVALID_ACTIVE" '
         .params
-        | del(.max_allowed_msg_types, .authorized_grant_creators)
+        | del(.max_allowed_msg_types, .authorized_grant_creators, .pending_grant_deposit)
         | .allowed_msg_types = $bad
     ')
 
@@ -459,7 +459,7 @@ CURRENT_ACTIVE=$(echo "$CURRENT_PARAMS" | jq '.params.allowed_msg_types')
 # valid msg for the auth gate to reject before validation runs.
 OP_PARAMS_TX=$(echo "$CURRENT_PARAMS" | jq '
     .params
-    | del(.max_allowed_msg_types, .authorized_grant_creators)
+    | del(.max_allowed_msg_types, .authorized_grant_creators, .pending_grant_deposit)
     | .max_sessions_per_granter = "5"
     | .max_msg_types_per_session = "10"
 ')

@@ -481,3 +481,48 @@ func TestTLEKeySetValidate(t *testing.T) {
 	gs.TleKeySet.MasterPublicKeyG2 = nil
 	require.ErrorContains(t, gs.Validate(), "master_public_key_g2")
 }
+
+// TestRegistrationGroupTreeImmediateOnly (SHD-104): a group-tree op must be
+// registered IMMEDIATE_ONLY; its root is resolved from the cleartext inner
+// message, which a batch submission does not carry.
+func TestRegistrationGroupTreeImmediateOnly(t *testing.T) {
+	reg := types.ShieldedOpRegistration{
+		MessageTypeUrl: "/sparkdream.aurora.v1.MsgVote",
+		ProofDomain:    types.ProofDomain_PROOF_DOMAIN_GROUP_TREE,
+		BatchMode:      types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY,
+	}
+	require.NoError(t, reg.Validate())
+	for _, mode := range []types.ShieldBatchMode{
+		types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
+		types.ShieldBatchMode_SHIELD_BATCH_MODE_ENCRYPTED_ONLY,
+	} {
+		reg.BatchMode = mode
+		require.ErrorIs(t, reg.Validate(), types.ErrInvalidProofDomain, mode.String())
+	}
+	require.NoError(t, types.DefaultGenesis().Validate())
+}
+
+// TestGenesisIdentityEpochFeesValidate (SHD-102): per-identity fee entries
+// need a lowercase 32-byte hex identity, a non-negative amount, and one entry
+// per (epoch, identity).
+func TestGenesisIdentityEpochFeesValidate(t *testing.T) {
+	id := strings.Repeat("0a", 32)
+	gs := types.DefaultGenesis()
+	gs.IdentityEpochFees = []types.IdentityEpochFeeEntry{{Epoch: 3, RateLimitNullifierHex: id, Paid: math.NewInt(5)}}
+	require.NoError(t, gs.Validate())
+
+	for name, e := range map[string]types.IdentityEpochFeeEntry{
+		"short id":     {Epoch: 3, RateLimitNullifierHex: "0a", Paid: math.NewInt(5)},
+		"upper case":   {Epoch: 3, RateLimitNullifierHex: strings.ToUpper(strings.Repeat("ab", 32)), Paid: math.NewInt(5)},
+		"negative":     {Epoch: 3, RateLimitNullifierHex: id, Paid: math.NewInt(-1)},
+		"nil amount":   {Epoch: 3, RateLimitNullifierHex: id},
+		"duplicate id": {Epoch: 3, RateLimitNullifierHex: id, Paid: math.NewInt(1)},
+	} {
+		bad := types.DefaultGenesis()
+		bad.IdentityEpochFees = []types.IdentityEpochFeeEntry{{Epoch: 3, RateLimitNullifierHex: strings.Repeat("0b", 32), Paid: math.NewInt(1)}, e}
+		if name == "duplicate id" {
+			bad.IdentityEpochFees[0].RateLimitNullifierHex = id
+		}
+		require.Error(t, bad.Validate(), name)
+	}
+}

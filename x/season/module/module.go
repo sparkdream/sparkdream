@@ -144,7 +144,8 @@ func (am AppModule) BeginBlock(ctx context.Context) error {
 }
 
 // EndBlock contains the logic that is automatically triggered at the end of each block.
-// The end block implementation is optional.
-func (am AppModule) EndBlock(_ context.Context) error {
+// Applies the block's vote counts to quest objectives (SEA-103).
+func (am AppModule) EndBlock(ctx context.Context) error {
+	am.keeper.ApplyPendingVoteQuestProgress(ctx)
 	return nil
 }

@@ -83,10 +83,16 @@ func (h HarbergerPolicy) Validate() error {
 // TaxPerPeriod is the tax on price for one tax period, rounded up so a
 // non-zero price never pays zero tax.
 func (h HarbergerPolicy) TaxPerPeriod(price math.Int) math.Int {
-	if !h.Enabled() || price.IsNil() || !price.IsPositive() {
+	return h.TaxFor(price, h.TaxPeriod)
+}
+
+// TaxFor is the tax on price for seconds of holding, rounded up like
+// TaxPerPeriod; zero for a non-positive span.
+func (h HarbergerPolicy) TaxFor(price math.Int, seconds int64) math.Int {
+	if !h.Enabled() || price.IsNil() || !price.IsPositive() || seconds <= 0 {
 		return math.ZeroInt()
 	}
-	num := price.MulRaw(int64(h.TaxBpsPerYear)).MulRaw(h.TaxPeriod)
+	num := price.MulRaw(int64(h.TaxBpsPerYear)).MulRaw(seconds)
 	den := math.NewInt(10000).MulRaw(SecondsPerYear)
 	q := num.Quo(den)
 	if !num.Mod(den).IsZero() {
@@ -106,6 +112,78 @@ func (s HarbergerState) ForeclosureStart() int64 {
 		return s.GraceUntil
 	}
 	return 0
+}
+
+// PaidThrough is the time up to which the holder's tax is settled: the
+// next due pull of an active grant (each pull pays the period that starts
+// at it), else the start of the foreclosure (the end of the grace period
+// or a missed pull). A replacement grant whose first pull falls later owes
+// the gap up front, and a gift hands this time on rather than a fresh
+// grace period (ART-101).
+func (s HarbergerState) PaidThrough() int64 {
+	if s.GrantId != 0 && s.NextDue != 0 {
+		return s.NextDue
+	}
+	return s.ForeclosureStart()
+}
+
+// AssessedPrice is the price the paid-through window was assessed at
+// (PaidPrice, zero when unset). Holding the token at a higher price for
+// the rest of that window costs the difference up front (ART-201).
+func (s HarbergerState) AssessedPrice() math.Int {
+	if s.PaidPrice.IsNil() {
+		return math.ZeroInt()
+	}
+	return s.PaidPrice
+}
+
+// ReassessmentCharge is what a holder owes up front, to the community
+// pool, to hold the token at price from now until nextDue (the first pull
+// of the grant being named; 0 without one), given the current state:
+//
+//   - the time already paid for, now to PaidThrough, was assessed at
+//     AssessedPrice; raising the price above it costs the difference for
+//     the rest of that window;
+//   - the time the new grant skips, PaidThrough (or now, once foreclosed)
+//     to nextDue, is charged at the higher of the price held so far and the
+//     new one, so swapping through a cheap intermediate price never moves
+//     the due date for less than the tax on the price actually held.
+//
+// paidPrice is the price the whole window now to max(PaidThrough,
+// nextDue) is then settled at: the lowest price any part of it was
+// assessed at, which a later raise charges from again.
+func (s HarbergerState) ReassessmentCharge(h HarbergerPolicy, price math.Int, nextDue, now int64) (charge, paidPrice math.Int) {
+	if price.IsNil() {
+		price = math.ZeroInt()
+	}
+	held := s.Price
+	if held.IsNil() {
+		held = math.ZeroInt()
+	}
+	charge = math.ZeroInt()
+	assessed := s.AssessedPrice()
+	from := max(s.PaidThrough(), now)
+	paidPrice = math.Int{}
+	if from > now {
+		// Already paid for, at assessed: top up to the new price.
+		if price.GT(assessed) {
+			charge = charge.Add(h.TaxFor(price.Sub(assessed), from-now))
+			assessed = price
+		}
+		paidPrice = assessed
+	}
+	if nextDue > from {
+		gapPrice := math.MaxInt(held, price)
+		charge = charge.Add(h.TaxFor(gapPrice, nextDue-from))
+		if paidPrice.IsNil() || gapPrice.LT(paidPrice) {
+			paidPrice = gapPrice
+		}
+	}
+	if paidPrice.IsNil() {
+		// Nothing is paid ahead; the next pull sets the window's price.
+		paidPrice = price
+	}
+	return charge, paidPrice
 }
 
 // CurrentHarbergerPrice is what a forced buy pays at now: the assessed price, or
@@ -144,7 +222,26 @@ func NewHarbergerState(h HarbergerPolicy, price math.Int, now int64) *HarbergerS
 	if price.IsNil() {
 		price = math.ZeroInt()
 	}
-	return &HarbergerState{Price: price, GraceUntil: now + h.TaxPeriod, TaxPaid: math.ZeroInt()}
+	return &HarbergerState{Price: price, GraceUntil: now + h.TaxPeriod, TaxPaid: math.ZeroInt(), PaidPrice: price}
+}
+
+// GiftedHarbergerState is the state of a token arriving by gift or
+// accepted transfer at now. Nothing was paid for it, so the obligation
+// carries over: the assessed price and any foreclosure stay, and the grace
+// period ends when the previous holder's tax was paid through (never later
+// than one tax period from now), at the price it was paid at. Passing a
+// token back and forth therefore never restarts the grace period; only a
+// paid sale does.
+func GiftedHarbergerState(h HarbergerPolicy, s HarbergerState, now int64) *HarbergerState {
+	price := s.Price
+	if price.IsNil() {
+		price = math.ZeroInt()
+	}
+	grace := s.PaidThrough()
+	if grace == 0 || grace > now+h.TaxPeriod {
+		grace = now + h.TaxPeriod
+	}
+	return &HarbergerState{Price: price, GraceUntil: grace, ForeclosedAt: s.ForeclosedAt, TaxPaid: math.ZeroInt(), PaidPrice: s.AssessedPrice()}
 }
 
 // ---------------------------------------------------------------------------

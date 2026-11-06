@@ -18,7 +18,7 @@ func TestQueryResolveRemoteIdentity(t *testing.T) {
 	registerTestPeer(t, f, ms, "resolve-peer")
 	peer, _ := f.keeper.Peers.Get(f.ctx, "resolve-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "resolve-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	userStr := testAddr(t, f, "resolve-user")
 	_, err := ms.LinkIdentity(f.ctx, &types.MsgLinkIdentity{

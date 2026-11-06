@@ -12,9 +12,25 @@ import (
 func TestParams_NarrowSessionMaxExpiration(t *testing.T) {
 	p := types.DefaultParams()
 	require.NoError(t, p.Validate())
-	require.Equal(t, p.NarrowSessionMaxExpiration, p.SessionMaxExpiration(types.NarrowSessionMaxMsgTypes, false))
-	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration(types.NarrowSessionMaxMsgTypes+1, false))
-	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration(1, true))
+	daemon := []string{"/sparkdream.service.v1.MsgSubmitCheckpoint", "/sparkdream.federation.v1.MsgSubmitFederatedContent"}
+	require.Equal(t, p.NarrowSessionMaxExpiration, p.SessionMaxExpiration(daemon, false))
+	require.Equal(t, p.NarrowSessionMaxExpiration, p.SessionMaxExpiration(daemon[:1], false))
+	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration(append(daemon, "/sparkdream.federation.v1.MsgVerifyContent"), false), "too many types")
+	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration(daemon[:1], true), "allow_self_revoke")
+	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration(nil, false), "no types")
+	// SES-103: narrowness is judged by what the types do, not only how
+	// many: a single value-moving or non-daemon type is not narrow.
+	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration([]string{"/sparkdream.artifact.v1.MsgMint"}, false))
+	require.Equal(t, p.MaxExpiration, p.SessionMaxExpiration([]string{"/sparkdream.blog.v1.MsgCreatePost"}, false))
+	// Every narrow type is in the default ceiling and delegable.
+	allowed := map[string]bool{}
+	for _, m := range types.DefaultAllowedMsgTypes {
+		allowed[m] = true
+	}
+	for m := range types.NarrowSessionMsgTypes {
+		require.True(t, allowed[m], "%s must be in DefaultAllowedMsgTypes", m)
+		require.False(t, types.ForbiddenAllowlistMsgs[m], m)
+	}
 
 	// The narrow cap may never be shorter than the general one.
 	short := p

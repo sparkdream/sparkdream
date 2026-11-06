@@ -31,5 +31,6 @@ func getShieldGenesisParams() Params {
 		MaxFeePerExec:               math.NewInt(50_000),     // 0.05 SPARK per exec
 		EnableBatchAfterDkg:         true,                    // auto-enable so single-validator DKG e2e tests exercise batch mode
 		MaxFeesPerEpoch:             math.NewInt(10_000_000), // 10 SPARK: generous so e2e suites are never throttled
+		BeaconEnabled:               true,                    // every closed epoch's TLE key is a public random beacon once a DKG has run
 	}
 }

@@ -48,10 +48,15 @@ type Keeper struct {
 	// wiring).
 	authority string
 
+	// bounds are the per-network floors (network_bounds.go), fixed by the
+	// build tag at construction.
+	bounds NetworkBounds
+
 	// Late-bound from app.go via Set*Keeper. The identity, mint and staking
-	// keepers are read by filters, which fail closed until they are set.
-	// The distr, gov, slashing and auth keepers are wired but not read:
-	// those filters are stateless clamps against compiled bounds.
+	// keepers are read by filters, which fail closed until they are set
+	// (staking by both the staking and the consensus filter). The distr,
+	// gov, slashing and auth keepers are wired but not read: those four
+	// filters clamp against compiled bounds and never consult current state.
 	identityKeeper types.IdentityKeeper
 	mintKeeper     types.MintKeeper
 	stakingKeeper  types.StakingKeeper
@@ -83,6 +88,7 @@ func NewKeeper(
 		addressCodec: addressCodec,
 		msgRouter:    msgRouter,
 		authority:    authority,
+		bounds:       activeNetworkBounds(),
 		LastBlocksPerYearChange: collections.NewItem(sb, types.LastBlocksPerYearChangeKey,
 			"last_blocks_per_year_change", collections.Int64Value),
 	}

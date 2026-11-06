@@ -14,6 +14,9 @@ import (
 // UnpinPost unpins a root post (thread) from its category.
 // Only governance authority can unpin root posts.
 func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*types.MsgUnpinPostResponse, error) {
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}

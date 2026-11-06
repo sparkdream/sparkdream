@@ -148,8 +148,11 @@ func (k Keeper) settleNoQuorum(ctx context.Context, contentID uint64, now int64)
 	// No quorum is no finding: the escrowed challenge fee follows the
 	// jury-TIMEOUT rule (half back, half burned) instead of sitting in the
 	// module account forever. Only a CHALLENGED record holds an
-	// undisbursed fee.
-	if cerr == nil && content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_CHALLENGED {
+	// undisbursed fee; when the content was TTL-pruned mid-dispute the
+	// record's escrow is the only trace left and is split all the same
+	// (FED-103), or the fee would sit in the module account forever.
+	if (cerr == nil && content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_CHALLENGED) ||
+		(cerr != nil && !record.EscrowedChallengeFee.IsNil() && record.EscrowedChallengeFee.IsPositive()) {
 		if err := k.splitChallengeFeeNoFinding(ctx, record); err != nil {
 			return err
 		}

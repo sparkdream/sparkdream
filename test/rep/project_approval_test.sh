@@ -7,6 +7,7 @@ echo "  • Locked to the picked council (no cross-council ops-committee fallbac
 echo "  • Tier-by-budget gate: individual committee member only up to"
 echo "    params.large_project_budget_threshold; above that requires a passed"
 echo "    council / committee proposal."
+echo "  • A committee member cannot approve a project they created alone."
 echo ""
 
 # ========================================================================
@@ -139,13 +140,15 @@ echo "Large project budget threshold: $THRESHOLD_UDREAM udream ($THRESHOLD_DREAM
 echo ""
 
 # ========================================================================
-# TEST 1 — Small-budget approval by Alice (committee member, picked council)
+# TEST 1 — Small budget: the creator cannot approve alone; a proposal can
 # ========================================================================
-# Below the threshold, an individual member of the picked council's
-# operations committee is sufficient. This is the bread-and-butter path
-# the rest of the suite already relies on; we re-assert it explicitly so
-# regressions in the tier logic don't silently pass.
-echo "--- TEST 1: small budget approved by committee member (alice / Technical) ---"
+# Below the threshold an individual member of the picked council's
+# operations committee may approve someone else's project, but not their
+# own (REP-E-105): alice proposed this one, so her direct approval is
+# refused and the Technical Operations Committee approves it by proposal.
+# (The e2e committees seat alice alone, so the "another member approves"
+# path has no second key here; the keeper test covers it.)
+echo "--- TEST 1: small budget, creator refused alone, approved by proposal (alice / Technical) ---"
 
 SMALL_BUDGET=100000000 # 100 DREAM
 PID=$(propose_project "approval-test-small" "Technical Council" "$SMALL_BUDGET" alice)
@@ -157,11 +160,18 @@ else
         "$PID" "$SMALL_BUDGET" "0" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
-    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        echo "  Project #$PID approved (budget $SMALL_BUDGET udream)"
-        record_result "TEST 1: small budget approved" "PASS"
+    if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT" && \
+        echo "$TX_RESULT" | jq -r '.raw_log // ""' | grep -qi "cannot approve it alone"; then
+        echo "  Creator's own approval refused"
+        if ops_approve_project_budget "$PID" "$SMALL_BUDGET" "0"; then
+            echo "  Project #$PID approved by committee proposal #$OPS_COMMITTEE_PROPOSAL_ID"
+            record_result "TEST 1: small budget approved" "PASS"
+        else
+            echo "  Committee approval failed: $OPS_COMMITTEE_ERROR"
+            record_result "TEST 1: small budget approved" "FAIL"
+        fi
     else
-        echo "  Approval rejected: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        echo "  Expected the creator's approval to be refused: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
         record_result "TEST 1: small budget approved" "FAIL"
     fi
 fi
@@ -207,9 +217,9 @@ fi
 # TEST 3 — Threshold boundary
 # ========================================================================
 # Exactly at the threshold (GT is strict, so equal-to is still "small"):
-# Alice should still be able to approve unilaterally. Guards against an
-# off-by-one in the chain's tier check.
-echo "--- TEST 3: budget exactly at threshold still approved by committee member ---"
+# the tier check passes and the refusal that follows is the creator rule,
+# not the threshold. Guards against an off-by-one in the chain's tier check.
+echo "--- TEST 3: budget exactly at threshold passes the tier check ---"
 
 PID=$(propose_project "approval-test-boundary" "Technical Council" "$THRESHOLD_UDREAM" alice)
 if [ -z "$PID" ]; then
@@ -220,11 +230,14 @@ else
         "$PID" "$THRESHOLD_UDREAM" "0" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
-    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
-        echo "  Project #$PID approved at exactly threshold ($THRESHOLD_UDREAM udream)"
+    submit_tx_and_wait "$TX_RES"
+    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
+    if check_tx_failure "$TX_RESULT" && echo "$RAW" | grep -qi "cannot approve it alone" && \
+        ! echo "$RAW" | grep -qi "exceeds threshold"; then
+        echo "  At-threshold budget passed the tier check (refused only as the creator's own)"
         record_result "TEST 3: at-threshold approved" "PASS"
     else
-        echo "  Approval rejected: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        echo "  Unexpected result at threshold: $RAW"
         record_result "TEST 3: at-threshold approved" "FAIL"
     fi
 fi
@@ -289,6 +302,94 @@ elif OPS_COMMITTEE_NAME="Technical Operations Committee" ops_committee_exec \
 else
     echo "  Committee approval failed: $OPS_COMMITTEE_ERROR"
     record_result "TEST 5: large budget via committee" "FAIL"
+fi
+
+# ========================================================================
+# TEST 6 - Budget-backed proposal: creation fee burned, review interim
+#          opened and settled by the committee's approval (REP-E-201)
+# ========================================================================
+# A budget-backed propose-project burns params.project_creation_fee from the
+# creator's DREAM (it used to be free) and opens a PROJECT_APPROVAL /
+# BUDGET_REVIEW interim for the picked council's Operations Committee, whose
+# id is stored on project.approval_interim_id. MsgApproveProjectBudget
+# settles that interim: COMPLETED when an assignee took part in the
+# decision, EXPIRED (unpaid) when none did. Either way it is no longer live.
+echo "--- TEST 6: creation fee burned + review interim opened and settled ---"
+
+CREATION_FEE=$(echo "$PARAMS" | jq -r '.params.project_creation_fee // "0"')
+DREAM_BEFORE=$($BINARY query rep get-member "$ALICE_ADDR" --output json 2>/dev/null | jq -r '.member.dream_balance // "0"')
+PID=$(propose_project "approval-test-interim" "Technical Council" "$SMALL_BUDGET" alice)
+DREAM_AFTER=$($BINARY query rep get-member "$ALICE_ADDR" --output json 2>/dev/null | jq -r '.member.dream_balance // "0"')
+if [ -z "$PID" ]; then
+    echo "  [FAIL] Failed to create project"
+    record_result "TEST 6: fee burned + review interim" "FAIL"
+else
+    T6_OK=1
+    DREAM_DROP=$((DREAM_BEFORE - DREAM_AFTER))
+    # An epoch boundary may fall between the two reads, and the per-epoch
+    # unstaked decay (unstaked_decay_rate of the liquid balance) then burns
+    # on top of the fee: accept fee <= drop <= fee + one epoch of decay.
+    # The CLI renders a LegacyDec either as "0.002000000000000000" or as the
+    # raw 18-decimal integer "2000000000000000"; normalize both to a ratio.
+    DECAY_RATE=$(echo "$PARAMS" | jq -r '.params.unstaked_decay_rate // "0"')
+    MAX_DECAY=$(python3 -c "
+from decimal import Decimal
+import math
+s='$DECAY_RATE'
+r=Decimal(s)
+if '.' not in s: r=r/Decimal(10**18)
+print(math.ceil(Decimal('$DREAM_BEFORE')*r))" 2>/dev/null || echo 0)
+    if [ "$CREATION_FEE" = "0" ]; then
+        echo "  [WARN] project_creation_fee is 0 on this chain; fee burn not checked"
+    elif [ "$DREAM_DROP" -ge "$CREATION_FEE" ] && [ "$DREAM_DROP" -le "$((CREATION_FEE + MAX_DECAY))" ]; then
+        echo "  [ OK ] creator's DREAM dropped by project_creation_fee ($CREATION_FEE) plus at most one epoch of decay: $DREAM_BEFORE -> $DREAM_AFTER (drop $DREAM_DROP)"
+    else
+        echo "  [FAIL] expected DREAM drop between $CREATION_FEE and $((CREATION_FEE + MAX_DECAY)), got $DREAM_DROP ($DREAM_BEFORE -> $DREAM_AFTER)"
+        T6_OK=0
+    fi
+
+    INTERIM_ID=$($BINARY query rep get-project "$PID" --output json 2>/dev/null | jq -r '.project.approval_interim_id // "0"')
+    if [ "$INTERIM_ID" != "0" ] && [ -n "$INTERIM_ID" ]; then
+        INTERIM=$($BINARY query rep get-interim "$INTERIM_ID" --output json 2>/dev/null)
+        I_STATUS=$(echo "$INTERIM" | jq -r '.interim.status // "INTERIM_STATUS_PENDING"')
+        I_TYPE=$(echo "$INTERIM" | jq -r '.interim.type // ""')
+        I_REF=$(echo "$INTERIM" | jq -r '.interim.reference_id // "0"')
+        I_REFTYPE=$(echo "$INTERIM" | jq -r '.interim.reference_type // ""')
+        if [ "$I_REF" = "$PID" ] && [ "$I_REFTYPE" = "project" ] && \
+            { [ "$I_STATUS" = "INTERIM_STATUS_PENDING" ] || [ "$I_STATUS" = "INTERIM_STATUS_IN_PROGRESS" ]; }; then
+            echo "  [ OK ] review interim #$INTERIM_ID opened for project #$PID (type=$I_TYPE status=$I_STATUS)"
+        else
+            echo "  [FAIL] interim #$INTERIM_ID unexpected: type=$I_TYPE status=$I_STATUS reference=$I_REFTYPE/$I_REF (want project/$PID, live)"
+            T6_OK=0
+        fi
+    else
+        echo "  [FAIL] project #$PID has no approval_interim_id"
+        T6_OK=0
+    fi
+
+    if [ "$T6_OK" = "1" ]; then
+        if ops_approve_project_budget "$PID" "$SMALL_BUDGET" "0"; then
+            I_STATUS=$($BINARY query rep get-interim "$INTERIM_ID" --output json 2>/dev/null | jq -r '.interim.status // "INTERIM_STATUS_PENDING"')
+            case "$I_STATUS" in
+                INTERIM_STATUS_COMPLETED)
+                    echo "  [ OK ] interim #$INTERIM_ID COMPLETED by the committee approval (proposal #$OPS_COMMITTEE_PROPOSAL_ID)" ;;
+                INTERIM_STATUS_EXPIRED)
+                    echo "  [WARN] interim #$INTERIM_ID settled as EXPIRED (no assignee other than the proposer took part); no longer live" ;;
+                *)
+                    echo "  [FAIL] interim #$INTERIM_ID still live after approval: status=$I_STATUS"
+                    T6_OK=0 ;;
+            esac
+        else
+            echo "  [FAIL] Committee approval failed: $OPS_COMMITTEE_ERROR"
+            T6_OK=0
+        fi
+    fi
+
+    if [ "$T6_OK" = "1" ]; then
+        record_result "TEST 6: fee burned + review interim" "PASS"
+    else
+        record_result "TEST 6: fee burned + review interim" "FAIL"
+    fi
 fi
 
 # ========================================================================

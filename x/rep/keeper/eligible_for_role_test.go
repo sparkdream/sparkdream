@@ -109,3 +109,35 @@ func TestEligibleForRole_NotBonded(t *testing.T) {
 		types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sdk.AccAddress([]byte("nobody______________")).String())
 	require.ErrorIs(t, err, types.ErrBondedRoleNotFound)
 }
+
+// The role config's min_age_blocks is enforced here for every role: a bond
+// registered fewer blocks ago than the gate cannot act, whatever its
+// status; zero means no gate.
+func TestEligibleForRole_MinAgeBlocks(t *testing.T) {
+	role := types.RoleType_ROLE_TYPE_COLLECT_CURATOR
+	addr := sdk.AccAddress([]byte("young_curator_______")).String()
+	f := initFixture(t)
+	f.ctx = f.ctx.WithBlockHeight(1_000)
+	cfg, err := f.keeper.BondedRoleConfigs.Get(f.ctx, int32(role))
+	require.NoError(t, err)
+	cfg.MinAgeBlocks = 300
+	require.NoError(t, f.keeper.BondedRoleConfigs.Set(f.ctx, int32(role), cfg))
+	require.NoError(t, f.keeper.BondedRoles.Set(f.ctx, bondedRoleKey(role, addr), types.BondedRole{
+		RoleType: role, Address: addr, CurrentBond: "1000", TotalCommittedBond: "0",
+		PendingUnbondAmount: "0", BondStatus: types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+		RegisteredAt: 900,
+	}))
+
+	_, err = f.keeper.EligibleForRole(f.ctx, role, addr)
+	require.ErrorIs(t, err, types.ErrRoleTooNew, "100 blocks old, gate 300")
+
+	f.ctx = f.ctx.WithBlockHeight(1_200)
+	_, err = f.keeper.EligibleForRole(f.ctx, role, addr)
+	require.NoError(t, err, "exactly min_age_blocks old")
+
+	cfg.MinAgeBlocks = 0
+	require.NoError(t, f.keeper.BondedRoleConfigs.Set(f.ctx, int32(role), cfg))
+	f.ctx = f.ctx.WithBlockHeight(901)
+	_, err = f.keeper.EligibleForRole(f.ctx, role, addr)
+	require.NoError(t, err, "zero = no gate")
+}

@@ -167,10 +167,18 @@ sleep 45
 # Verify Deletion
 PERMS_CHECK=$($BINARY query commons show-policy-permissions $COUNCIL_ADDR --output json 2>&1)
 
+# A registered group policy keeps an EMPTY permissions row after
+# MsgDeletePolicyPermissions (COM-201): the row is the strongest narrowing
+# (no message type may be proposed), and keeping it lets the body still
+# signal and be re-widened by gov. Only an unregistered policy's row is
+# removed outright.
+REMAINING=$(echo "$PERMS_CHECK" | jq -r '.policy_permissions.allowed_messages // [] | length' 2>/dev/null)
 if echo "$PERMS_CHECK" | grep -q "key not found" || echo "$PERMS_CHECK" | grep -q "policy permissions not found"; then
-    echo "[ OK ] SUCCESS: Policy permissions verified deleted from state."
+    echo "[ OK ] SUCCESS: Policy permissions row removed from state."
+elif [ "$REMAINING" = "0" ]; then
+    echo "[ OK ] SUCCESS: Policy permissions narrowed to an empty allowlist (group policy keeps its row)."
 else
-    echo "[FAIL] FAILURE: Policy permissions still exist!"
+    echo "[FAIL] FAILURE: Policy permissions still list $REMAINING message type(s)!"
     echo "$PERMS_CHECK"
     exit 1
 fi

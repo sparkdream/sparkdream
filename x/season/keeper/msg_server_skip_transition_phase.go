@@ -54,13 +54,11 @@ func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTr
 		return nil, errorsmod.Wrapf(types.ErrCannotSkipCriticalPhase,
 			"cannot skip into critical phase %s", nextPhase.String())
 	}
-	state.Phase = nextPhase
-	state.ProcessedCount = 0
-	state.LastProcessed = ""
-
-	// If we're exiting maintenance mode phases, disable maintenance mode
-	if skippedPhase == types.TransitionPhase_TRANSITION_PHASE_RESET_XP {
-		state.MaintenanceMode = false
+	// Cursor, maintenance flag and the season status follow the new phase;
+	// total_count becomes 0 (unknown) rather than being counted at gas
+	// inside this tx (SEA-201).
+	if err := k.beginTransitionPhase(ctx, &state, nextPhase, false); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to begin next phase")
 	}
 
 	if err := k.SeasonTransitionState.Set(ctx, state); err != nil {

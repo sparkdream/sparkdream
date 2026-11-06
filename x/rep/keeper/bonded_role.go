@@ -99,6 +99,16 @@ func (k Keeper) EligibleForRole(ctx context.Context, roleType types.RoleType, ad
 		return br, err
 	}
 
+	// Age gate: the owning module's min_age_blocks (projected into the role
+	// config) must have passed since the bond was registered, so a role
+	// cannot be bonded and exercised in the same breath. Zero = no gate.
+	// A missing config means no gate; a corrupt one fails the action.
+	if cfg, cfgErr := k.BondedRoleConfigs.Get(ctx, int32(roleType)); cfgErr == nil && cfg.MinAgeBlocks > 0 {
+		if age := sdk.UnwrapSDKContext(ctx).BlockHeight() - br.RegisteredAt; age < cfg.MinAgeBlocks {
+			return br, errorsmod.Wrapf(types.ErrRoleTooNew, "bonded %d blocks ago, need %d", age, cfg.MinAgeBlocks)
+		}
+	}
+
 	switch br.BondStatus {
 	case types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
 		types.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY:
@@ -128,6 +138,11 @@ func (k Keeper) EligibleForRole(ctx context.Context, roleType types.RoleType, ad
 		if current.Sub(pending).LT(minBond) {
 			return br, errorsmod.Wrap(types.ErrRoleUnbondingBelowMin,
 				"staying bond below role minimum during unbond")
+		}
+		// A demotion that landed during the unbond (SetBondStatus keeps the
+		// status UNBONDING so the unbond still matures) still bars the role.
+		if br.DemotionCooldownUntil > sdk.UnwrapSDKContext(ctx).BlockTime().Unix() {
+			return br, errorsmod.Wrapf(types.ErrRoleDemoted, "demoted during unbond until %d", br.DemotionCooldownUntil)
 		}
 		return br, nil
 
@@ -461,9 +476,20 @@ func (k Keeper) SetBondStatus(ctx context.Context, roleType types.RoleType, addr
 	if err != nil {
 		return errorsmod.Wrapf(types.ErrBondedRoleNotFound, "%s:%s", roleType.String(), addr)
 	}
-	br.BondStatus = statusValue
+	// An unbond in flight keeps UNBONDING (REP-R-104): MatureUnbonds only
+	// matures UNBONDING records, so overwriting the status orphaned the queue
+	// entry and left the pending DREAM locked for good. The cooldown carries
+	// the demotion instead: EligibleForRole refuses an UNBONDING role inside
+	// it, and maturity lands on DEMOTED while it runs.
+	pending, err := parseIntOrZero(br.PendingUnbondAmount)
+	if err != nil {
+		return err
+	}
+	if br.BondStatus != types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING || !pending.IsPositive() {
+		br.BondStatus = statusValue
+	}
 	br.DemotionCooldownUntil = cooldownUntil
-	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+	if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 		return err
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -472,7 +498,7 @@ func (k Keeper) SetBondStatus(ctx context.Context, roleType types.RoleType, addr
 			"bonded_role_status_updated",
 			sdk.NewAttribute("role_type", roleType.String()),
 			sdk.NewAttribute("address", addr),
-			sdk.NewAttribute("bond_status", statusValue.String()),
+			sdk.NewAttribute("bond_status", br.BondStatus.String()),
 			sdk.NewAttribute("cooldown_until", fmt.Sprintf("%d", cooldownUntil)),
 		),
 	)
@@ -679,17 +705,20 @@ func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType,
 	// demotion_threshold lands at DEMOTED. This matches the legacy
 	// immediate-unlock path so partial-unbond intent is preserved through
 	// the cooldown.
-	br.BondStatus = k.computeBondStatus(ctx, roleType, newCurrent)
+	computed := k.computeBondStatus(ctx, roleType, newCurrent)
 
 	// Start demotion_cooldown only when the matured unbond actually drops
 	// the holder into DEMOTED — partial unbonds that keep the role active
-	// don't need a re-bond gate.
-	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
+	// don't need a re-bond gate. Never shorten a running cooldown.
+	if computed == types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED {
 		cfg, cfgErr := k.GetBondedRoleConfig(ctx, roleType)
-		if cfgErr == nil {
+		if cfgErr == nil && now+cfg.DemotionCooldown > br.DemotionCooldownUntil {
 			br.DemotionCooldownUntil = now + cfg.DemotionCooldown
 		}
 	}
+	// A demotion that landed during the unbond (REP-R-104) holds the role
+	// at DEMOTED until its cooldown ends, whatever the bond size says.
+	br.BondStatus = clampStatusToDemotionCooldown(br, now, computed)
 
 	if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 		return err

@@ -100,6 +100,9 @@ type Keeper struct {
 	OpenPollsByCouncil collections.KeySet[collections.Pair[string, uint64]]
 	PollQueue          collections.KeySet[collections.Pair[int64, uint64]]
 	PollVoterTrees     collections.Map[uint64, types.VoterTree]
+	// PollOpenCounts rate-limits poll openings per creator per UTC day:
+	// creator -> PollOpenCount (one record per creator, reset on a new day).
+	PollOpenCounts collections.Map[string, types.PollOpenCount]
 
 	Category    collections.Map[uint64, types.Category]
 	CategorySeq collections.Sequence
@@ -242,6 +245,10 @@ func NewKeeper(
 		PollVoterTrees: collections.NewMap(
 			sb, types.PollVoterTreesKey, "pollVoterTrees",
 			collections.Uint64Key, codec.CollValue[types.VoterTree](cdc),
+		),
+		PollOpenCounts: collections.NewMap(
+			sb, types.PollOpenCountsKey, "pollOpenCounts",
+			collections.StringKey, codec.CollValue[types.PollOpenCount](cdc),
 		),
 		Category: collections.NewMap(
 			sb, types.CategoryKey, "category",

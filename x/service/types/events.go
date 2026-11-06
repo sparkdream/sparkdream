@@ -14,6 +14,7 @@ const (
 	EventTypeOperatorRegistered              = "service.operator_registered"
 	EventTypeOperatorToppedUp                = "service.operator_topped_up"
 	EventTypeOperatorUnderfunded             = "service.operator_underfunded"
+	EventTypeOperatorRefunded                = "service.operator_refunded"
 	EventTypeOperatorUnbondStarted           = "service.operator_unbond_started"
 	EventTypeOperatorUnbondCompleted         = "service.operator_unbond_completed"
 	EventTypeOperatorWithdrawQueued          = "service.operator_withdraw_queued"
@@ -176,6 +177,18 @@ func NewOperatorUnderfundedEvent(addr, serviceType string, currentBond, minBond 
 		sdk.NewAttribute(AttrCurrentBond, currentBond.String()),
 		sdk.NewAttribute(AttrMinBond, minBond.String()),
 		sdk.NewAttribute(AttrGraceUntil, fmt.Sprintf("%d", graceUntil)),
+	)
+}
+
+// NewOperatorRefundedEvent is the operator_underfunded companion emitted
+// from the TopUpBond recovery path when the bond clears min_bond again
+// (spec §11): same shape minus grace_until.
+func NewOperatorRefundedEvent(addr, serviceType string, currentBond, minBond sdk.Coin) sdk.Event {
+	return sdk.NewEvent(EventTypeOperatorRefunded,
+		sdk.NewAttribute(AttrAddress, addr),
+		sdk.NewAttribute(AttrServiceType, serviceType),
+		sdk.NewAttribute(AttrCurrentBond, currentBond.String()),
+		sdk.NewAttribute(AttrMinBond, minBond.String()),
 	)
 }
 

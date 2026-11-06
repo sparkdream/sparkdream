@@ -37,6 +37,10 @@ func TestParams_Validate(t *testing.T) {
 		{"hides cap over ceiling", func(p *types.Params) { p.MaxHidesPerEpoch = types.ModerationEpochCapCeiling + 1 }, true},
 		{"locks cap over ceiling", func(p *types.Params) { p.MaxSentinelLocksPerEpoch = types.ModerationEpochCapCeiling + 1 }, true},
 		{"moves cap over ceiling", func(p *types.Params) { p.MaxSentinelMovesPerEpoch = types.ModerationEpochCapCeiling + 1 }, true},
+		// FRM-105: lock/move appeal cooldowns stay below their compiled deadlines.
+		{"lock appeal cooldown just below deadline ok", func(p *types.Params) { p.LockAppealCooldown = types.DefaultLockAppealDeadline - 1 }, false},
+		{"lock appeal cooldown at deadline", func(p *types.Params) { p.LockAppealCooldown = types.DefaultLockAppealDeadline }, true},
+		{"move appeal cooldown past deadline", func(p *types.Params) { p.MoveAppealCooldown = types.DefaultMoveAppealDeadline + 86400 }, true},
 		// min_sentinel_bond: required positive.
 		{"min bond empty", func(p *types.Params) { p.MinSentinelBond = "" }, true},
 		{"min bond zero", func(p *types.Params) { p.MinSentinelBond = "0" }, true},

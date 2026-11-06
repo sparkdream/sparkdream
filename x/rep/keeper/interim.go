@@ -12,7 +12,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// CreateInterimWork creates a new interim work assignment
+// CreateInterimWork creates a new interim work assignment, holding every
+// assignee to max_active_interims_per_member.
 func (k Keeper) CreateInterimWork(
 	ctx context.Context,
 	interimType types.InterimType,
@@ -22,6 +23,40 @@ func (k Keeper) CreateInterimWork(
 	referenceType string,
 	complexity types.InterimComplexity,
 	deadline int64,
+) (uint64, error) {
+	return k.createInterimWork(ctx, interimType, assignees, committee, referenceID, referenceType, complexity, deadline, true)
+}
+
+// CreateSystemInterimWork creates an interim the module assigns to a body of
+// members on its own initiative (the Operations Committee's PROJECT_APPROVAL
+// and BUDGET_REVIEW reviews). max_active_interims_per_member is not applied:
+// the cap stops a member from monopolizing self-created paid work, and a
+// committee seat is not a choice the member makes per interim. An
+// ADJUDICATION interim bypasses the cap the same way, through the authority
+// assignee.
+func (k Keeper) CreateSystemInterimWork(
+	ctx context.Context,
+	interimType types.InterimType,
+	assignees []string,
+	committee string,
+	referenceID uint64,
+	referenceType string,
+	complexity types.InterimComplexity,
+	deadline int64,
+) (uint64, error) {
+	return k.createInterimWork(ctx, interimType, assignees, committee, referenceID, referenceType, complexity, deadline, false)
+}
+
+func (k Keeper) createInterimWork(
+	ctx context.Context,
+	interimType types.InterimType,
+	assignees []string,
+	committee string,
+	referenceID uint64,
+	referenceType string,
+	complexity types.InterimComplexity,
+	deadline int64,
+	enforceMemberCap bool,
 ) (uint64, error) {
 	// Enforce per-member active interim cap (anti-monopolization). Applies to
 	// every prospective assignee so one member can't circumvent by co-signing.
@@ -37,7 +72,7 @@ func (k Keeper) CreateInterimWork(
 		return 0, fmt.Errorf("failed to get params: %w", err)
 	}
 	authority := k.GetAuthorityString()
-	if params.MaxActiveInterimsPerMember > 0 {
+	if enforceMemberCap && params.MaxActiveInterimsPerMember > 0 {
 		for _, a := range assignees {
 			if a == authority {
 				continue
@@ -108,23 +143,29 @@ func (k Keeper) CreateInterimWork(
 }
 
 // CountActiveInterimsForMember returns the number of in-flight interims
-// (PENDING or IN_PROGRESS) on which the given address is listed as an assignee.
+// (PENDING or IN_PROGRESS) on which the given address is listed as an
+// assignee, system interims excluded (REP-E-201): a committee review seat, an
+// adjudication, a jury seat or an expert invitation is work the module gave
+// the member, not work they took, and counting it let anyone fill the whole
+// Operations Committee's cap with cheap proposals. Reads the per-assignee
+// index, so the cost is the member's own interims.
 func (k Keeper) CountActiveInterimsForMember(ctx context.Context, member string) (uint32, error) {
 	if member == "" {
 		return 0, nil
 	}
 	// Work held under a recent alias still counts against the cap.
-	memberAddrs := k.RecentAddressesOf(ctx, member)
+	ids, err := k.LiveInterimIDsForAddresses(ctx, k.RecentAddressesOf(ctx, member))
+	if err != nil {
+		return 0, err
+	}
 	var count uint32
-	k.IteratePendingInterims(ctx, func(_ int64, interim types.Interim) bool {
-		for _, a := range interim.Assignees {
-			if AddressesMatch(memberAddrs, a) {
-				count++
-				break
-			}
+	for _, id := range ids {
+		interim, err := k.Interim.Get(ctx, id)
+		if err != nil || !isLiveInterimStatus(interim.Status) || IsSystemOnlyInterimType(interim.Type) {
+			continue
 		}
-		return false
-	})
+		count++
+	}
 	return count, nil
 }
 
@@ -138,14 +179,21 @@ func (k Keeper) GetInterim(ctx context.Context, interimID uint64) (types.Interim
 }
 
 // UpdateInterim updates an existing interim and maintains the status index
+// and the per-assignee index.
 func (k Keeper) UpdateInterim(ctx context.Context, interim types.Interim) error {
 	// Get old interim to detect status changes
 	oldInterim, err := k.Interim.Get(ctx, interim.Id)
+	if err != nil {
+		oldInterim = types.Interim{}
+	}
 	if err == nil && oldInterim.Status != interim.Status {
 		// Status changed - update the index
 		if err := k.UpdateInterimStatusIndex(ctx, oldInterim.Status, interim.Status, interim.Id); err != nil {
 			return fmt.Errorf("failed to update interim status index: %w", err)
 		}
+	}
+	if err := k.syncInterimAssigneeIndex(ctx, oldInterim, interim); err != nil {
+		return fmt.Errorf("failed to update interim assignee index: %w", err)
 	}
 
 	return k.Interim.Set(ctx, interim.Id, interim)
@@ -232,6 +280,14 @@ func (k Keeper) SubmitInterimWork(
 		return fmt.Errorf("not an assignee of this interim")
 	}
 
+	// A project review has no deliverable to submit: the committee's work is
+	// the approval itself, and MsgApproveProjectBudget settles the interim.
+	if IsProjectReviewInterimType(interim.Type) {
+		return errorsmod.Wrapf(types.ErrInterimTypeSystemOnly,
+			"interim %d is a %s; it is settled when the project is approved (MsgApproveProjectBudget)",
+			interimID, interim.Type)
+	}
+
 	// Validate status
 	if interim.Status != types.InterimStatus_INTERIM_STATUS_IN_PROGRESS && interim.Status != types.InterimStatus_INTERIM_STATUS_PENDING {
 		return fmt.Errorf("interim must be in PENDING or IN_PROGRESS status")
@@ -307,6 +363,22 @@ func (k Keeper) ApproveInterim(
 			"interim %d is an adjudication; settle it with MsgCompleteInterim, which carries an explicit UPHOLD or REJECT decision",
 			interimID)
 	}
+	// An expert's interim is settled by its review's verdict
+	// (settleExpertTestimonies), never by approval: approving it would pay an
+	// expert who has not testified, or pay one twice over the verdict.
+	if interim.Type == types.InterimType_INTERIM_TYPE_EXPERT_TESTIMONY {
+		return errorsmod.Wrapf(types.ErrInvalidRequest,
+			"interim %d is expert testimony; the jury review's verdict settles it", interimID)
+	}
+	// A PROJECT_APPROVAL / BUDGET_REVIEW interim is paid by the approval of
+	// the project it reviews (settleProjectApprovalInterim) and expired unpaid
+	// when the proposal is cancelled or expires. Approving it here would pay
+	// the committee for a review that produced no decision, or pay it twice.
+	if IsProjectReviewInterimType(interim.Type) {
+		return errorsmod.Wrapf(types.ErrInterimTypeSystemOnly,
+			"interim %d is a %s; it is settled when the project is approved (MsgApproveProjectBudget)",
+			interimID, interim.Type)
+	}
 
 	// Approval is what pays a member-created interim (REP-E-02), so the
 	// approver must be someone other than the payee.
@@ -321,51 +393,11 @@ func (k Keeper) ApproveInterim(
 		if interim.Status != types.InterimStatus_INTERIM_STATUS_IN_PROGRESS && interim.Status != types.InterimStatus_INTERIM_STATUS_PENDING {
 			return fmt.Errorf("interim already finalized: status %s", interim.Status)
 		}
-		// Distribute payment equally among assignees
-		if len(interim.Assignees) > 0 {
-			paymentPerAssignee := interim.Budget.QuoRaw(int64(len(interim.Assignees)))
-
-			// TreasuryFundsInterims drains the module treasury first and mints
-			// only the shortfall. Disabled => straight MintDREAM.
-			params, err := k.Params.Get(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to get params: %w", err)
-			}
-			treasuryFirst := params.TreasuryFundsInterims
-
-			// Same season cap as the direct-completion path; committee approval
-			// authorizes the work, it does not exempt it from the ceiling.
-			if err := k.chargeInterimRewardCap(ctx, params,
-				paymentPerAssignee.MulRaw(int64(len(interim.Assignees)))); err != nil {
-				return err
-			}
-
-			for _, assigneeStr := range interim.Assignees {
-				assigneeAddr, err := sdk.AccAddressFromBech32(assigneeStr)
-				if err != nil {
-					continue
-				}
-				if _, _, err := k.PayDREAMFromTreasuryFirst(ctx, assigneeAddr, paymentPerAssignee, treasuryFirst); err != nil {
-					return fmt.Errorf("failed to pay DREAM for assignee %s: %w", assigneeStr, err)
-				}
-
-				// Grant reputation for interim completion
-				// Reputation tag is based on interim type for tracking different work categories
-				if err := k.GrantInterimReputation(ctx, assigneeAddr, interim); err != nil {
-					sdk.UnwrapSDKContext(ctx).Logger().Debug("failed to grant interim reputation", "error", err)
-				}
-
-				// Increment completed interims count for trust level calculation (O(1) lookup)
-				if err := k.IncrementMemberCompletedInterims(ctx, assigneeAddr); err != nil {
-					// Log but don't fail - cached count is for optimization only
-					sdk.UnwrapSDKContext(ctx).Logger().Debug("failed to increment completed interims count", "error", err)
-				}
-
-				// Check for trust level upgrade after interim completion (lazy evaluation)
-				if err := k.UpdateTrustLevel(ctx, assigneeAddr); err != nil {
-					return err
-				}
-			}
+		// Distribute payment equally among assignees. Same season cap as the
+		// direct-completion path; committee approval authorizes the work, it
+		// does not exempt it from the ceiling.
+		if err := k.payInterimAssignees(ctx, interim); err != nil {
+			return err
 		}
 
 		interim.Status = types.InterimStatus_INTERIM_STATUS_COMPLETED
@@ -392,6 +424,68 @@ func (k Keeper) ApproveInterim(
 		),
 	)
 
+	return nil
+}
+
+// payInterimAssignees pays an interim's budget in equal shares to its payable
+// assignees (payableInterimAssignees), books the total against the season
+// interim reward cap first, and credits each payee's reputation, completed
+// count and trust level. Every interim payout goes through here: committee
+// approval (ApproveInterim), direct completion (CompleteInterimDirectly) and
+// the project-approval settlement (settleProjectApprovalInterim). The
+// per-assignee share stays Budget / len(Assignees): a skipped share is not
+// redistributed. The interim's status is left to the caller.
+func (k Keeper) payInterimAssignees(ctx context.Context, interim types.Interim) error {
+	return k.payInterimAssigneesTo(ctx, interim, k.payableInterimAssignees(ctx, interim))
+}
+
+// payInterimAssigneesTo is payInterimAssignees for a caller that has already
+// chosen the payees (a subset of the assignees: the project-review
+// settlement pays only the members who voted). The share is still
+// Budget / len(Assignees).
+func (k Keeper) payInterimAssigneesTo(ctx context.Context, interim types.Interim, payees []sdk.AccAddress) error {
+	if len(interim.Assignees) == 0 || len(payees) == 0 {
+		return nil
+	}
+	paymentPerAssignee := DerefInt(interim.Budget).QuoRaw(int64(len(interim.Assignees)))
+
+	// TreasuryFundsInterims drains the module treasury first and mints
+	// only the shortfall. Disabled => straight MintDREAM.
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get params: %w", err)
+	}
+	treasuryFirst := params.TreasuryFundsInterims
+
+	// Book the whole payout against the season cap before paying any of it.
+	if err := k.chargeInterimRewardCap(ctx, params,
+		paymentPerAssignee.MulRaw(int64(len(payees)))); err != nil {
+		return err
+	}
+
+	for _, assigneeAddr := range payees {
+		if _, _, err := k.PayDREAMFromTreasuryFirst(ctx, assigneeAddr, paymentPerAssignee, treasuryFirst); err != nil {
+			return fmt.Errorf("failed to pay DREAM for assignee %s: %w", assigneeAddr, err)
+		}
+
+		// Grant reputation for interim completion
+		// Reputation tag is based on interim type for tracking different work categories
+		if err := k.GrantInterimReputation(ctx, assigneeAddr, interim); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Debug("failed to grant interim reputation", "error", err)
+		}
+
+		// Increment completed interims count for trust level calculation (O(1) lookup)
+		if err := k.IncrementMemberCompletedInterims(ctx, assigneeAddr); err != nil {
+			// Log but don't fail - cached count is for optimization only
+			sdk.UnwrapSDKContext(ctx).Logger().Debug("failed to increment completed interims count", "error", err)
+		}
+
+		// Check for trust level upgrade after interim completion (lazy evaluation)
+		// Completed interims count toward trust level progression
+		if err := k.UpdateTrustLevel(ctx, assigneeAddr); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -433,13 +527,12 @@ func (k Keeper) chargeInterimRewardCap(ctx context.Context, params types.Params,
 
 // CompleteInterimDirectly completes an interim without committee approval.
 //
-// It pays every assignee and is reached from MsgCompleteInterim, where the
-// signer is an assignee — i.e. the payee certifies their own payment. That is
-// deliberate for the self-service interim types, but it makes the finalized
-// guard below load-bearing rather than cosmetic: without it the function paid
-// out on every call, so an assignee could re-send MsgCompleteInterim against
-// an already-COMPLETED interim and mint the budget again, indefinitely.
-// ApproveInterim has always had this guard; this path did not.
+// It has two callers, both module-driven: MsgCompleteInterim, which accepts
+// only a system ADJUDICATION interim (the committee's verdict, no DREAM), and
+// settleExpertTestimonies, which pays an invited expert once the review
+// reaches its verdict. No member-created interim reaches it: those are paid
+// only through ApproveInterim (REP-E-02). The finalized guard below is still
+// load-bearing: without it a second call paid the budget again.
 func (k Keeper) CompleteInterimDirectly(
 	ctx context.Context,
 	interimID uint64,
@@ -477,51 +570,11 @@ func (k Keeper) CompleteInterimDirectly(
 		}
 	}
 
-	// Distribute payment equally among assignees
+	// Distribute payment equally among assignees.
 	// Skip payment for ADJUDICATION interims (committee work, no DREAM reward)
-	if len(interim.Assignees) > 0 && interim.Type != types.InterimType_INTERIM_TYPE_ADJUDICATION {
-		paymentPerAssignee := interim.Budget.QuoRaw(int64(len(interim.Assignees)))
-
-		// TreasuryFundsInterims drains the module treasury first and mints
-		// only the shortfall. Disabled => straight MintDREAM.
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get params: %w", err)
-		}
-		treasuryFirst := params.TreasuryFundsInterims
-
-		// Book the whole payout against the season cap before paying any of it.
-		if err := k.chargeInterimRewardCap(ctx, params,
-			paymentPerAssignee.MulRaw(int64(len(interim.Assignees)))); err != nil {
+	if interim.Type != types.InterimType_INTERIM_TYPE_ADJUDICATION {
+		if err := k.payInterimAssignees(ctx, interim); err != nil {
 			return err
-		}
-
-		for _, assigneeStr := range interim.Assignees {
-			assigneeAddr, err := sdk.AccAddressFromBech32(assigneeStr)
-			if err != nil {
-				continue
-			}
-			if _, _, err := k.PayDREAMFromTreasuryFirst(ctx, assigneeAddr, paymentPerAssignee, treasuryFirst); err != nil {
-				return fmt.Errorf("failed to pay DREAM for assignee %s: %w", assigneeStr, err)
-			}
-
-			// Grant reputation for interim completion
-			// Reputation tag is based on interim type for tracking different work categories
-			if err := k.GrantInterimReputation(ctx, assigneeAddr, interim); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Debug("failed to grant interim reputation", "error", err)
-			}
-
-			// Increment completed interims count for trust level calculation (O(1) lookup)
-			if err := k.IncrementMemberCompletedInterims(ctx, assigneeAddr); err != nil {
-				// Log but don't fail - cached count is for optimization only
-				sdk.UnwrapSDKContext(ctx).Logger().Debug("failed to increment completed interims count", "error", err)
-			}
-
-			// Check for trust level upgrade after interim completion (lazy evaluation)
-			// Completed interims count toward trust level progression
-			if err := k.UpdateTrustLevel(ctx, assigneeAddr); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -702,8 +755,52 @@ func (k Keeper) isSystemAdjudication(interim types.Interim) bool {
 }
 
 // IsSystemOnlyInterimType reports whether only the module may create an
-// interim of this type: ADJUDICATION settles a challenge and JURY_DUTY is a
-// jury seat. MsgCreateInterim refuses both.
+// interim of this type: ADJUDICATION settles a challenge, JURY_DUTY is a jury
+// seat, EXPERT_TESTIMONY is opened by MsgInviteExpertWitness and settled by
+// the review's verdict (REP-E-101), and PROJECT_APPROVAL / BUDGET_REVIEW are
+// opened for the Commons Operations Committee by a budget-backed project
+// proposal and settled by its approval. MsgCreateInterim refuses all five.
 func IsSystemOnlyInterimType(t types.InterimType) bool {
-	return t == types.InterimType_INTERIM_TYPE_ADJUDICATION || t == types.InterimType_INTERIM_TYPE_JURY_DUTY
+	return t == types.InterimType_INTERIM_TYPE_ADJUDICATION ||
+		t == types.InterimType_INTERIM_TYPE_JURY_DUTY ||
+		t == types.InterimType_INTERIM_TYPE_EXPERT_TESTIMONY ||
+		IsProjectReviewInterimType(t)
+}
+
+// IsProjectReviewInterimType reports whether an interim type is one the
+// module opens for the Operations Committee when a budget-backed project is
+// proposed: PROJECT_APPROVAL (STANDARD) or BUDGET_REVIEW (COMPLEX, requested
+// budget at or above budget_review_threshold). These are paid by
+// MsgApproveProjectBudget and never by MsgApproveInterim, MsgCompleteInterim
+// or MsgSubmitInterimWork.
+func IsProjectReviewInterimType(t types.InterimType) bool {
+	return t == types.InterimType_INTERIM_TYPE_PROJECT_APPROVAL ||
+		t == types.InterimType_INTERIM_TYPE_BUDGET_REVIEW
+}
+
+// payableInterimAssignees returns the assignees an interim payout pays: those
+// whose member (through the alias) is ACTIVE. A zeroed assignee keeps no
+// claim on work opened before the zeroing (REP-E-104); zeroing also expires
+// their open interims (expireInterimsForZeroing), so this is the backstop.
+// The per-assignee share stays Budget / len(Assignees): a skipped share is
+// not redistributed.
+func (k Keeper) payableInterimAssignees(ctx context.Context, interim types.Interim) []sdk.AccAddress {
+	out := make([]sdk.AccAddress, 0, len(interim.Assignees))
+	for _, a := range interim.Assignees {
+		addr, err := sdk.AccAddressFromBech32(a)
+		if err != nil {
+			continue
+		}
+		if !k.IsActiveMember(ctx, k.resolveMember(ctx, addr)) {
+			sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+				"interim_assignee_skipped",
+				sdk.NewAttribute("interim_id", fmt.Sprintf("%d", interim.Id)),
+				sdk.NewAttribute("assignee", a),
+				sdk.NewAttribute("reason", "not an active member"),
+			))
+			continue
+		}
+		out = append(out, addr)
+	}
+	return out
 }

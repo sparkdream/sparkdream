@@ -28,6 +28,13 @@ func (m *groupModule) ShieldMerkleRoot(context.Context, sdk.Msg) ([]byte, error)
 // unified shield circuit and wraps it as a GROUP_TREE immediate exec.
 func groupExec(t *testing.T, z zkSetup, sk []byte, path *zkcrypto.MerkleProof, domain uint32, inner *any.Any) *types.MsgShieldedExec {
 	t.Helper()
+	return groupExecRL(t, z, sk, path, domain, inner, true)
+}
+
+// groupExecRL is groupExec with the prover's GroupTree flag chosen: false
+// binds the rate-limit nullifier to the plain epoch, as a trust-tree proof does.
+func groupExecRL(t *testing.T, z zkSetup, sk []byte, path *zkcrypto.MerkleProof, domain uint32, inner *any.Any, groupTreeRL bool) *types.MsgShieldedExec {
+	t.Helper()
 	out, err := z.prover.GenerateProof(&prover.ShieldProofInput{
 		SecretKey:      sk,
 		TrustLevel:     0,
@@ -35,6 +42,7 @@ func groupExec(t *testing.T, z zkSetup, sk []byte, path *zkcrypto.MerkleProof, d
 		Domain:         domain,
 		Scope:          0,
 		RateLimitEpoch: 0,
+		GroupTree:      groupTreeRL,
 		MessageHash:    zkcrypto.ShieldMessageHash(inner.TypeUrl, inner.Value),
 		MerkleRoot:     path.Root,
 		MerkleProof:    path,
@@ -91,8 +99,18 @@ func TestGroupTreeProofs(t *testing.T) {
 		BatchMode:          types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY,
 	}))
 
-	// A member of the module's tree: accepted.
-	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, groupExec(t, z, secrets[0], paths[0], domain, inner)))
+	// SHD-101: a group-tree proof whose rate-limit nullifier is bound to the
+	// plain epoch (the value every trust-tree action of the member carries in
+	// this epoch) is refused; the verifier binds the epoch to the scope.
+	plainRL := groupExecRL(t, z, secrets[0], paths[0], domain, inner, false)
+	require.Equal(t, zkcrypto.ComputeRateLimitNullifier(secrets[0], 0), plainRL.RateLimitNullifier)
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, plainRL), types.ErrInvalidProof)
+
+	// A member of the module's tree: accepted. Its rate-limit nullifier is
+	// not the member's per-epoch trust-tree value.
+	accepted := groupExec(t, z, secrets[0], paths[0], domain, inner)
+	require.NotEqual(t, plainRL.RateLimitNullifier, accepted.RateLimitNullifier)
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, accepted))
 
 	// The module names another root (the ballot changed or is over).
 	mod.root = make([]byte, 32)

@@ -24,7 +24,9 @@ func TestPolicyPermissionsMsgServerCreate(t *testing.T) {
 		err     error
 	}{
 		{
-			desc: "success - standard permissions (self-regulated)",
+			// CMN-106: a policy cannot grant itself messages by creating
+			// its own row (e.g. after deleting it in the same proposal).
+			desc: "failure - self-granted permissions (ratchet)",
 			setup: func() string {
 				addrBytes := []byte("policyAddr_Standard_____")
 				addr, _ := f.addressCodec.BytesToString(addrBytes)
@@ -33,6 +35,37 @@ func TestPolicyPermissionsMsgServerCreate(t *testing.T) {
 			request: func(policyAddr string) *types.MsgCreatePolicyPermissions {
 				return &types.MsgCreatePolicyPermissions{
 					Authority:       policyAddr, // Self
+					PolicyAddress:   policyAddr,
+					AllowedMessages: []string{"/cosmos.bank.v1beta1.MsgSend"},
+				}
+			},
+			err: sdkerrors.ErrUnauthorized,
+		},
+		{
+			desc: "success - empty self-created allowlist",
+			setup: func() string {
+				addrBytes := []byte("policyAddr_Empty________")
+				addr, _ := f.addressCodec.BytesToString(addrBytes)
+				return addr
+			},
+			request: func(policyAddr string) *types.MsgCreatePolicyPermissions {
+				return &types.MsgCreatePolicyPermissions{
+					Authority:     policyAddr, // Self
+					PolicyAddress: policyAddr,
+				}
+			},
+			err: nil,
+		},
+		{
+			desc: "success - standard permissions (granted by Gov)",
+			setup: func() string {
+				addrBytes := []byte("policyAddr_GovStandard__")
+				addr, _ := f.addressCodec.BytesToString(addrBytes)
+				return addr
+			},
+			request: func(policyAddr string) *types.MsgCreatePolicyPermissions {
+				return &types.MsgCreatePolicyPermissions{
+					Authority:       govAddr,
 					PolicyAddress:   policyAddr,
 					AllowedMessages: []string{"/cosmos.bank.v1beta1.MsgSend"},
 				}
@@ -111,7 +144,7 @@ func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 
 	// Create initial permissions (Standard)
 	initMsg := &types.MsgCreatePolicyPermissions{
-		Authority:       policyAddr,
+		Authority:       govAddr,
 		PolicyAddress:   policyAddr,
 		AllowedMessages: []string{"/msg.A", "/msg.B"},
 	}
@@ -265,9 +298,13 @@ func TestPolicyPermissionsMsgServerDelete(t *testing.T) {
 				require.ErrorIs(t, err, tc.err)
 			} else {
 				require.NoError(t, err)
-				found, err := f.keeper.PolicyPermissions.Has(f.ctx, tc.request.PolicyAddress)
-				require.NoError(t, err)
-				require.False(t, found)
+				// COM-201: a group policy keeps an empty row, so the body
+				// can still pass signaling proposals and only x/gov can
+				// hand it executable messages again (CMN-106).
+				row, err := f.keeper.PolicyPermissions.Get(f.ctx, tc.request.PolicyAddress)
+				require.NoError(t, err, "a group policy's row survives its deletion")
+				require.Empty(t, row.AllowedMessages)
+				require.Equal(t, tc.request.PolicyAddress, row.PolicyAddress)
 			}
 		})
 	}
@@ -286,7 +323,7 @@ func TestPolicyPermissionsNarrowingBumpsPolicyVersion(t *testing.T) {
 	require.NoError(t, f.keeper.PolicyToName.Set(f.ctx, policyAddr, "Policy Group"))
 
 	_, err = srv.CreatePolicyPermissions(f.ctx, &types.MsgCreatePolicyPermissions{
-		Authority:       policyAddr,
+		Authority:       govAddr,
 		PolicyAddress:   policyAddr,
 		AllowedMessages: []string{"/msg.A", "/msg.B"},
 	})

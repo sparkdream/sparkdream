@@ -1,8 +1,9 @@
 package types
 
 import (
-	errorsmod "cosmossdk.io/errors"
 	commontypes "sparkdream/x/common/types"
+
+	errorsmod "cosmossdk.io/errors"
 )
 
 // Query-time display rules (docs/x-artifact-spec.md §7.17). Stored state

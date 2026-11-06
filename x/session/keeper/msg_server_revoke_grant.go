@@ -101,6 +101,12 @@ func (k msgServer) RevokeGrant(ctx context.Context, msg *types.MsgRevokeGrant) (
 			refund = dep
 		}
 	}
+	// A pending access-class grant returns its consent deposit (SES-102).
+	if grant.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if refund, err = k.refundPendingDeposit(ctx, grant, grant.Granter); err != nil {
+			return nil, err
+		}
+	}
 
 	// deleteGrant drops the active-counter, every secondary index, and
 	// the primary record.

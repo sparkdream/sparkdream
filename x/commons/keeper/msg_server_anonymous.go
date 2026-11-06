@@ -107,9 +107,25 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 	if err := k.AnonProposalCount.Set(ctx, countKey, count+1); err != nil {
 		return nil, err
 	}
-	// Drop yesterday's counter so the map stays bounded.
-	if err := k.AnonProposalCount.Remove(ctx, collections.Join(councilName, day-1)); err != nil {
-		return nil, err
+	// The first proposal of a day drops every earlier day's counter for
+	// this council, whatever the gap since the last one, so the map holds
+	// at most today's entry per council.
+	if count == 0 {
+		var stale []collections.Pair[string, int64]
+		rng := collections.NewPrefixedPairRange[string, int64](councilName)
+		if err := k.AnonProposalCount.Walk(ctx, rng, func(key collections.Pair[string, int64], _ uint64) (bool, error) {
+			if key.K2() < day {
+				stale = append(stale, key)
+			}
+			return false, nil
+		}); err != nil {
+			return nil, err
+		}
+		for _, key := range stale {
+			if err := k.AnonProposalCount.Remove(ctx, key); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// 5. Get decision policy for timing
@@ -202,6 +218,9 @@ func (k msgServer) AnonymousVoteProposal(goCtx context.Context, msg *types.MsgAn
 	}
 	if ctx.BlockTime().Unix() > proposal.VotingDeadline {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "voting period has ended for proposal %d", msg.ProposalId)
+	}
+	if err := k.refuseInvalidatedVote(ctx, proposal); err != nil {
+		return nil, err
 	}
 
 	tally, err := k.AnonVoteTallies.Get(ctx, msg.ProposalId)

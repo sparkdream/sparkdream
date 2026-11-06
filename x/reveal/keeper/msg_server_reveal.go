@@ -44,12 +44,21 @@ func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.Msg
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentEpoch := sdkCtx.BlockHeight()
+	// The EndBlocker fails the tranche at RevealDeadline; a reveal in that
+	// block (or later, while a backlog delays the EndBlocker) must not
+	// escape the slash (REV-103).
+	if tranche.RevealDeadline > 0 && currentEpoch >= tranche.RevealDeadline {
+		return nil, types.ErrDeadlinePassed.Wrapf("reveal deadline %d, height %d", tranche.RevealDeadline, currentEpoch)
+	}
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	if err := types.ValidateFieldLength("code_uri", msg.CodeUri, types.MaxCodeURILength); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(msg.CodeUri) == "" || strings.TrimSpace(msg.CommitHash) == "" {
 		return nil, types.ErrEmptyReveal
 	}

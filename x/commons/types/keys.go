@@ -80,6 +80,9 @@ var (
 	PollQueueKey = collections.NewPrefix("pollQueue/value/")
 	// PollVoterTrees: poll_id -> VoterTree, dropped when the poll closes.
 	PollVoterTreesKey = collections.NewPrefix("pollVoterTrees/value/")
+	// PollOpenCounts: creator -> PollOpenCount, the polls the creator opened
+	// on its current UTC day (the per-creator opening rate limit).
+	PollOpenCountsKey = collections.NewPrefix("pollOpenCounts/value/")
 
 	// --- Recurring Spend collections (M10 removed) ---
 	// The parallel commons.RecurringSpends storage was deleted by the

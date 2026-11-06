@@ -60,6 +60,8 @@ User Wallet (granter)                    Session Key (grantee, in browser)
     |-- signs MsgRevokeSession ------------------>  |  (optional explicit cleanup)
 ```
 
+A session key from a granter the grantee has not allowed before starts as `PENDING` and is accepted by the grantee's first `MsgExecSession` (its signature is the consent), so the flow above is unchanged for the hot key; see §31.
+
 ### 3.2. Bounded Allowlist Model
 
 Session keys use a **bounded allowlist** with two tiers:
@@ -167,9 +169,10 @@ message Params {
   // Prevents permanent delegations (use x/commons governance for that).
   google.protobuf.Duration max_expiration = 5;   // Default: 7 days
 
-  // Maximum duration of a narrow session: at most NarrowSessionMaxMsgTypes
-  // (2, compiled) message types and allow_self_revoke unset. Must be >=
-  // max_expiration. Section 8.3.
+  // Maximum duration of a narrow session: 1..NarrowSessionMaxMsgTypes
+  // (2, compiled) message types, all in the compiled NarrowSessionMsgTypes
+  // daemon set, and allow_self_revoke unset. Must be >= max_expiration.
+  // Section 8.3.
   google.protobuf.Duration narrow_session_max_expiration = 8;  // Default: 30 days
 
   // Maximum gas budget per session.
@@ -180,7 +183,7 @@ message Params {
 
 ### 4.3. SessionOperationalParams
 
-Subset of `Params` updateable by the Commons Council Operations Committee without a full governance proposal.
+Subset of `Params` updateable by the Commons Council Operations Committee without a full governance proposal. The keeper accepts the committee's or the council's policy address (an executed proposal) or x/gov, never a single member; `/sparkdream.session.v1.MsgUpdateOperationalParams` is on the Commons Operations Committee's bootstrap allowlist in x/commons so such a proposal can carry it (`app/committee_allowlist_guard_test.go`).
 
 ```protobuf
 message SessionOperationalParams {
@@ -240,7 +243,7 @@ message MsgCreateSession {
 5. Every type in `allowed_msg_types` is in `Params.allowed_msg_types`
 6. No type in `allowed_msg_types` is in `NonDelegableSessionMsgs` or in `ForbiddenAllowlistMsgs` (x/service's non-delegable msgs, `MsgTopUpBond`, and every x/rep identity message from `reptypes.IdentityMsgTypeURLs()`: the member key migration messages plus `MsgRegisterZkPublicKey` / `MsgClearZkPublicKey`; a session key must never move an identity nor re-point its anonymous key)
 7. `expiration > current_time`
-8. `expiration - current_time <= max_expiration`, or `<= narrow_session_max_expiration` when `len(allowed_msg_types) <= 2` (and, for a `MsgCreateGrant` session key, `allow_self_revoke` is unset; Section 8.3)
+8. `expiration - current_time <= max_expiration`, or `<= narrow_session_max_expiration` for a narrow session: 1 or 2 types, every one in the compiled `NarrowSessionMsgTypes` daemon set, and (for a `MsgCreateGrant` session key) `allow_self_revoke` unset (Section 8.3). `allowed_msg_types` may not be empty (`ErrNoMsgTypes`, 1904): such a key executes nothing, yet the ante would charge the granter's `spend_limit` for each failing exec
 9. `spend_limit <= max_spend_limit` (if non-zero)
 10. `spend_limit.denom == "uspark"` (if non-zero)
 
@@ -467,7 +470,7 @@ var NonDelegableSessionMsgs = map[string]bool{
 | **Malicious frontend** | User reviews the `MsgCreateSession` grant before signing. Only allowlisted content messages can be delegated — financial, governance, and DREAM operations are not on the allowlist. |
 | **Gas drain / spam** | `spend_limit` caps total gas. `max_exec_count` caps total executions. Both are enforced per-session. |
 | **Recursion / privilege escalation** | `MsgExecSession` cannot contain `MsgExecSession` or `MsgCreateSession`. Hardcoded in `NonDelegableSessionMsgs`, not parameterized. |
-| **Permanent delegation** | `max_expiration` parameter (default: 7 days) prevents indefinite sessions; a narrow session (at most 2 message types, no `allow_self_revoke`) may run to `narrow_session_max_expiration` (default: 30 days, Section 8.3). For longer-term delegation, use `x/commons` governance. |
+| **Permanent delegation** | `max_expiration` parameter (default: 7 days) prevents indefinite sessions; a narrow session (1 or 2 daemon message types from `NarrowSessionMsgTypes`, no `allow_self_revoke`) may run to `narrow_session_max_expiration` (default: 30 days, Section 8.3). For longer-term delegation, use `x/commons` governance. |
 | **State bloat** | `max_sessions_per_granter` limits active sessions. EndBlocker prunes expired sessions (100/block cap). |
 | **Fee payer confusion** | `SessionFeeDecorator` only activates for transactions containing exclusively `MsgExecSession` messages. Mixed transactions rejected. Multiple `MsgExecSession` with different granters rejected. |
 | **DREAM token exposure** | DREAM financial messages (transfer, stake, bond, challenge, bounty, etc.) are not in the ceiling (`max_allowed_msg_types`) — no governance proposal or committee action can add them. Optional DREAM fields on allowlisted messages (e.g., `author_bond`) are zeroed at dispatch. |
@@ -499,9 +502,9 @@ The argument above is about broad keys held by browsers and phones. Unattended d
 
 1. **Renewal needs the key the session exists to keep away.** A new grant is signed by the granter's main wallet, so the operator must sign one by hand every week. Automating it would put the main key back on the host.
 2. **A lapse has a cost.** The daemon holds its work while its grant is expired: bridged content waits, verifier activity (and pay) drops, and a content scanner stops checkpointing, so x/service files a liveness report against it within `checkpoint_max_lag_blocks` (about a day).
-3. **A daemon key is the narrow case §8.3 worries least about.** It names one message (`MsgSubmitFederatedContent`, `MsgVerifyContent`) or two, carries a fee budget, and cannot reach the bond-moving or identity messages (`ForbiddenAllowlistMsgs`). Point 1 above scales damage by duration *and* breadth; a one-message key is the minimum breadth.
+3. **A daemon key is the narrow case §8.3 worries least about.** It names one message (`MsgSubmitFederatedContent`, `MsgVerifyContent`) or two, carries a fee budget, and moves no SPARK. Point 1 above scales damage by duration *and* breadth; a one-message key is the minimum breadth.
 
-So a session key naming at most `NarrowSessionMaxMsgTypes` (2, compiled) message types and leaving `allow_self_revoke` unset may live up to `narrow_session_max_expiration` (default 30 days, the rotation interval the federation spec recommends). Every other session key keeps `max_expiration`. `allow_self_revoke` disqualifies a key because it lets the key revoke the granter's other grants, a power that should not outlive a week. `Params.Validate` requires `narrow_session_max_expiration >= max_expiration` and holds it under the same 365-day compiled ceiling. A UI that wants long sessions cannot get them by splitting a broad key into many narrow ones without many wallet popups and `max_sessions_per_granter` slots, which is the purpose-scoping §8.3 asks for anyway.
+Breadth is judged by what the types do, not only by how many there are. A key naming one artifact mint type takes a deposit from the granter per token, and one naming a sentinel action exercises a bonded role over other people's content; neither is the daemon case. So narrowness is a compiled set, `NarrowSessionMsgTypes` (`MsgSubmitCheckpoint`, `MsgSubmitFederatedContent`, `MsgAttestOutbound`, `MsgVerifyContent`; adding one is a chain upgrade), not a count. A session key naming one or two of those types (`NarrowSessionMaxMsgTypes`, 2, compiled), and nothing else, and leaving `allow_self_revoke` unset may live up to `narrow_session_max_expiration` (default 30 days, the rotation interval the federation spec recommends). Every other session key keeps `max_expiration`. `allow_self_revoke` disqualifies a key because it lets the key revoke the granter's other grants, a power that should not outlive a week. `Params.Validate` requires `narrow_session_max_expiration >= max_expiration` and holds it under the same 365-day compiled ceiling. A UI that wants long sessions cannot get them by splitting a broad key into many narrow ones without many wallet popups and `max_sessions_per_granter` slots, which is the purpose-scoping §8.3 asks for anyway.
 
 #### Why `max_msg_types_per_session` is 20
 
@@ -657,6 +660,8 @@ EndBlocker(ctx):
 
 The 100-per-block cap ensures EndBlocker gas is predictable even if a large batch of sessions expires simultaneously (e.g., after a popular event where many users created 24h sessions at the same time).
 
+A fourth pass, with the same cap, drops PENDING grants past their consent deadline (`PendingGrantsByDeadline`) and forfeits the deposit (§31.4). PENDING grants are not on `GrantsByExpiration`, so the expire pass never sees them.
+
 ---
 
 ## 11. Events
@@ -679,6 +684,8 @@ The 100-per-block cap ensures EndBlocker gas is predictable even if a large batc
 | `grantee` | Grantee address |
 | `exec_count` | Total executions before revocation |
 | `spent` | Total gas spent before revocation |
+| `grant_id` | The revoked grant's id |
+| `refund_amount` | Consent deposit returned to the granter when the key was still PENDING (§31.4); the zero coin otherwise |
 
 ### 11.3. session_executed
 
@@ -1017,6 +1024,11 @@ async function execSession(
 | 21 | `ErrInvalidDenom` | spend_limit denom is not `uspark` |
 | 22 | `ErrCeilingExpansion` | `MsgUpdateParams` attempted to add a type to `max_allowed_msg_types` not already in the current ceiling |
 | 23 | `ErrExceedsCeiling` | `allowed_msg_types` contains a type not in `max_allowed_msg_types` |
+| 1905 | `ErrMaxPendingGrantsExceeded` | Granter already holds `MaxPendingGrantsPerGranter` (4) PENDING grants (§31) |
+| 1906 | `ErrGrantNotPending` | `MsgAcceptGrant` on a grant that is not PENDING |
+| 1907 | `ErrAcceptUnauthorized` | `MsgAcceptGrant` signer is not the grant's grantee |
+| 1908 | `ErrGranterNotAllowed` | `MsgDisallowGranter` names a granter the grantee has not allowed |
+| 1909 | `ErrModuleAccountGrantee` | A session key or sign-in names a module account as grantee: it could never accept or use it (§31.1) |
 
 ---
 
@@ -1095,11 +1107,12 @@ The following features are **not in scope** for v1 but could be added later:
 
 ## 18. Module Invariants
 
-The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`). x/session registers three (`x/session/keeper/invariants.go`):
+The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`). x/session registers four (`x/session/keeper/invariants.go`):
 
-- `grant-indexes`: every grant is in the granter, grantee, expiration and type indexes; a SESSION_KEY grant owns its `SessionKeyByPair` entry; an ACTIVE oneshot is on `GrantsByFireTime`, a paused one on `PausedOneshotByPauseTime`.
+- `grant-indexes`: every grant is in the granter and type indexes and a SESSION_KEY grant owns its `SessionKeyByPair` entry; an active grant is also in the grantee, grantee-and-type and expiration indexes, while a PENDING one is in none of those and is on `PendingGrantsByDeadline` and `PendingGrantsByGrantee` instead (an active grant is never on the latter); an ACTIVE oneshot is on `GrantsByFireTime`, a paused one on `PausedOneshotByPauseTime`.
 - `active-grant-counts`: `ActiveGrantCountByType` equals the number of ACTIVE or PAUSED grants per (granter, type).
 - `oneshot-deposits`: every escrowed deposit belongs to an existing SCHEDULED_ONESHOT grant and the module account holds at least their sum.
+- `pending-grants`: `PendingGrantCountByGranter` equals the number of PENDING grants per granter and never exceeds the cap; every pending deposit belongs to a PENDING grant; every `PendingGrantsByGrantee` entry names a PENDING grant of that grantee; the module account holds at least the pending and oneshot deposits together; `AllowedGranters` and `AllowedGranteesByGranter` mirror each other.
 
 The per-session checks below are the original design notes; they are enforced in the handlers rather than as registered invariants.
 
@@ -1184,15 +1197,14 @@ message Grant {
   GrantStatus status = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp expires_at = 7;
-  reserved 8;                                // Was an explicit replay-nonce in Rev 1; SDK account sequence prevents replay.
-  string note = 9;                           // 256-char cap
+  string note = 8;                           // 256-char cap
 
-  oneof payload {
-    SessionKeyPayload         session_key        = 20;
-    RecurringPullPayload      recurring_pull     = 21;
-    SpendingAllowancePayload  spending_allowance = 22;
-    ScheduledOneshotPayload   scheduled_oneshot  = 23;
-    SignInPayload             sign_in            = 24;
+  oneof payload {                            // Tags are dense (no reserved bands), like every state message
+    SessionKeyPayload         session_key        = 9;
+    RecurringPullPayload      recurring_pull     = 10;
+    SpendingAllowancePayload  spending_allowance = 11;
+    ScheduledOneshotPayload   scheduled_oneshot  = 12;
+    SignInPayload             sign_in            = 13;
   }
 }
 
@@ -1213,6 +1225,7 @@ enum GrantStatus {
   GRANT_STATUS_REVOKED = 4;
   GRANT_STATUS_COMPLETED = 5;
   GRANT_STATUS_FIRED = 6;
+  GRANT_STATUS_PENDING = 7;                 // awaiting grantee consent (§31)
 }
 ```
 
@@ -1233,8 +1246,16 @@ enum GrantStatus {
 | `PausedOneshotByPauseTime` | `Pair[int64, uint64]` | empty | `(pause_unix, id)` — paused-TTL auto-revoke pass |
 | `GrantsByFireTime` | `Pair[int64, uint64]` | empty | `(fire_at, id)` for ACTIVE oneshots — fire pass |
 | `GrantCreatorModule` | `uint64` (grant_id) | `string` | Module that created the grant via the bypass (creator binding, §28.4) |
+| `AllowedGranters` | `Pair[string, string]` | empty | `(grantee, granter)` consent entries (§31) |
+| `AllowedGranteesByGranter` | `Pair[string, string]` | empty | `(granter, grantee)` reverse of the above, for the migration hook |
+| `PendingGrantDeposit` | `uint64` (grant_id) | `Coin` | SPARK escrowed for a PENDING grant |
+| `PendingGrantsByDeadline` | `Pair[int64, uint64]` | empty | `(deadline_unix, id)` for PENDING grants — pending-expiry pass |
+| `PendingGrantCountByGranter` | `string` (granter) | `uint32` | O(1) per-granter pending count |
+| `PendingGrantsByGrantee` | `Pair[string, uint64]` | empty | `(grantee, id)` for PENDING grants — the grantee's discovery index (`PendingGrantsForGrantee`, §31.6); query-only, no on-chain consumer walks it |
 
-**Grantee cap.** Grant creation needs no grantee consent, so `MsgCreateGrant` refuses a grantee already named by `MaxGrantsPerGrantee` (256, compiled) grants (`ErrTooManyGrantsForGrantee`, 1902). Every consumer that iterates a grantee's grants (member migration, the x/commons operator-dissolution sweep) is bounded by it. Module-account grantees (x/artifact receives every Harberger tax pull) and grants created through the module bypass are exempt.
+**Grantee cap.** `MsgCreateGrant` and the legacy `MsgCreateSession` refuse a grantee already named by `MaxGrantsPerGrantee` (256, compiled) grants of the new grant's class (`ErrTooManyGrantsForGrantee`, 1902). There are two classes, each with its own 256: access grants (`SESSION_KEY`, `SIGN_IN`) and payout grants (`RECURRING_PULL`, `SPENDING_ALLOWANCE`, `SCHEDULED_ONESHOT`). Every consumer that iterates a grantee's grants (member migration, the x/commons operator-dissolution sweep, which walks only the `RECURRING_PULL` slice of the `GrantsByGranteeAndType` index) is bounded by twice the cap. Module-account grantees (x/artifact receives every Harberger tax pull) and grants created through the module bypass are exempt.
+
+A cap alone is a shared resource a stranger can fill, so the access class is also gated by grantee consent (§31): a session key or sign-in from a granter the grantee has not allowed waits as `PENDING` outside every grantee index and is counted against the cap only when the grantee accepts it. Sybil granters therefore cannot block a renewal at all. The payout class is not gated; its grants push value toward the grantee and a module grantee could never accept.
 
 **Payout recipients.** The RecurringPull grantee, the oneshot Transfer recipient and every SpendingAllowance pull recipient must not be a blocked module account (bank's `SendCoins`, unlike `MsgSend`, does not check the blocked list). Checked at creation and again at claim, fire and pull time.
 
@@ -1304,8 +1325,9 @@ message ScheduledOneshotPayload {
     OneshotTransfer transfer = 1;            // Simple bank SendCoins(granter, recipient, amount)
     OneshotExec     exec     = 2;            // Dispatches an Any-encoded msg as if signed by granter
   }
-  int64 fire_at = 10;
-  string fire_error = 11;                    // Captured failure reason of the last fire attempt
+  int64 fire_at = 3;
+  string fire_error = 4;                     // Captured failure reason of the last fire attempt
+  int64 first_paused_at = 5;                 // First underfunded pause since the granter last retried; 0 = never
 }
 
 message OneshotTransfer {
@@ -1383,7 +1405,7 @@ A handler is **OneshotExec-safe** iff it satisfies all of:
 
 ### 23.4. Pause / retry
 
-If the Transfer variant's `bankKeeper.SendCoins` fails at fire time with `ErrInsufficientFunds`, the grant pauses (status → `PAUSED_INSUFFICIENT_FUNDS`, `grant_paused_underfunded` event) instead of firing: the gas deposit stays in escrow, the grant keeps its per-granter slot, `fire_error` records the failure, and `fire_at` is rewritten to the pause time. The grant is indexed in `PausedOneshotByPauseTime` under `(pause_time, id)`; because the key is derivable from the grant, InitGenesis rebuilds the index without exporting it. `MsgRetryScheduledOneshot { caller, grant_id }` (caller = granter OR grantee) drops that index entry, clears `fire_error`, sets `fire_at = block_time` and flips back to ACTIVE, so the same block's fire pass re-attempts it.
+If the Transfer variant's `bankKeeper.SendCoins` fails at fire time with `ErrInsufficientFunds`, the grant pauses (status → `PAUSED_INSUFFICIENT_FUNDS`, `grant_paused_underfunded` event) instead of firing: the gas deposit stays in escrow, the grant keeps its per-granter slot, `fire_error` records the failure, and `fire_at` is rewritten to the pause time. The grant is indexed in `PausedOneshotByPauseTime` under `(pause_time, id)`; because the key is derivable from the grant, InitGenesis rebuilds the index without exporting it. `MsgRetryScheduledOneshot { caller, grant_id }` (caller = granter OR grantee) drops that index entry, clears `fire_error`, sets `fire_at = block_time` and flips back to ACTIVE, so the same block's fire pass re-attempts it. The first pause time is kept in `first_paused_at`: a fire that pauses again re-indexes the grant under it, not under the new failure, so a grantee cannot keep a paused oneshot (and its deposit) alive past `paused_oneshot_ttl_seconds` by retrying. Only a granter retry clears `first_paused_at` and restarts the clock.
 
 Every other fire-time failure is terminal (FIRED-with-error, deposit to the fee collector): a claim-hook veto, a bank error other than insufficient funds, and every Exec-variant failure, since a retry could not change their outcome. A granter already holding `max_paused_oneshots_per_granter` paused oneshots also gets the terminal path, so paused grants stay bounded.
 
@@ -1460,15 +1482,17 @@ Every state-changing operation emits a typed event. Event types and attribute ke
 
 | Event | Trigger | Attributes |
 |---|---|---|
-| `grant_created` | `MsgCreateGrant` success | `id`, `type`, `granter`, `grantee`, `expires_at` |
-| `grant_revoked` | `MsgRevokeGrant` success | `id`, `type`, `granter`, `grantee`, `refund_amount` |
-| `grant_declined` | `MsgDeclineGrant` success | `id`, `type`, `granter`, `grantee`, `refund_amount` |
-| `grant_expired` | EndBlocker expire pass (non-SessionKey) | `id`, `type`, `granter`, `grantee` |
+| `grant_created` | `MsgCreateGrant` success | `id`, `type`, `granter`, `grantee`, `expires_at`, `status` (`active` or `pending`) |
+| `grant_accepted` | `MsgAcceptGrant`, or the first `MsgExecSession` under a PENDING session key | `id`, `type`, `granter`, `grantee`, `refund_amount` |
+| `granter_disallowed` | `MsgDisallowGranter` success | `grantee`, `granter` |
+| `grant_revoked` | `MsgRevokeGrant` success | `id`, `type`, `granter`, `grantee`, `refund_amount` (oneshot or pending deposit) |
+| `grant_declined` | `MsgDeclineGrant` success | `id`, `type`, `granter`, `grantee`, `refund_amount` (oneshot or pending deposit) |
+| `grant_expired` | EndBlocker expire pass (non-SessionKey), or the pending-expiry pass (any PENDING grant, with `status = pending` and `forfeited_amount`) | `id`, `type`, `granter`, `grantee` |
 | `session_expired` | EndBlocker expire pass (SessionKey, legacy) | `granter`, `grantee`, `exec_count`, `spent`, `grant_id` |
 | `grant_paused_underfunded` | RecurringPull / SpendingAllowance bank-send failure; ScheduledOneshot Transfer insufficient funds at fire time | `id`, `type`, `granter`, `grantee`, `attempted_amount` |
 | `grant_resumed` | PAUSED→ACTIVE on successful retry/claim | `id`, `type`, `granter`, `grantee` |
 | `grant_auto_revoked` | Paused-TTL auto-revoke pass | `id`, `granter`, `grantee`, `refund_amount` |
-| `session_created` | `MsgCreateSession` (legacy) | `granter`, `grantee`, `expiration`, `grant_id` |
+| `session_created` | `MsgCreateSession` (legacy) | `granter`, `grantee`, `expiration`, `grant_id`, `status` |
 | `session_revoked` | `MsgRevokeSession` (legacy) | `granter`, `grantee`, `exec_count`, `spent`, `grant_id` |
 | `session_executed` | `MsgExecSession` | `granter`, `grantee`, `msg_type_urls`, `exec_count`, `grant_id` |
 | `recurring_pull_claimed` | `MsgClaimRecurringPull` success | `grant_id`, `granter`, `grantee`, `amount`, `claim_index` |
@@ -1486,7 +1510,15 @@ sparkdreamd tx session revoke-grant [grant-id] --from [granter]
   # against another grant of the same granter.
 
 sparkdreamd tx session decline-grant [grant-id] --from [grantee]
-  # One-way; refunds any held oneshot deposit to the granter.
+  # One-way; refunds any held oneshot or pending deposit to the granter.
+
+sparkdreamd tx session accept-grant [grant-id] --from [grantee]
+  # Accept a PENDING session key or sign-in (§31): the grant becomes ACTIVE,
+  # the granter is allowed, its deposit is refunded. A session key is also
+  # accepted by the grantee's first exec-session.
+
+sparkdreamd tx session disallow-granter [granter] --from [grantee]
+  # Remove a granter from the grantee's allowed granters; existing grants stay.
 
 sparkdreamd tx session retry-oneshot [grant-id] --from [caller]
   # Caller must be granter OR grantee.
@@ -1543,7 +1575,9 @@ sparkdreamd query session params
 sparkdreamd query session allowed-msg-types
 sparkdreamd query session grant [id]
 sparkdreamd query session grants-by-granter [granter]    # any type
-sparkdreamd query session grants-by-grantee [grantee]    # any type
+sparkdreamd query session grants-by-grantee [grantee]    # any type (never PENDING grants)
+sparkdreamd query session allowed-granters [grantee]     # granters whose access grants skip PENDING
+sparkdreamd query session pending-grants-for-grantee [grantee]  # PENDING keys and sign-ins awaiting this grantee's accept
 sparkdreamd query session session [granter] [grantee]     # legacy: SessionKey only
 sparkdreamd query session sessions-by-granter [granter]   # legacy: SessionKey only
 sparkdreamd query session sessions-by-grantee [grantee]   # legacy: SessionKey only
@@ -1572,7 +1606,7 @@ message Params {
   // Default empty. Add only after a security review — each entry is a
   // strict trust grant that lets the named caller synthesize arbitrary
   // grants.
-  repeated string authorized_grant_creators = 60;
+  repeated string authorized_grant_creators = 30;
 }
 ```
 
@@ -1805,9 +1839,61 @@ Enforced in `validateSignInPayload` ([x/session/keeper/grant_validation.go](../x
 - At most `types.MaxSignInGrantsPerGranter` (20) active SignIn grants per granter (`ErrMaxSignInGrantsExceeded`). A constant rather than a param, so a chain upgraded without a params migration does not read a zero cap and refuse every grant.
 - Expiration is bounded by the universal `max_grant_lifetime_seconds` only. The session key's narrower `max_expiration` does not apply: a sign-in grant is a standing delegation to a key the granter holds, not an ephemeral browser key.
 - The grantee need not be a member. A service checks the granter's standing (membership, trust level) at each sign-in, since that is the identity being used.
+- Unless the grantee has already allowed the granter (§31), the grant is created `PENDING` and the grantee must sign `MsgAcceptGrant` before it exists for any service. Nothing executes through a sign-in grant, so this is its only acceptance path; the same `(granter, grantee, service)` is refused while one is pending.
 
 Revoke (`MsgRevokeGrant`, granter), decline (`MsgDeclineGrant`, grantee) and expiry remove the grant like any other, emitting `grant_revoked`, `grant_declined` or `grant_expired` with `type = GRANT_TYPE_SIGN_IN`. Ending the grant does not end sessions a service already opened through it; the service is expected to re-check and close them (sdaplogin's consumer, the Mastodon image's hourly sweep, does).
 
-A service lists the grants it may honour with `GET /sparkdream/session/v1/grants/by_grantee/{grantee}?type=GRANT_TYPE_SIGN_IN`, following `pagination.next_key` to the last page (anyone can create grants naming any key, so spam can fill the first page; a grantee holds at most 256 grants and a page at most 100), and keeps those with `status = GRANT_STATUS_ACTIVE`, `expires_at` in the future and `sign_in.service` equal to its hostname.
+A service lists the grants it may honour with `GET /sparkdream/session/v1/grants/by_grantee/{grantee}?type=GRANT_TYPE_SIGN_IN`, following `pagination.next_key` to the last page (a grantee holds at most 256 accepted access grants and a page at most 100; PENDING grants are never listed, so an unaccepted stranger's grant cannot fill a page), and keeps those with `status = GRANT_STATUS_ACTIVE`, `expires_at` in the future and `sign_in.service` equal to its hostname.
 
 The variant shipped with a network reset, not a software upgrade ([docs/chain-upgrades.md](chain-upgrades.md)).
+
+## 31. Grantee consent for access-class grants
+
+A grant is created by its granter, and until this section existed the grantee never consented. Anyone with a funded address (granters need not be members) could push grants onto any address, and the per-class grantee cap of §20 turned that into a griefing lever: about 26 sybil granters at ten session keys each could fill a public daemon hot key's 256 access slots, so the operator's renewal failed and the daemon drew liveness reports (review finding SES-102). The fix is consent for the class the grantee's owner must be able to renew.
+
+### 31.1. Scope
+
+Consent applies to the **access class** only: `GRANT_TYPE_SESSION_KEY` and `GRANT_TYPE_SIGN_IN`. Payout-class grants (`RECURRING_PULL`, `SPENDING_ALLOWANCE`, `SCHEDULED_ONESHOT`) are unchanged: they push value toward the grantee, have their own class cap, and a module grantee (x/artifact's Harberger tax pulls) could never sign an acceptance. Self-grants are refused outright (`ErrSelfDelegation`) and grants created through the module bypass (`CreateGrantOnBehalfOf`, gated by `authorized_grant_creators`) are created by a module for granters it controls, so both are active immediately. A module account can sign neither an acceptance nor an exec, so an access-class grant naming one as grantee is refused at creation (`ErrModuleAccountGrantee`, 1909) instead of waiting out its TTL and forfeiting the deposit; payout-class grants to module accounts (x/artifact's tax pulls) are unaffected. The legacy `MsgCreateSession` is a facade over the same path and behaves the same.
+
+### 31.2. Allowed granters and pending grants
+
+`AllowedGranters` is keyed `(grantee, granter)`. An access-class grant from an allowed granter is `ACTIVE` at creation exactly as before: grantee indexes, class cap, everything unchanged.
+
+An access-class grant from any other granter is stored `GRANT_STATUS_PENDING`. While pending it
+
+- is indexed under the granter only (`GrantsByGranter`, `GrantsByTypeAndGranter`, and for a session key the one-per-pair `SessionKeyByPair` lookup, which is how the grantee's first exec finds it); it is **not** written to `GrantsByGrantee`, `GrantsByGranteeAndType` or `GrantsByExpiration`, does not count toward the grantee cap, and is invisible to consumers (`grants-by-grantee` and `sessions-by-grantee` never list it, a service never sees it; the legacy `session [granter] [grantee]` query resolves the pair and does show it, without a status, so check `grant [id]`). It is on the query-only `PendingGrantsByGrantee` index, which `pending-grants-for-grantee [grantee]` pages so the grantee can find the id to accept or decline. A pending sign-in does nothing until accepted. A pending session key is usable in exactly one way: the grantee's first `MsgExecSession`, which accepts it (§31.3) and whose fee the granter's `spend_limit` pays like any other exec's;
+- counts toward the granter's `PendingGrantCountByGranter`, capped at the compiled `MaxPendingGrantsPerGranter = 4` across all grantees (`ErrMaxPendingGrantsExceeded`, 1905); the cap is shared by `MsgCreateGrant` and `MsgCreateSession`;
+- carries a refundable SPARK deposit, `params.pending_grant_deposit` (default 1 SPARK = 1_000_000 base units; governance only, bounded by the compiled `MaxParamPendingGrantDeposit` of 1000 SPARK; 0 removes the escrow but not the consent step), moved from the granter into the session module account like the oneshot gas deposit (`PendingGrantDeposit`);
+- waits until its **consent deadline**, `min(created_at + PendingGrantTTL, expires_at)`, indexed in `PendingGrantsByDeadline`. `PendingGrantTTL` is compiled and build-tagged (`x/session/types/pending_vals_*.go`): 24 h on the networks, 180 s in the untagged test build.
+
+### 31.3. Acceptance
+
+Two paths, one implementation (`acceptPendingGrant`):
+
+1. **Explicit:** `MsgAcceptGrant{grantee, grant_id}`, signed by the grantee. The only path for a sign-in grant, and the general one.
+2. **Implicit:** the grantee's first `MsgExecSession` under a pending session key accepts it and then executes, in one tx; the hot key's signature is the consent. The exec then passes every check an active key is held to (expiry, exec count, both allowlists, signer rewrite). A refused acceptance fails the whole exec.
+
+Acceptance re-runs the checks creation skipped: the grantee's class cap (`ErrTooManyGrantsForGrantee`) and the granter's per-type cap (`max_sessions_per_granter`, `MaxSignInGrantsPerGranter`), and refuses an expired grant (`ErrGrantExpired`). Over a cap the grant stays pending and the deposit stays escrowed. The fee decorator runs the same read-only checks (`CheckSessionAcceptable`) before it moves any fee, so an exec whose acceptance would be refused is rejected in CheckTx and bills the granter nothing: a pending key spends `spend_limit` only on execs that do accept it. Its inner message may still fail after acceptance and cost the fee, exactly as under an active key (the key is active by then). On success the grant becomes `ACTIVE`, joins the grantee and expiration indexes and the active counters, `AllowedGranters(grantee, granter)` is written (with its reverse entry), the deposit is refunded to the granter and `grant_accepted` is emitted. From then on every access-class grant from that granter to that grantee is active at creation.
+
+Both `MsgAcceptGrant` and `MsgDisallowGranter` are on the hard denylist (§24.1): consent must be the grantee key's own signature, never a session key's.
+
+### 31.4. Other transitions
+
+| Transition | Who | Result |
+|---|---|---|
+| Revoke | granter (`MsgRevokeGrant`, `MsgRevokeSession`) | grant deleted, deposit refunded to the granter (`refund_amount` on `grant_revoked` / `session_revoked`) |
+| Decline | grantee (`MsgDeclineGrant`) | grant deleted, deposit refunded to the granter: declining is a "no", not proof of spam |
+| Expiry | EndBlocker pending-expiry pass (capped like the other passes) | grant deleted, deposit **forfeited** to the community pool (`FundCommunityPool` through the late-wired distribution keeper; the fee collector is the fallback when it is not wired or refuses), `grant_expired` with `status = pending` |
+| Disallow | grantee (`MsgDisallowGranter{grantee, granter}`) | the consent entry is removed; existing grants are untouched (decline them individually); the granter's next access grant waits again (`ErrGranterNotAllowed`, 1908, when there was no entry) |
+
+A pending session key cannot act as an `allow_self_revoke` key (`MsgRevokeGrant` path 2 requires an ACTIVE key), and `allow_self_revoke` semantics are otherwise unchanged.
+
+### 31.5. Member migration, genesis, invariants
+
+The member-migration hook (`migration_hooks.go`) treats the granter side of `AllowedGranters` like the member's granter-side grants: re-keyed to the new address on the KEY path, dropped on RECOVERY and COUNCIL (a compromised key's consents must not carry over). The grantee side is never re-keyed: hot keys are not members. A pending grant of a migrating granter is re-keyed or revoked with its grants; a revoked one refunds the deposit to the new address. Pending grants naming the migrating member as **grantee** (found through `PendingGrantsByGrantee`) follow the grantee-side policy of their active counterparts: a pending session key is dropped with its deposit refunded to its own granter, a pending sign-in is re-keyed and stays pending for the new address to accept.
+
+Genesis exports `allowed_granters` and `pending_grant_deposits`; per-granter pending counts are recomputed on import. `GenesisState.Validate` refuses a pending grant of a payout type, more than four pending grants per granter, a deposit without a pending grant and duplicate consent entries. The `pending-grants` invariant (§18) checks the counters, the escrow (deposits ≤ module balance, together with the oneshot deposits) and the two-way consent index.
+
+### 31.6. Client notes
+
+Nothing changes for a hot key that execs: create the session, exec, done. A daemon whose operator renews to the **same** hot key is active at creation from the second grant on. A sign-in grant needs `tx session accept-grant [id] --from [grantee]` before sdaplogin's `grants/by_grantee` listing shows it. The grant id is in the `grant_created` event (`id`), in `grants-by-granter [granter]`, which lists pending grants with `status = GRANT_STATUS_PENDING`, and, from the grantee's side, in `pending-grants-for-grantee [grantee]` (`/sparkdream/session/v1/pending_grants_for_grantee/{grantee}`), which pages every pending key and sign-in awaiting that grantee without knowing the granter: a service can show the user a "pending request" from it. `query session allowed-granters [grantee]` lists the consents a key has given.

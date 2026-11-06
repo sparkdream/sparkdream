@@ -70,7 +70,7 @@ func (k msgServer) List(ctx context.Context, msg *types.MsgList) (*types.MsgList
 	l := types.Listing{
 		ClassId:   t.ClassId,
 		TokenId:   t.Id,
-		Seller:    msg.Seller,
+		Seller:    t.Owner, // the stored owner, which a migrated signer acts for (ART-102)
 		Price:     msg.Price,
 		CreatedAt: now(ctx),
 		ExpiresAt: now(ctx) + msg.Duration,

@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"bytes"
 	"context"
 	"sort"
 	commontypes "sparkdream/x/common/types"
@@ -50,6 +49,12 @@ func resolveSecretBallot(g types.Group, requested bool) (bool, error) {
 	}
 }
 
+// VoterTreeGasPerLeaf is the gas charged per voter-tree leaf for the MiMC
+// hashing a snapshot does outside the store (the leaf hash and its share of
+// the sparse Merkle tree), which the gas meter does not see on its own
+// (CMN-107). Store reads are metered as usual.
+const VoterTreeGasPerLeaf uint64 = 2_000
+
 // buildVoterTree snapshots councilName's members for a secret ballot. It
 // refuses a group whose members do not all share one weight (an anonymous
 // vote carries no weight) and a snapshot smaller than MinSecretBallotVoters
@@ -79,25 +84,22 @@ func (k Keeper) buildVoterTree(ctx context.Context, councilName string) (types.V
 	// Member-address order, so every node builds the same tree.
 	sort.Slice(members, func(i, j int) bool { return members[i].Address < members[j].Address })
 
+	gasMeter := sdk.UnwrapSDKContext(ctx).GasMeter()
 	leaves := make(map[uint64][]byte, len(members))
+	seen := make(map[string]bool, len(members))
 	var list []types.VoterTreeLeaf
 	for _, m := range members {
 		pk := k.late.repKeeper.ActiveZkPublicKey(ctx, m.Address)
 		if len(pk) == 0 {
 			continue
 		}
+		gasMeter.ConsumeGas(VoterTreeGasPerLeaf, "secret ballot voter tree")
 		leaf := zkcrypto.ComputeLeaf(pk, 0)
 		// Two members cannot both prove with one key; count it once.
-		duplicate := false
-		for _, l := range list {
-			if bytes.Equal(l.Hash, leaf) {
-				duplicate = true
-				break
-			}
-		}
-		if duplicate {
+		if seen[string(leaf)] {
 			continue
 		}
+		seen[string(leaf)] = true
 		idx := uint64(len(list))
 		leaves[idx] = leaf
 		list = append(list, types.VoterTreeLeaf{Index: idx, Hash: leaf})

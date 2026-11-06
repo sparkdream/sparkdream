@@ -251,6 +251,8 @@ message PendingMint {
   string deposit = 6;                     // math.Int in the bond denom
   int64 created_at = 7;
   int64 expires_at = 8;
+  // ... schedule = 9, unrevealed = 10
+  string deposit_payer = 11;              // Set when a session key minted: carried to Token.deposit_payer (§7.13)
 }
 
 enum InboxKind {
@@ -488,6 +490,7 @@ message Token {                           // additions
   HarbergerState harberger = 22;          // Harberger classes only
   TokenRef parent = 23;                   // Set while nested (lock = NESTED)
   uint32 descendants = 24;                // Tokens nested under this one, at any depth
+  string deposit_payer = 25;              // Set when a session key paid the deposit: the refund goes here (§7.13)
 }
 
 message Renderer { ...; uint32 state_version = 3; }   // 0 = Render, 1 = RenderState v1 (§7.16)
@@ -511,12 +514,14 @@ message Balance {                         // Key (class_id, edition_id, owner)
   uint64 locked = 5;                      // Units in unit listings and pending transfers
   string deposit = 6;                     // Record deposit, refunded to the holder who empties it
   string reward_debt = 7; string unclaimed = 8;   // Accumulator snapshot, settled rewards
+  string deposit_payer = 9;               // Set when a session-key mint paid the deposit: the refund goes here (§7.13)
 }
 message PendingUnits {                    // Inbox ref (0, id): class 0 is never a real class
   uint64 id = 1; InboxKind kind = 2; uint64 class_id = 3; uint64 edition_id = 4;
   string from = 5; string to = 6; uint64 amount = 7;
   string deposit = 8;                     // Escrowed record deposit for the recipient
   int64 created_at = 9; int64 expires_at = 10;
+  string deposit_payer = 11;              // Carried to Balance.deposit_payer (§7.13)
 }
 message UnitListing {                     // Listed units are locked in the seller's balance
   uint64 id = 1; uint64 class_id = 2; uint64 edition_id = 3; string seller = 4;
@@ -563,6 +568,7 @@ message HarbergerState {                  // Token.harberger
   int64 next_due = 3; int64 grace_until = 4;
   int64 foreclosed_at = 5;                // 0 = not foreclosed
   string tax_paid = 6;                    // By the current holder
+  string paid_price = 7;                  // Price the paid-through window was assessed at
 }
 ```
 
@@ -908,11 +914,11 @@ All resolutions delete the pending record and its indexes, and decrement `Pendin
 
 Effects:
 - Delete the token and its owner index. `supply--`, `burned++`.
-- Refund `token.deposit` **to the burner**.
+- Refund `token.deposit` **to the burner**, or to `token.deposit_payer` when a session key paid it (§7.13).
 - If the token has a PENDING hide record, resolve it as `TARGET_BURNED` (§7.11).
 - Emit `artifact_burned`.
 
-The refund goes to the holder, not the original minter, so a sender of unwanted tokens pays the recipient to clean them up (§12.3).
+The refund goes to the holder, not the original minter, so a sender of unwanted tokens pays the recipient to clean them up (§12.3). The one exception is a deposit paid through a delegated session key (§7.13): it always returns to the granter, whoever burns, revokes or expires the token.
 
 #### 5.3.6. MsgRevoke
 
@@ -951,7 +957,7 @@ The market is a convenience layer for trustless sales. It holds no funds. Royalt
 4. `price.denom == BondDenom` and `price.amount > 0`.
 5. `0 < duration ≤ max_listing_duration`.
 
-Effects: `token.listing_seq++`. Write the `Listing` with `nonce = listing_seq`, set `lock = LISTED`, and add the expiry and seller indexes. Emit `artifact_listed`.
+Effects: `token.listing_seq++`. Write the `Listing` with `nonce = listing_seq` and `seller = token.owner` (the stored owner, which a migrated member's successor acts for through the alias contract; the same rule applies to `Auction.seller`, `RentalOffer.owner` and `PendingTransfer.from`, so genesis validation and the lock invariants keep comparing stored addresses), set `lock = LISTED`, and add the expiry and seller indexes. Emit `artifact_listed`.
 
 #### 5.4.2. MsgUpdateListing
 
@@ -1033,25 +1039,25 @@ Messages on an EDITIONS class. The unique-token messages (`MsgMint`, `MsgIssue`,
 - `MsgMintUnits{minter, class_id, edition_id, entries[{recipient, amount}]}` (owner or minter): 1..`max_batch_size` distinct recipients; the edition cap counts units ever issued. Every edition, an uncapped one (`max_supply = 0`) included, is also bounded by the compiled `HardMaxEditionSupply` (10^15 units, `ErrSupplyExceeded`), which also caps `max_supply` at creation and a recipe's input and output quantities; every addition to a unit counter or balance is checked and fails rather than wraps, so `supply` (the divisor of retro funding) can never wrap below what holders hold. Each recipient follows the §7.6 receive-policy rules with origin `"class/<id>"`; a new balance record costs the minter `token_deposit`. Inbox items escrow one `token_deposit` for the recipient's record.
 - `MsgTransferUnits{sender, entries[{class_id, edition_id, recipient, amount}]}`: free units only; the class must be transferable. Direct delivery debits the sender and credits the recipient (the sender pays the deposit of a new record and gets their own back if the transfer empties it). Inbox delivery locks the units in the sender's balance.
 - Inbox items use the **reserved class 0 namespace**: their ref is `(0, pending_id)`, so the existing `MsgAcceptIncoming`, `MsgRejectIncoming`, `MsgCancelOutgoing`, the `Inbox`/`Outbox` queries, the inbox caps and the pending-expiry pass all handle them unchanged. Accepting credits the recipient (the escrowed deposit funds a new record, or goes back to the sender); rejecting, cancelling or expiring returns the units and the escrow.
-- `MsgBurnUnits{owner, class_id, edition_id, amount}` (holder; `HolderMayBurn`) and `MsgRevokeUnits{owner, class_id, edition_id, holder, amount, reason}` (class owner; `IssuerMayBurn`) destroy free units: `supply -= amount`, `burned += amount`. `holder` may name either a migrated member's current or earlier address: the balance is resolved through the alias contract, like every other unit handler. Revocation touches free units only; a revocable class is never transferable, so its units can never be listed or pending a transfer.
-- `MsgListUnits{seller, class_id, edition_id, quantity, unit_price, duration}` locks `quantity` units under a new listing id. `MsgBuyUnits{buyer, listing_id, quantity, expected_unit_price, expected_metadata_hash}` buys part or all of it, settled like `MsgBuy` on `unit_price × quantity` (§7.7, class royalty applies). `MsgUpdateUnitListing{seller, listing_id, quantity, unit_price, duration}` reprices a listing in place, resizes it (locking more free units or unlocking the difference) and resets `expires_at = now + duration`; it needs the market enabled and a visible edition, like `MsgListUnits`. `MsgDelistUnits{seller, listing_id}` is always allowed. Hidden editions and classes cannot be listed or bought; their listings stay locked until they expire or are delisted.
+- `MsgBurnUnits{owner, class_id, edition_id, amount}` (holder; `HolderMayBurn`) and `MsgRevokeUnits{owner, class_id, edition_id, holder, amount, reason}` (class owner; `IssuerMayBurn`) destroy free units: `supply -= amount`, `burned += amount`. `holder` may name either a migrated member's current or earlier address: the balance is resolved through the alias contract, like every other unit handler. A unit handler signed by a tombstoned address resolves to no balance at all, not even the one keyed by that address (`ErrNotAuthorized`). Revocation touches free units only; a revocable class is never transferable, so its units can never be listed or pending a transfer.
+- `MsgListUnits{seller, class_id, edition_id, quantity, unit_price, duration}` locks `quantity` units under a new listing id. `MsgBuyUnits{buyer, listing_id, quantity, expected_unit_price, expected_metadata_hash}` buys part or all of it, settled like `MsgBuy` on `unit_price × quantity` (§7.7, class royalty applies). `MsgUpdateUnitListing{seller, listing_id, quantity, unit_price, duration}` reprices a listing in place, resizes it (locking more free units or unlocking the difference) and resets `expires_at = now + duration`; it needs the market enabled and a visible edition, like `MsgListUnits`, and refuses a listing already past `expires_at` (`ErrListingNotFound`, as does `MsgUpdateListing`): an expired listing the EndBlocker has not pruned yet cannot be revived in place, only relisted. `MsgDelistUnits{seller, listing_id}` is always allowed. Hidden editions and classes cannot be listed or bought; their listings stay locked until they expire or are delisted.
 - `MsgFundEdition{funder, class_id, edition_id, amount}` pays SPARK to every current holder, pro rata to the units they hold (`ErrNoCirculatingUnits` with none). `MsgClaimEditionRewards{holder, refs}` pays out what accrued.
 - `MsgUpdateToken`, `MsgFreezeTokenMetadata` and `MsgSetMaxSupply` (with `edition_id`) work on editions: `token_id` names the edition. Only the class owner may freeze an edition.
 
 ### 5.9. Nesting
 
-- `MsgNest{owner, child, parent}`: the signer owns both; the child is unlocked; the receiving tree's root is unlocked or RENTED; the parent is not inside the child (`ErrNestCycle`); the tree stays within `max_nest_depth` levels and `max_nested_tokens` descendants (`ErrNestTooDeep`); Harberger tokens never nest (`ErrNestNotAllowed`); a soulbound child sits only inside non-transferable tokens, at every level. Effects: `child.lock = NESTED`, `child.parent`, every ancestor's `descendants` grows, any rental offer on the child is dropped.
+- `MsgNest{owner, child, parent}`: the signer owns both; the child is unlocked; the receiving tree's root is unlocked or RENTED (and, when RENTED, the child's tree does not expire before the rental ends); the parent is not inside the child (`ErrNestCycle`); the tree stays within `max_nest_depth` levels and `max_nested_tokens` descendants (`ErrNestTooDeep`); Harberger tokens never nest (`ErrNestNotAllowed`); a soulbound child sits only inside non-transferable tokens, at every level. Effects: `child.lock = NESTED`, `child.parent`, every ancestor's `descendants` grows, any rental offer on the child is dropped. "Owns both" is read through the alias contract, so a migrated member can nest a token still stored under its old address into one stored under its new address (or the reverse); the child and its subtree are then re-keyed to the receiving tree's stored owner (an `artifact_transferred` event with `via = nest`), because a tree always has one stored owner.
 - `MsgDetach{owner, child}`: refused while the root is listed, pending transfer or rented, so neither a buyer nor a renter loses contents they relied on. The child (with its own subtree) becomes a root.
 
 ### 5.10. Rentals
 
-- `MsgOfferRental{owner, class_id, token_id, user, price, duration, owner_may_end, offer_duration}`: transferable, non-Harberger, visible, not-nested tokens; `duration ≤ max_rental_duration`; `user = ""` lets anyone accept. Nothing is locked. The nonce is the token's `listing_seq`, bumped, so a signed acceptance never matches a later offer. A new offer replaces the old one; a transfer, sale or nesting of the token drops it.
-- `MsgAcceptRental{renter, class_id, token_id, expected_price, expected_nonce, expected_metadata_hash, expected_contents_hash}`: the token is still owned by the offerer and unlocked, not hidden or expired, and the rental ends no later than the token's `expires_at`. The price is settled like a sale (circuit breaker included); the token becomes `RENTED`. A token holding nested tokens needs the contents pin (fail closed).
+- `MsgOfferRental{owner, class_id, token_id, user, price, duration, owner_may_end, offer_duration}`: transferable, non-Harberger, visible, not-nested tokens; `duration ≤ max_rental_duration`; `user = ""` lets anyone accept. Nothing is locked. The nonce is the token's `listing_seq`, bumped, so a signed acceptance never matches a later offer. A new offer replaces the old one; a transfer, sale or nesting of the token drops it. The offer records the token's stored owner, not the signer, so a migrated member's successor can rent out a token still stored under the old address.
+- `MsgAcceptRental{renter, class_id, token_id, expected_price, expected_nonce, expected_metadata_hash, expected_contents_hash}`: the token is still owned by the offerer and unlocked, not hidden or expired, and the rental ends no later than the earliest `expires_at` of the token and every token nested in it, so nothing the renter pinned expires mid-rental. The price is settled like a sale (circuit breaker included); the token becomes `RENTED`. A token holding nested tokens needs the contents pin (fail closed).
 - `MsgEndRental{signer, class_id, token_id}`: the renter at any time; the owner when `owner_may_end` or once expired (`ErrRentalActive` otherwise). The EndBlocker ends expired rentals.
 
 ### 5.11. Harberger Tokens
 
-- `MsgSetHarbergerPrice{owner, class_id, token_id, price, grant_id}`: a positive price names an x/session RecurringPull from the holder to the artifact module address that pays at least `TaxPerPeriod(price)` every `tax_period` (`ErrInvalidHarbergerGrant`); it also cures a foreclosure. A zero price takes no grant and abandons the token.
+- `MsgSetHarbergerPrice{owner, class_id, token_id, price, grant_id}`: a positive price names an x/session RecurringPull from the holder to the artifact module address that pays at least `TaxPerPeriod(price)` every `tax_period`, whose first pull falls within one `tax_period` of now (`ErrInvalidHarbergerGrant`); it also cures a foreclosure. The time between what the holder has paid through and the grant's first pull is charged up front from the signer to the community pool (§7.24). A zero price takes no grant and abandons the token.
 - `MsgForceBuy{buyer, class_id, token_id, max_price, expected_metadata_hash}`: buys at the current price (§7.24) whatever the holder wants, settled like a sale; a pending transfer is cancelled first. Refused for hidden tokens and classes and while the market is disabled. `MsgList`, rentals and nesting are refused on Harberger classes: the token is always for sale.
 
 ### 5.12. Crafting
@@ -1221,7 +1227,7 @@ Every metadata string (class `name`, `symbol`, `description`, `uri`, `uri_hash`,
 4. `uri_hash`, when set, is exactly 64 lowercase hex characters. Clients that fetch `uri` should verify it and warn on mismatch. Content-addressed schemes (`ipfs`, `ar`) are self-verifying.
 5. Attribute keys match `[a-z0-9_]{1,max_attribute_key_length}` and are unique within a token.
 
-**Media labels.** Class and token carry `media_flags` and `media_rules_version`, computed on every write. `MEDIA_FLAG_EXTERNAL_URI` is set when `uri` is set, or, for a class, when `token_uri_base` is set. `INLINE_DATA` can never occur, because data URIs are rejected.
+**Media labels.** Class, token and edition carry `media_flags` and `media_rules_version`, computed on every write and recomputed for every imported record in `InitGenesis` (the file's labels are never trusted). `MEDIA_FLAG_EXTERNAL_URI` is set when `uri` is set, or, for a class, when `token_uri_base` is set. `INLINE_DATA` can never occur, because data URIs are rejected.
 - The labelling helpers are **new code**: `LabelNftClass` / `LabelNftToken`. Put them in `x/common/types/media_labels.go` beside `LabelBody`, or keep them in `x/artifact/keeper/media_labels.go` as collect keeps its private `applyItemMediaLabels`.
 - NFT records belong in the **URI-only, not-withheld** category of [content-scanning.md](content-scanning.md) §3, like collect items. On-chain text is always returned; clients follow §6 (fetch media only after a clean scanner verdict).
 - When implemented, add `x/artifact` `Class` and `Token` rows to the content-scanning §3.1 table.
@@ -1258,7 +1264,7 @@ The hide authority, sentinel bond commitment, daily rate limit, pre-appeal self-
 **Class-hide drain.** Hiding a class writes `ClassCancelQueue[class_id] = 0`. Each block, the EndBlocker walks the `Listings` class prefix from the cursor, cancels up to `max_expirations_per_block` listings, and saves the cursor. When the walk reaches the end, the queue entry is deleted. `MsgBuy` and `MsgList` check the class status directly, so nothing can be sold or newly listed while the drain is running. **Unhiding the class deletes its queue entry.** Listings that were already cancelled stay cancelled; the sellers relist. `ClassScrubQueue` works the same way over the `Tokens` class prefix.
 
 **Appeal resolution.** Hide appeals run through x/rep's moderation-appeal machinery, the same path as forum post hides and x/collect hides:
-- `MsgAppealHide` calls `x/rep` `CreateGovActionAppeal(GOV_ACTION_TYPE_ARTIFACT_HIDE, "<hide_id>", appellant, reason)` and stores the returned `appeal_id`. It removes the hide from artifact's own expiry index, since x/rep now owns the deadline.
+- `MsgAppealHide` marks the hide `appealed` (with the appellant) **before** it calls `x/rep` `CreateGovActionAppeal(GOV_ACTION_TYPE_ARTIFACT_HIDE, "<hide_id>", appellant, reason)`, because x/rep reads the hiding sentinel through `GetActionSentinel`, which reports only an appealed record, to keep the sentinel off its own jury (COL-102); it then stores the returned `appeal_id`. It removes the hide from artifact's own expiry index, since x/rep now owns the deadline.
 - x/rep calls back into artifact through `RepAppealTarget` ([x/artifact/keeper/appeal_target.go](../x/artifact/keeper/appeal_target.go)), registered in `app.go` with `RepKeeper.RegisterModerationAppealTarget`:
   - `GetActionSentinel` / `GetActionCommittedAmount`: the hiding sentinel and the reserved bond, so x/rep can release or slash it, exclude the sentinel from the jury, and record the `RoleActivity` verdict.
   - `ReverseSentinelAction` restores the content on OVERTURNED.
@@ -1278,7 +1284,7 @@ Ordered passes, each capped at `max_expirations_per_block` and walking an ordere
 6. **Class scrub drain.** Advance `ClassScrubQueue` cursors (tokens, pending mints and editions share the id space).
 7. **Rental expiry**, **rental offer expiry** and **unit listing expiry** (rentals end before token expiry runs, so an expiring rented token is free first).
 8. **Token expiry** (§7.19) and the **release queue** (§7.15).
-9. **Harberger tax** (§7.24): take each due RecurringPull pull in its own cached context; a failure forecloses the token.
+9. **Harberger tax** (§7.24): take each due RecurringPull pull in its own cached context; a failure forecloses the token, a pull session defers (its per-day ceiling) is re-queued for the next UTC day.
 10. **Offer expiry** (refund the escrow) and **auction settlement** (§7.27) for auctions whose `ends_at` has passed.
 
 Pending unit items expire through pass 1.
@@ -1287,7 +1293,7 @@ No pass is needed for safety. Every message checks expiry and hidden status at u
 
 Each record is processed in a cached context. A failure is logged, emits `artifact_expiry_error`, and skips that record by moving its index entry to a `FailedExpiry` set for manual inspection, so it never blocks the queue. The EndBlocker never halts the chain. Two passes recover instead of only dropping the entry, in a second cached context: a failed auction settlement ends the auction unsold (the high bid is refunded and the token unlocked, reason `settlement_failed`), and a failed Harberger pass (a store error, not a failed pull, which forecloses) re-queues the token one `tax_period` later, so tax and foreclosure never stop for good. Only if that fallback fails too is the entry dropped.
 
-The class queues (`ClassReleaseQueue`, `ClassCancelQueue`, `ClassScrubQueue`) never drop their cursor on a failure. Each token visit runs in its own cached context, so a failure rolls back only that token. The first failure of a token records `(queue, "class/token")` in `FailedExpiry` and holds the cursor at it, so the next block retries; a token that fails again on that retry is skipped (its record stays) so a permanent fault cannot stall the rest of the class, and a retry that succeeds clears the record. A skipped generative-mint escrow stays on the token's `paid` (still counted by the escrow invariant) and is released when the token is burned.
+The class queues (`ClassReleaseQueue`, `ClassCancelQueue`, `ClassScrubQueue`) never drop their cursor on a failure, and each pass reads at most `max_expirations_per_block` queued classes, so its cost stays O(cap) however many classes are queued. A failed write of a queue cursor is logged, recorded in `FailedExpiry` as `(queue, "class/<id>")` and emitted as `artifact_expiry_error`. Each token visit runs in its own cached context, so a failure rolls back only that token. The first failure of a token records `(queue, "class/token")` in `FailedExpiry` and holds the cursor at it, so the next block retries; a token that fails again on that retry is skipped (its record stays) so a permanent fault cannot stall the rest of the class, and a retry that succeeds clears the record. A skipped generative-mint escrow stays on the token's `paid` (still counted by the escrow invariant) and is released when the token is burned. Every pass reads its due index through one helper that logs an iterator or key-decode failure (`artifact endblock: due index ...`) instead of silently skipping the pass.
 
 ### 7.13. Delegation (x/session)
 
@@ -1297,7 +1303,7 @@ The session ceiling (`max_allowed_msg_types`) and active list (`allowed_msg_type
 
 | Delegable | Message types | Why |
 |-----------|---------------|-----|
-| **Yes**: game-server and issuer ergonomics | `MsgMint`, `MsgIssue`, `MsgMintUnits`, `MsgUpdateToken`, `MsgRedeem` | A game server or door scanner works on a key the account does not keep at home. Mints take refundable deposits from the granter, only into classes it owns or mints for, bounded by its balance until the grant is revoked; a leaked key can at worst mint to an attacker who burns for the deposits. `MsgUpdateToken` and `MsgRedeem` move no funds and never change ownership |
+| **Yes**: game-server and issuer ergonomics | `MsgMint`, `MsgIssue`, `MsgMintUnits`, `MsgUpdateToken`, `MsgRedeem` | A game server or door scanner works on a key the account does not keep at home. Mints take deposits from the granter, only into classes it owns or mints for. A deposit paid through `MsgExecSession` records the granter as `deposit_payer` (on the token, pending mint, balance record or pending units) and is refunded to the granter whoever burns, revokes, expires or empties the record, so a leaked key cannot mint to an address it controls and burn for the granter's SPARK. What a leaked key can still do until the grant is revoked is lock the granter's balance in deposits and burn inbox fees. `MsgUpdateToken` and `MsgRedeem` move no funds and never change ownership |
 | **Yes**: inbox triage | `MsgAcceptIncoming`, `MsgRejectIncoming`, `MsgSetReceivePolicy` | Moves nothing out of the account. A leaked key can accept unwanted tokens or reject wanted ones (the sender can resend). The recipient pays nothing to accept; a HOLDER-burnable token can be burned for its deposit, but an ISSUER or NEITHER token (a soulbound record) stays attached to the granter until its issuer revokes it, or for good. Accepting a soulbound or consent-required delivery through a session key is allowed by decision: the session key is the holder's own delegated key |
 | **Yes**: presentation | `MsgProposeMedia`, `MsgAcceptMedia`, `MsgRejectMedia`, `MsgSetDisplayedMedia` | Stored metadata never changes and no funds move |
 | **Yes**: game play | `MsgNest`, `MsgDetach`, `MsgEndRental` | Equipment moves within one owner's tree; a renter can hand an item back |
@@ -1329,7 +1335,7 @@ A class with `reveal.kind != NONE` escrows every public-mint price on the token 
 
 - **Blind metadata.** The creator commits a Merkle root over `leaf = SHA-256(0x00 || be64(class_id) || be64(token_id) || salt || SHA-256(metadata))`, with nodes `SHA-256(0x01 || min(a,b) || max(a,b))` (sorted pairs, so a proof is just sibling hashes). Minters mint empty metadata (`ErrInvalidReveal` otherwise), tokens carry `unrevealed = true`, `MsgUpdateToken` and `MsgProposeMedia` are refused until `MsgReveal`. A reveal validates the metadata (§7.9), binds it to that token id (no swapping between tokens) and releases the escrow: sale fee at the current rate to the community pool, the rest to `payout_address`. `cmd/artifactcommit tree` builds the root and proofs off-chain. Because every leaf binds the class id, the creator builds the tree for the id the class is about to get (`NextClassId`) and sets `MsgCreateClass.expected_class_id` to it: if another class is created first, the create fails with `ErrClassIdMismatch` (before the fee is burned) instead of producing a class whose tokens could never reveal.
 - **Generative seed.** The creator commits `SHA-256(seed)`; tokens carry their stored metadata, and every token's seed `SHA-256("sparkdream/artifact/seed/v1" || seed || be64(class) || be64(token))` becomes visible once `MsgRevealSeed` lands. Ids are sequential and the seed unknown, so neither side can pick rarities (no oracle randomness). Payouts drain through `ClassReleaseQueue`.
-- **Deadline.** After `reveal.deadline`, while the token (blind) or the class seed (generative) is unrevealed, `MsgBurn` by the holder refunds `paid` **and** the deposit. Before the deadline a voluntary burn releases `paid` to the class. `MsgRevoke` and expiry burns always refund `paid` to the holder. The escrow invariant (§13) counts `paid`.
+- **Deadline.** After `reveal.deadline`, while the token (blind) or the class seed (generative) is unrevealed, `MsgBurn` by the holder refunds `paid` **and** the deposit. Before the deadline a voluntary burn releases `paid` to the class. `MsgRevoke` and expiry burns always refund `paid` to the holder. The escrow invariant (§13) counts `paid`. **A late reveal does not take the refund back.** `MsgReveal` and `MsgRevealSeed` stay allowed after the deadline (holders of free-minted tokens still want their metadata or seed), but the escrow they unlock then belongs to the holders: a blind token revealed late refunds `paid` to its holder at once, and a seed revealed late (`artifact_seed_revealed` with `late = true`) makes the release queue refund every token's `paid` to its holder (`artifact_payment_refunded`, reason `late_reveal`) instead of paying the class; a holder burn between the late reveal and the queue's visit refunds the same. The class is paid only for reveals that land before the deadline it set.
 
 ### 7.16. Renderers
 
@@ -1375,7 +1381,7 @@ An edition with a claim is an impact certificate: a share-divisible record of a 
 
 ### 7.22. Rentals
 
-A rental is a time-limited user right on one token without moving ownership, the right an off-chain app checks ("may this address play this item"). It rides the single-lock model as `TOKEN_LOCK_RENTED`: while set the token cannot be transferred, listed, burned, nested or re-rented, and the owner cannot end it early unless the offer said so, so a renter always gets what they paid for. Rentals sit in `Rentals` with `RentalsByUser` and an expiry index; the EndBlocker ends them. A rental never outlasts an expiring token, and an expiry burn, revocation or hide never needs to wait for it: `destroyToken` ends the rental first. Payments settle like sales (fee, royalty, owner proceeds).
+A rental is a time-limited user right on one token without moving ownership, the right an off-chain app checks ("may this address play this item"). It rides the single-lock model as `TOKEN_LOCK_RENTED`: while set the token cannot be transferred, listed, burned, nested or re-rented, and the owner cannot end it early unless the offer said so, so a renter always gets what they paid for. Rentals sit in `Rentals` with `RentalsByUser` and an expiry index; the EndBlocker ends them. A rental never outlasts an expiring token or anything nested in it, and an expiry burn, revocation or hide never needs to wait for it: `destroyToken` ends the rental first. Payments settle like sales (fee, royalty, owner proceeds).
 
 ### 7.23. Nesting
 
@@ -1384,6 +1390,7 @@ A token can own other tokens: a game character holding its equipment. The whole 
 - A nested child is `TOKEN_LOCK_NESTED` with `parent` set; every ancestor's `descendants` counts it, and the `Children` index lists each token's direct children. Depth and tree size are capped by params (compiled ceilings 8 and 100), which bounds every tree walk.
 - **Sales pin contents.** `ContentsHash` is SHA-256 over every descendant `class/token<parent:metadata_hash` line, sorted by (class, token), and `""` for an empty token. `MsgBuy` and `MsgAcceptRental` carry `expected_contents_hash`; a token holding anything refuses an empty or stale pin (`ErrContentsChanged`), and a listed tree cannot be detached from.
 - **Burn and revoke.** Destroying a parent detaches its direct children to the holder as roots (grandchildren stay in their own parents); a nested token that is revoked or expiry-burned is detached first. Child deposits stay with the child.
+- **Rented trees.** A child (or a tree) that would expire before the root's rental ends cannot be nested into a RENTED tree (`ErrNestNotAllowed`): the renter pinned what they rented and must not watch a later addition burn away mid-rental.
 - **Moderation.** A hidden ancestor (or ancestor class) withholds the whole tree in queries.
 - **Soulbound.** A soulbound child can sit only inside non-transferable tokens, at every level, so nesting never makes it movable.
 
@@ -1392,8 +1399,12 @@ A token can own other tokens: a game character holding its equipment. The whole 
 Partial common ownership: the holder self-assesses a price, anyone may buy the token at that price at any time, and the holder pays a yearly tax on it to the community pool.
 
 - **Tax.** `TaxPerPeriod(price) = ceil(price × tax_bps_per_year × tax_period / (10000 × 31,536,000))`. It is collected through an **x/session RecurringPull** from the holder to the artifact module address: `MsgSetHarbergerPrice` checks the grant (granter = holder, grantee = artifact module, ACTIVE, bond denom, amount ≥ tax, period = `tax_period`), the `HarbergerDue` EndBlocker pass claims each due period through `ClaimRecurringPullForGrantee` (the artifact module is in session's default `authorized_grant_creators`) and forwards it to the community pool. The holder's SPARK stays liquid until each pull.
-- **Foreclosure.** A failed pull (revoked, paused, expired or underfunded grant) forecloses the token from its due time; so does the end of the grace period (one `tax_period` after the token arrived) for a priced token without a grant. The current price then falls linearly from the assessed price to zero over `foreclosure_duration`. A new grant cures it. An unpriced token inside its grace period is not for sale (`ErrNotForSale`).
-- **Arrivals.** Any move (forced buy, gift, accepted transfer) restarts the state for the new holder: priced at what was paid (a gift carries the current, possibly falling, price, so a foreclosure cannot be shed by moving the token), no grant, one period of grace. Public mints start at the mint price.
+- **Paid through, and re-assessment.** Each pull pays the period that starts at it, so a holder's tax is settled up to the next due pull of its grant, or, without one, up to the end of the grace period (or the start of a foreclosure). The state records the price that paid-through window was assessed at (`paid_price`: the arrival price for the grace period, then the price at each pull or up-front charge). A re-assessment may name a new grant, but its first pull must fall within one `tax_period` of now, and `MsgSetHarbergerPrice` charges up front, from the signer to the community pool (event attribute `arrears`, added to `tax_paid`), with `TaxFor(price, seconds) = ceil(price × tax_bps_per_year × seconds / (10000 × 31,536,000))`:
+  - the time the new grant skips, from the paid-through point (or now, once foreclosed) to its first pull, at the **higher of the price held so far and the new price**, so swapping through a cheap intermediate price in the same block moves the due date for exactly the tax on the price actually held;
+  - the rest of the window already paid for, from now to the paid-through point, at the **difference** between the new price and `paid_price` when the new price is higher, so lowering the price just before a pull (which then pays almost nothing) and raising it again inside the period that pull covered costs that period at the higher price.
+  Nothing is held for less than the tax on it: a holder can lower the price for free, but never make time already paid for cheaper to hold at a higher one. Curing a foreclosure costs one period up front. The grace period is paid at the arrival price, so the first assessment of a minted token (which arrives at price 0) pays the rest of its grace at the assessed price, and a forced buyer's grace is free only at the price they paid.
+- **Foreclosure.** A failed pull (revoked, paused, expired or underfunded grant) forecloses the token from its due time; so does the end of the grace period (one `tax_period` after the token arrived) for a priced token without a grant. The current price then falls linearly from the assessed price to zero over `foreclosure_duration`. A new grant cures it. An unpriced token inside its grace period is not for sale (`ErrNotForSale`). A pull x/session **defers** (its per-UTC-day `max_per_epoch` ceiling, `ErrTaxPullDeferred`) is not a failed pull: the token is re-queued for the first second of the next UTC day (`artifact_harberger_tax_deferred`) and never foreclosed for it. To keep that case rare the grant's `max_per_epoch` must cover two pulls (`≥ 2 × amount_per_period`), so a pull delayed into the day of the next one still goes through.
+- **Arrivals.** A paid move (forced buy, accepted offer, settled auction) restarts the state for the buyer: priced at what was paid, no grant, one period of grace assessed at that price. A gift or accepted transfer settles nothing, so it hands the obligation on: the assessed price, `paid_price` and any foreclosure carry over, and the new holder's grace ends where the previous holder's tax was paid through (never more than one `tax_period` from now). Passing a token back and forth therefore never restarts the grace period. Public mints start at the mint price. Residual: two colluding holders can still restart grace with forced buys of each other at the assessed price; each one pays the sale fee and royalty on that price, and while the price is low anyone may buy the token.
 - **Exclusions.** Soulbound, issuer-burnable, NEITHER, expiring, commit-reveal and EDITIONS classes cannot be Harberger classes; Harberger tokens cannot be listed, rented or nested; hidden tokens are never force-sold; `market_enabled` stops forced buys.
 
 ### 7.25. Crafting
@@ -1548,7 +1559,7 @@ Codespace `artifact`. Codes start at 1100 (1100 is the scaffolded `ErrInvalidSig
 | 84 | `ErrRentalNotFound` | |
 | 85 | `ErrRentalOfferNotFound` | Missing, expired, or the token changed hands |
 | 86 | `ErrRentalActive` | The owner may not end the rental yet |
-| 87 | `ErrNotRentable` | Soulbound or Harberger class, bad duration, or a rental outlasting the token |
+| 87 | `ErrNotRentable` | Soulbound or Harberger class, bad duration, or a rental outlasting the token or something nested in it |
 | 88 | `ErrNestNotAllowed` | Harberger tokens, soulbound child in a transferable tree, not nested |
 | 89 | `ErrNestTooDeep` | `max_nest_depth` or `max_nested_tokens` exceeded |
 | 90 | `ErrNestCycle` | |
@@ -1565,6 +1576,8 @@ Codespace `artifact`. Codes start at 1100 (1100 is the scaffolded `ErrInvalidSig
 | 101 | `ErrAuctionActive` | Settling before `ends_at`, or cancelling after the first bid |
 | 102 | `ErrBidTooLow` | Below `MinNextBid`, or `min_increment_bps` above 10000 |
 | 103 | `ErrTaxPullFailed` | A Harberger tax pull moved nothing (the RecurringPull paused for lack of funds, or its window closed); the token forecloses |
+| 104 | `ErrClassIdMismatch` | `MsgCreateClass.expected_class_id` is not the id the class would get |
+| 105 | `ErrTaxPullDeferred` | x/session deferred a Harberger tax pull (its per-day `max_per_epoch` ceiling); the token is re-queued for the next UTC day, not foreclosed |
 
 ---
 
@@ -1590,8 +1603,8 @@ Every state change emits an event. Attributes always include `class_id`, plus `t
 | `artifact_transfer_pending` | `from`, `to`, `expires_at`, `inbox_fee` |
 | `artifact_pending_resolved` | `kind`, `outcome` (`accepted` / `rejected` / `cancelled` / `expired`), `refund` |
 | `artifact_receive_policy_set` | `address`, `policy` |
-| `artifact_burned` | `owner`, `refund` |
-| `artifact_revoked` | `holder`, `reason`, `refund` |
+| `artifact_burned` | `owner`, `refund`, `refund_to` |
+| `artifact_revoked` | `holder`, `reason`, `refund`, `refund_to` |
 | `artifact_token_updated` / `artifact_token_metadata_frozen` | `by`, `metadata_hash` |
 | `artifact_listed` / `artifact_listing_updated` | `seller`, `price`, `expires_at`, `nonce` |
 | `artifact_delisted` | `seller`, `reason` (`seller` / `expired` / `burned` / `hidden` / `sold`) |
@@ -1608,11 +1621,12 @@ Every state change emits an event. Attributes always include `class_id`, plus `t
 | `artifact_issued` | `minter`, `count`, `live`, `metadata_hash` |
 | `artifact_renewed` | `by`, `expires_at`, `paid` |
 | `artifact_redeemed` | `by`, `holder` |
-| `artifact_token_expired` | `holder`, `refund` |
+| `artifact_token_expired` | `holder`, `refund`, `refund_to` |
 | `artifact_royalty_locked` | |
 | `artifact_revealed` | `by`, `metadata_hash` |
-| `artifact_seed_revealed` | `seed` |
+| `artifact_seed_revealed` | `seed`, `late` |
 | `artifact_payment_released` | `amount`, `fee`, `payout_address` |
+| `artifact_payment_refunded` | `amount`, `holder`, `reason` (`late_reveal`) |
 | `artifact_media_proposed` / `_accepted` / `_rejected` | `proposal_id`, plus `proposer` / `version`, `displayed` / `by` |
 | `artifact_displayed_media_set` | `version` |
 | `artifact_edition_created` | `edition_id`, `creator`, `max_supply`, `certificate`, `initiative_id`, `metadata_hash` |
@@ -1623,13 +1637,13 @@ Every state change emits an event. Attributes always include `class_id`, plus `t
 | `artifact_craft_recipe_added` / `_removed` / `artifact_crafted` | `recipe_id`, plus `inputs`, `crafter`/`token_id`/`edition_id`/`amount` |
 | `artifact_rental_offered` / `_offer_cancelled` / `artifact_rented` / `artifact_rental_ended` | `owner`, `user`, `price`, `duration`, `expires_at`, `nonce`, `reason`, `fee`, `royalty_recipients` |
 | `artifact_nested` / `artifact_detached` | `parent`, `owner` |
-| `artifact_harberger_price_set` / `_tax_paid` / `_foreclosed` / `artifact_force_bought` | `holder`, `price`, `grant_id`, `tax_per_period`, `next_due`, `amount`, `error`, `seller`/`buyer`/`foreclosed`/`fee`/`royalty` |
+| `artifact_harberger_price_set` / `_tax_paid` / `_tax_deferred` / `_foreclosed` / `artifact_force_bought` | `holder`, `price`, `grant_id`, `tax_per_period`, `next_due`, `amount`, `error`, `seller`/`buyer`/`foreclosed`/`fee`/`royalty` |
 | `artifact_units_listing_updated` | `edition_id`, `listing_id`, `quantity`, `unit_price`, `expires_at` |
 | `artifact_offer_made` / `artifact_offer_closed` | `offer_id`, `bidder`, plus `price`/`expires_at`, `reason` (`cancelled` / `expired` / `accepted`)/`refund` |
 | `artifact_auction_started` / `artifact_bid_placed` | `auction_id`, `seller`/`reserve_price`/`ends_at`, `bidder`/`amount`/`ends_at` |
 | `artifact_auction_settled` | `auction_id`, `sold`, plus `reason` (`no_bids` / `unsellable` / `cancelled` / `hidden` / ...) or `seller`/`buyer`/`price`/`fee`/`royalty`/`royalty_recipients`/`royalty_redirected` |
 
-An accepted offer also emits `artifact_sold` with `offer_id`. `artifact_class_created` also carries `mutual`, `redeemable`, `expiry_mode`, `reveal_kind`, `renderer`, `token_model`, `harberger`; `artifact_public_minted` carries `escrowed`; `artifact_burned` carries `reveal_overdue` (and `via = craft` for crafting inputs); `artifact_pending_resolved` carries `pending_id` with kind `unit_transfer` / `unit_mint`.
+An accepted offer also emits `artifact_sold` with `offer_id`. `artifact_class_created` also carries `mutual`, `redeemable`, `expiry_mode`, `reveal_kind`, `renderer`, `token_model`, `harberger`; `artifact_public_minted` carries `escrowed`; `artifact_burned` carries `reveal_overdue` (and `via = craft` for crafting inputs); `refund_to` on `artifact_burned`, `artifact_revoked` and `artifact_token_expired` is who the deposit went to (the `deposit_payer` granter when a session key paid it, §7.13); `artifact_pending_resolved` carries `pending_id` with kind `unit_transfer` / `unit_mint`.
 
 ---
 
@@ -1698,7 +1712,7 @@ Sale fees use `FundCommunityPool`. Rep's `DistrKeeperAdapter` (app/distr_keeper_
 
 ### 11.6. x/session
 
-See §7.13 for delegation. Harberger taxes (§7.24) are the one place `x/artifact` reads session grants, through a narrow `SessionKeeper` adapter (`app/artifact_session_adapter.go`): `RecurringPull(grant_id)` to check a holder's tax grant and `ClaimRecurringPull(grant_id)` to take each due period via `ClaimRecurringPullForGrantee` with the artifact module address as both caller and grantee. A pull that pauses for lack of funds, or finds its window closed, succeeds in x/session (the grant's new status persists) and reports `paused`/`completed`; the adapter turns either into `ErrTaxPullFailed`, which forecloses the token. Session genesis seeds that address in `authorized_grant_creators` ([x-session-spec.md](x-session-spec.md) §28.4).
+See §7.13 for delegation. Harberger taxes (§7.24) are the one place `x/artifact` reads session grants, through a narrow `SessionKeeper` adapter (`app/artifact_session_adapter.go`): `RecurringPull(grant_id)` to check a holder's tax grant and `ClaimRecurringPull(grant_id)` to take each due period via `ClaimRecurringPullForGrantee` with the artifact module address as both caller and grantee. A pull that pauses for lack of funds, or finds its window closed, succeeds in x/session (the grant's new status persists) and reports `paused`/`completed`; the adapter turns either into `ErrTaxPullFailed`, which forecloses the token. A claim session refuses under its per-day `max_per_epoch` ceiling becomes `ErrTaxPullDeferred` (re-queued, §7.24); `RecurringPull` exposes `max_per_epoch` so the grant check can require room for two pulls. The adapter reports what a claim moved as the artifact module's balance delta, not the grant's nominal amount, so a future session catch-up could never strand a surplus in the module account. Session genesis seeds that address in `authorized_grant_creators` ([x-session-spec.md](x-session-spec.md) §28.4).
 
 ### 11.7. x/federation
 

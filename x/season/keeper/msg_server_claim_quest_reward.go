@@ -23,6 +23,12 @@ func (k msgServer) ClaimQuestReward(ctx context.Context, msg *types.MsgClaimQues
 		return nil, types.ErrMaintenanceMode
 	}
 
+	// Votes cast earlier in this block reach quest objectives at
+	// EndBlock; apply this member's now (SEA-103).
+	if err := k.applyPendingVoteQuestProgress(ctx, msg.Creator); err != nil {
+		return nil, err
+	}
+
 	// Get quest progress
 	key := fmt.Sprintf("%s:%s", msg.Creator, msg.QuestId)
 	progress, err := k.MemberQuestProgress.Get(ctx, key)

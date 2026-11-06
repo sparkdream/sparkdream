@@ -112,4 +112,5 @@ var (
 	ErrBidTooLow                 = errors.Register(ModuleName, 1201, "bid too low")
 	ErrTaxPullFailed             = errors.Register(ModuleName, 1202, "harberger tax pull moved nothing")
 	ErrClassIdMismatch           = errors.Register(ModuleName, 1203, "class would not get the expected id")
+	ErrTaxPullDeferred           = errors.Register(ModuleName, 1204, "harberger tax pull deferred by x/session")
 )

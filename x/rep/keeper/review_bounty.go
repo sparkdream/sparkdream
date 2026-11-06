@@ -178,29 +178,43 @@ func (k Keeper) PayReviewBounty(ctx context.Context, initiative types.Initiative
 		return math.ZeroInt(), k.RefundReviewBounty(ctx, initiative.Id, "bounty too small to split")
 	}
 
-	// Draw the payout off the funders' locked balances, then mint the same
+	// A reviewer who is no longer an active member (zeroed since filing) is
+	// owed nothing (REP-E-208); their share is not drawn down and goes back
+	// to the funders with the remainder below. The share itself stays
+	// bounty / len(reviews): a skipped share is not redistributed.
+	payable := make([]sdk.AccAddress, 0, len(reviews))
+	for _, r := range reviews {
+		addr, aErr := sdk.AccAddressFromBech32(r.Reviewer)
+		if aErr != nil || !k.IsActiveMember(ctx, k.resolveMember(ctx, addr)) {
+			continue
+		}
+		payable = append(payable, addr)
+	}
+	if len(payable) == 0 {
+		return math.ZeroInt(), k.RefundReviewBounty(ctx, initiative.Id, "no active reviewer")
+	}
+
+	// Draw the payout off the funders' locked balances, then reissue the same
 	// total to the reviewers: a net-neutral move that leaves supply unchanged
 	// and never routes through the transfer tax, which exists to throttle
-	// peer-to-peer gifting rather than to skim earned pay.
-	if err := k.drawDownContributions(ctx, &bounty, share.MulRaw(int64(len(reviews)))); err != nil {
+	// peer-to-peer gifting rather than to skim earned pay. reissueDREAM, not
+	// MintDREAM: no epoch mint ceiling and no referral side-mint on DREAM
+	// that only moved (REP-E-107).
+	if err := k.drawDownContributions(ctx, &bounty, share.MulRaw(int64(len(payable)))); err != nil {
 		return math.ZeroInt(), err
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	paid := math.ZeroInt()
-	for _, r := range reviews {
-		addr, aErr := sdk.AccAddressFromBech32(r.Reviewer)
-		if aErr != nil {
-			continue
-		}
-		if err := k.MintDREAM(ctx, addr, share); err != nil {
-			return math.ZeroInt(), fmt.Errorf("failed to pay review bounty to %s: %w", r.Reviewer, err)
+	for _, addr := range payable {
+		if err := k.reissueDREAM(ctx, addr, share, "review_bounty"); err != nil {
+			return math.ZeroInt(), fmt.Errorf("failed to pay review bounty to %s: %w", addr, err)
 		}
 		paid = paid.Add(share)
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"review_bounty_paid",
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
-			sdk.NewAttribute("reviewer", r.Reviewer),
+			sdk.NewAttribute("reviewer", addr.String()),
 			sdk.NewAttribute("amount", share.String()),
 		))
 	}

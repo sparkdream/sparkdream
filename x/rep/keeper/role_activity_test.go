@@ -115,6 +115,41 @@ func TestRoleActivity_CurationOverturnNoCooldown(t *testing.T) {
 		"curation rejections must not lock the sentinel out of moderation")
 }
 
+// FRM-101: a confirmed curation proposal is not a verdict on a contested
+// action, so it must not clear the overturn streak (a sentinel could
+// otherwise launder every overturned hide with one confirmed curation). It
+// still counts as upheld in the accuracy ring.
+func TestRoleOutcome_ConfirmedCurationKeepsOverturnStreak(t *testing.T) {
+	f := raFixture(t)
+	addr := "curation-streak"
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumCuration, true))
+
+	ra, err := f.keeper.GetRoleActivity(f.ctx, raRole, addr)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), ra.ConsecutiveOverturns, "a confirmed curation must not reset the overturn streak")
+	require.Zero(t, ra.ConsecutiveUpheld)
+	require.Equal(t, uint64(1), ra.UpheldActions[types.ActionKindForumCuration])
+	epoch := uint64(f.ctx.BlockHeight() / 10)
+	upheld, overturned := f.keeper.GetRoleWindowedAccuracy(f.ctx, raRole, addr, epoch, 1)
+	require.Equal(t, uint64(1), upheld)
+	require.Equal(t, uint64(2), overturned)
+
+	// A third overturn still demotes.
+	require.NoError(t, f.keeper.BondedRoles.Set(f.ctx, bondedRoleKey(raRole, addr), types.BondedRole{
+		RoleType: raRole, Address: addr, CurrentBond: "1000000000",
+		BondStatus: types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+	}))
+	for i := ra.ConsecutiveOverturns; i < types.DefaultMaxConsecutiveOverturnsBeforeDemotion; i++ {
+		require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	}
+	br, err := f.keeper.GetBondedRole(f.ctx, raRole, addr)
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus)
+}
+
 // --- Accuracy-ring semantics (ported from the forum-side window tests) ---
 
 func recordOutcomeAt(t *testing.T, f *fixture, epoch uint64, addr string, upheld bool) {
@@ -397,4 +432,39 @@ func TestSlashCanStillDeepenStatus(t *testing.T) {
 	br, err := f.keeper.GetBondedRole(f.ctx, role, addr)
 	require.NoError(t, err)
 	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus)
+}
+
+// REP-R-207: a counterparty's rejection of a proposal is an accuracy miss
+// only. It never extends the overturn streak, starts no cooldown and cannot
+// demote, however many land in a row.
+func TestRoleActivity_RejectionLeavesStreaksAlone(t *testing.T) {
+	f := raFixture(t)
+	addr := "rejected-sentinel"
+	ctx := atEpoch(f, 4)
+
+	// Two overturned hides: a streak one short of demotion, with a cooldown.
+	require.NoError(t, f.keeper.RecordRoleOutcome(ctx, raRole, addr, types.ActionKindForumHide, false))
+	require.NoError(t, f.keeper.RecordRoleOutcome(ctx, raRole, addr, types.ActionKindForumHide, false))
+	before, err := f.keeper.GetRoleActivity(ctx, raRole, addr)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), before.ConsecutiveOverturns)
+
+	later := ctx.WithBlockTime(ctx.BlockTime().Add(time.Hour))
+	for i := 0; i < 5; i++ {
+		require.NoError(t, f.keeper.RecordRoleRejection(later, raRole, addr, types.ActionKindForumCuration))
+	}
+	after, err := f.keeper.GetRoleActivity(later, raRole, addr)
+	require.NoError(t, err)
+	require.Equal(t, before.ConsecutiveOverturns, after.ConsecutiveOverturns, "no streak movement")
+	require.Equal(t, before.ConsecutiveUpheld, after.ConsecutiveUpheld)
+	require.Equal(t, before.OverturnCooldownUntil, after.OverturnCooldownUntil, "no new cooldown")
+	require.Equal(t, uint64(5), after.OverturnedActions[types.ActionKindForumCuration])
+	require.Equal(t, before.EpochAppealsResolved+5, after.EpochAppealsResolved)
+	slot := after.AccuracyWindow[4%uint64(types.RoleAccuracyRingSize)]
+	require.Equal(t, uint64(4), slot.Epoch)
+	require.Equal(t, uint64(7), slot.Overturned, "every rejection is an accuracy miss")
+	require.Equal(t, uint64(0), slot.Upheld)
+
+	// An unknown role type is still refused.
+	require.Error(t, f.keeper.RecordRoleRejection(later, types.RoleType_ROLE_TYPE_UNSPECIFIED, addr, types.ActionKindForumCuration))
 }

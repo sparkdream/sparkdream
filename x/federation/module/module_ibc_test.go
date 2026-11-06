@@ -80,7 +80,7 @@ func newIBCFixture(t *testing.T) ibcFixture {
 		authtypes.NewModuleAddress(govtypes.ModuleName), nopAuth{ac}, nopBank{}, nil)
 	require.NoError(t, k.Params.Set(ctx, types.DefaultParams()))
 	require.NoError(t, k.Port.Set(ctx, types.PortID))
-	require.NoError(t, k.Peers.Set(ctx, peerID, types.Peer{
+	require.NoError(t, k.SetPeer(ctx, types.Peer{
 		Id: peerID, Type: types.PeerType_PEER_TYPE_SPARK_DREAM,
 		Status: types.PeerStatus_PEER_STATUS_ACTIVE, IbcChannelId: ourEnd,
 	}))
@@ -174,7 +174,7 @@ func TestOnRecvPacket_SuspendedPeerRejected(t *testing.T) {
 	f := newIBCFixture(t)
 	peer, _ := f.k.Peers.Get(f.ctx, peerID)
 	peer.Status = types.PeerStatus_PEER_STATUS_SUSPENDED
-	require.NoError(t, f.k.Peers.Set(f.ctx, peerID, peer))
+	require.NoError(t, f.k.SetPeer(f.ctx, peer))
 	ack := f.im.OnRecvPacket(f.ctx, types.Version, packet(contentPacketData(t, 4), theirEnd, types.PortID, ourEnd), nil)
 	require.False(t, ack.Success())
 }

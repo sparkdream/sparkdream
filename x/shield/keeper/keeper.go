@@ -7,6 +7,7 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -120,6 +121,11 @@ type Keeper struct {
 	// the epoch changes).
 	EpochFeeLedger collections.Item[types.EpochFeeLedger]
 
+	// IdentityEpochFees is the fees the module paid per identity in a shield
+	// epoch, keyed (epoch, rate-limit nullifier hex) like IdentityRateLimits:
+	// one identity may use only a share of params.max_fees_per_epoch.
+	IdentityEpochFees collections.Map[collections.Pair[uint64, string], math.Int]
+
 	// RetiredDomains keeps, per nullifier domain that no registered op uses
 	// any more, the registration of the last op that used it. Deregistration
 	// would otherwise erase the domain's scoping rule while its nullifiers
@@ -224,6 +230,8 @@ func NewKeeper(
 			codec.CollValue[types.EpochFeeLedger](cdc)),
 		RetiredDomains: collections.NewMap(sb, types.RetiredDomainsKey, "retiredDomains",
 			collections.Uint32Key, codec.CollValue[types.ShieldedOpRegistration](cdc)),
+		IdentityEpochFees: collections.NewMap(sb, types.IdentityEpochFeesKey, "identityEpochFees",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey), sdk.IntValue),
 	}
 
 	schema, err := sb.Build()

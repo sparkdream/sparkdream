@@ -2,10 +2,8 @@ package keeper
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -442,34 +440,19 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 		return types.ErrContentChallengeNotFound
 	}
 
-	// Select jurors (excluding challenger and author)
-	jurors, err := k.SelectContentJury(ctx, ccID, params.JurySize, cc.Challenger, cc.Author)
-	if err != nil {
-		return fmt.Errorf("failed to select content jury: %w", err)
-	}
-
-	// Calculate required votes (supermajority)
-	superMajority := params.JurySuperMajority
-	requiredVotes := superMajority.MulInt64(int64(len(jurors))).Ceil().TruncateInt().Uint64()
-
-	// Get next jury review ID
+	// Jurors are drawn by the EndBlocker (REP-R-102): the author sends this
+	// transaction. SelectJury excludes the challenger and the author. The pool
+	// must still cover a full jury, as before.
 	juryReviewID, err := k.JuryReviewSeq.Next(ctx)
 	if err != nil {
 		return err
 	}
-
-	if err := k.RecordJurySeating(ctx, jurors); err != nil {
-		return err
-	}
-
-	// Create jury review with content_challenge_id set
 	juryReview := types.JuryReview{
 		Id:                 juryReviewID,
 		ChallengeId:        0, // Not an initiative challenge
 		InitiativeId:       0, // Not an initiative
 		ContentChallengeId: ccID,
-		Jurors:             jurors,
-		RequiredVotes:      commontypes.Saturate[uint32](requiredVotes),
+		Jurors:             []string{},
 		ExpertWitnesses:    []string{},
 		Testimonies:        []*types.ExpertTestimony{},
 		ReviewDeliverable:  fmt.Sprintf("Content challenge %d against %s #%d", ccID, cc.TargetType, cc.TargetId),
@@ -478,6 +461,16 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 		Votes:              []*types.JurorVote{},
 		Deadline:           sdkCtx.BlockHeight() + params.DefaultReviewPeriodEpochs*params.EpochBlocks,
 		Verdict:            types.Verdict_VERDICT_PENDING,
+	}
+	pool, err := k.jurorPool(ctx, juryReview)
+	if err != nil {
+		return err
+	}
+	if len(pool) < int(params.JurySize) {
+		return fmt.Errorf("failed to select content jury: insufficient eligible jurors: need %d, have %d", params.JurySize, len(pool))
+	}
+	if err := k.queueJuryDraw(ctx, &juryReview, params.JurySize); err != nil {
+		return err
 	}
 
 	// Save jury review
@@ -492,12 +485,9 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 	// out from under callers (it regressed content_challenge_test). They resolve
 	// by juror votes (TallyJuryVotes) as before.
 
-	// Index the seating by juror even though content reviews stay out of the
-	// PENDING verdict index — discovery is orthogonal to the deadline sweep,
-	// and a content juror needs to find their summons just as much.
-	if err := k.AddJuryReviewToJurorIndex(ctx, juryReview); err != nil {
-		return err
-	}
+	// The by-juror index is written when DrawPendingJuries seats the jurors
+	// (discovery is orthogonal to the deadline sweep; a content juror needs
+	// to find their summons just as much).
 
 	// Update content challenge status
 	oldStatus := cc.Status
@@ -522,128 +512,11 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 			"content_jury_review_created",
 			sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", juryReviewID)),
 			sdk.NewAttribute("content_challenge_id", fmt.Sprintf("%d", ccID)),
-			sdk.NewAttribute("juror_count", fmt.Sprintf("%d", len(jurors))),
+			sdk.NewAttribute("seats_pending", fmt.Sprintf("%d", juryReview.PendingSeats)),
 		),
 	)
 
 	return nil
-}
-
-// SelectContentJury selects jury members for a content challenge.
-// Unlike initiative jury selection, this uses overall reputation (any tag >= MinJurorReputation)
-// since content challenges may not have domain-specific tags.
-func (k Keeper) SelectContentJury(
-	ctx context.Context,
-	ccID uint64,
-	jurySize uint32,
-	excludeAddrs ...string,
-) ([]string, error) {
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build exclude set over canonical addresses: Member is keyed by the
-	// canonical address, the parties may be recorded under an old one.
-	excludeSet := k.canonicalSet(ctx, excludeAddrs...)
-
-	minReputation := params.MinJurorReputation
-
-	// Get all eligible members
-	type eligibleMember struct {
-		address  string
-		totalRep math.LegacyDec
-	}
-	var eligible []eligibleMember
-
-	err = k.walkJurorCandidates(ctx, minReputation, func(addr string, member types.Member) error {
-		// Skip excluded addresses
-		if _, skip := excludeSet[addr]; skip {
-			return nil
-		}
-
-		// Check if any reputation tag meets minimum
-		totalRep := math.LegacyZeroDec()
-		hasMinRep := false
-		for _, scoreStr := range member.ReputationScores {
-			score, err := math.LegacyNewDecFromStr(scoreStr)
-			if err != nil {
-				continue
-			}
-			totalRep = totalRep.Add(score)
-			if score.GTE(minReputation) {
-				hasMinRep = true
-			}
-		}
-
-		if hasMinRep {
-			eligible = append(eligible, eligibleMember{
-				address:  addr,
-				totalRep: totalRep,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if len(eligible) < int(jurySize) {
-		return nil, fmt.Errorf("insufficient eligible jurors: need %d, have %d", jurySize, len(eligible))
-	}
-
-	// Weighted random selection based on total reputation
-	weights := make([]float64, len(eligible))
-	for i, m := range eligible {
-		weights[i] = m.totalRep.MustFloat64() * k.JurorResponsivenessWeight(ctx, m.address)
-	}
-
-	// Seed deterministic PRNG from block AppHash XOR ccID to avoid consensus divergence.
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	appHash := sdkCtx.BlockHeader().AppHash
-	var seed int64
-	if len(appHash) >= 8 {
-		seed = int64(binary.BigEndian.Uint64(appHash[:8]) ^ ccID) //nolint:gosec // seed bits; wraparound is intended
-	} else {
-		seed = int64(ccID) ^ sdkCtx.BlockHeight() //nolint:gosec // seed bits; wraparound is intended
-	}
-	rng := rand.New(rand.NewSource(seed))
-
-	selectedJurors := make([]string, 0, jurySize)
-	for i := 0; i < int(jurySize); i++ {
-		selected := contentWeightedRandomSelect(rng, weights)
-		selectedJurors = append(selectedJurors, eligible[selected].address)
-
-		// Remove selected from pool
-		eligible = append(eligible[:selected], eligible[selected+1:]...)
-		weights = append(weights[:selected], weights[selected+1:]...)
-	}
-
-	return selectedJurors, nil
-}
-
-// contentWeightedRandomSelect performs weighted random selection using a deterministic PRNG.
-func contentWeightedRandomSelect(rng *rand.Rand, weights []float64) int {
-	totalWeight := 0.0
-	for _, w := range weights {
-		totalWeight += w
-	}
-
-	if totalWeight <= 0 {
-		return rng.Intn(len(weights))
-	}
-
-	r := rng.Float64() * totalWeight
-	cumulative := 0.0
-	for i, w := range weights {
-		cumulative += w
-		if r <= cumulative {
-			return i
-		}
-	}
-
-	return len(weights) - 1
 }
 
 // Content Challenge Index Helpers

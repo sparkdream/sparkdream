@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"cosmossdk.io/collections"
@@ -170,7 +171,11 @@ func TestGenesisTLELivenessAndFeeLedgerRoundTrip(t *testing.T) {
 	require.NoError(t, f.keeper.TLEEpochParticipation.Set(f.ctx, collections.Join("val1", uint64(3)), false))
 	require.NoError(t, f.keeper.TLEEpochParticipation.Set(f.ctx, collections.Join("val2", uint64(3)), true))
 	require.NoError(t, f.keeper.TLEJudgedEpochs.Set(f.ctx, 42))
-	require.NoError(t, f.keeper.ChargeEpochFee(f.ctx, math.NewInt(1234), math.NewInt(10_000)))
+	feeParams := types.DefaultParams()
+	feeParams.MaxFeesPerEpoch = math.NewInt(100_000)
+	rl := make([]byte, 32)
+	rl[0] = 0x0a
+	require.NoError(t, f.keeper.ChargeEpochFee(f.ctx, math.NewInt(1234), feeParams, &types.MsgShieldedExec{RateLimitNullifier: rl}))
 	require.NoError(t, f.keeper.NextPendingOpId.Set(f.ctx, 1_000_000))
 
 	exported, err := f.keeper.ExportGenesis(f.ctx)
@@ -189,6 +194,10 @@ func TestGenesisTLELivenessAndFeeLedgerRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(42), judged)
 	require.Equal(t, math.NewInt(1234), f2.keeper.EpochFeesPaid(f2.ctx))
+	require.Len(t, exported.IdentityEpochFees, 1)
+	idPaid, err := f2.keeper.IdentityEpochFeesPaid(f2.ctx, hex.EncodeToString(rl))
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(1234), idPaid)
 	next, err := f2.keeper.NextPendingOpId.Peek(f2.ctx)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1_000_000), next)

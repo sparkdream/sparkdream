@@ -62,9 +62,15 @@ func (k msgServer) AcceptRental(ctx context.Context, msg *types.MsgAcceptRental)
 	if err := k.checkContentsPin(ctx, t, msg.ExpectedContentsHash); err != nil {
 		return nil, err
 	}
+	// Anything in the tree that expires first would leave it mid-rental, so
+	// the whole tree must outlast the rental (ART-106).
 	expires := now(ctx) + o.Duration
-	if t.ExpiresAt > 0 && expires > t.ExpiresAt {
-		return nil, errorsmod.Wrap(types.ErrNotRentable, "the rental would outlast the token; renew it first")
+	treeExp, err := k.treeExpiry(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	if treeExp > 0 && expires > treeExp {
+		return nil, errorsmod.Wrap(types.ErrNotRentable, "the rental would outlast the token or something nested in it; renew it first")
 	}
 	paid, redirected := []string{}, false
 	s := Settlement{}

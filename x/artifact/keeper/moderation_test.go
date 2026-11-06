@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -338,4 +339,26 @@ func TestSentinelLimits(t *testing.T) {
 	f.rep.sentinels[f.sentinel.String()] = f.params().SentinelHideCommitDream.SubRaw(1)
 	_, err = f.hide(f.sentinel.String(), types.HideTargetKind_HIDE_TARGET_KIND_TOKEN, id, 2)
 	require.ErrorIs(t, err, types.ErrInsufficientBond)
+}
+
+// COL-102: x/rep reads the hiding sentinel (to keep it off the appeal jury)
+// inside CreateGovActionAppeal. The record must already be marked appealed
+// then, or GetActionSentinel reports "" and the sentinel can judge its own
+// hide.
+func TestAppealHideExposesTheSentinelToRep(t *testing.T) {
+	f := initFixture(t)
+	target := keeper.NewRepAppealTarget(f.keeper)
+	id := f.createClass(f.alice)
+	f.mint(f.alice, id, f.bob, 1)
+	hid, err := f.hide(f.sentinel.String(), types.HideTargetKind_HIDE_TARGET_KIND_TOKEN, id, 1)
+	require.NoError(t, err)
+
+	seen := "unset"
+	f.rep.onCreateGovActionAppeal = func(ctx context.Context, actionType reptypes.GovActionType, tgt string) {
+		seen, err = target.GetActionSentinel(ctx, actionType, tgt)
+		require.NoError(t, err)
+	}
+	_, err = f.msg.AppealHide(f.ctx, &types.MsgAppealHide{Appellant: f.bob.String(), HideId: hid})
+	require.NoError(t, err)
+	require.Equal(t, f.sentinel.String(), seen)
 }

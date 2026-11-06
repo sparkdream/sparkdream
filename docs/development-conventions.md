@@ -4,7 +4,7 @@ Project-wide engineering conventions that are referenced from code comments, tes
 
 Related references:
 - [security-hardening.md](security-hardening.md) — immutable parameters (mint inflation authority, committee constraints, Three Pillars hierarchy).
-- [tokenomics.md](tokenomics.md) — SPARK / DREAM economics; the burn-address authority pattern on mint params is referenced by the [x/guardian](../x/guardian/) module.
+- [tokenomics.md](tokenomics.md) — SPARK / DREAM economics; mint params are held by the [x/guardian](../x/guardian/) authority, whose filter keeps the inflation fields immutable.
 
 ---
 
@@ -160,7 +160,12 @@ unhelpful:
 
 Plus the field in **both** proto messages, plus a value in the devnet, testnet
 and mainnet `genesis.json`. `make verify-genesis` has a param-completeness check
-that fails loudly on that last one — run it; it is the backstop.
+that fails loudly on that last one — run it; it is the backstop. The value
+itself is checked by `make test-production`, which runs `genesis validate`
+over each network's genesis under its own build tag
+(`TestCheckNetworkBuildGenesisValidates`); bounds that compare against
+compiled per-tag constants only pass there, never under the testparams
+binary.
 
 **Decide whether the knob belongs in operational params at all.** Economic
 security parameters are better left `Params`-only, so governance moves them and

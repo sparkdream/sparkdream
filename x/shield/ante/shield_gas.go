@@ -2,6 +2,7 @@ package ante
 
 import (
 	"context"
+	"encoding/hex"
 
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
@@ -28,7 +29,8 @@ type ShieldKeeper interface {
 	GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error)
 	GetCurrentEpoch(ctx context.Context) uint64
 	PrecheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec) (bool, error)
-	ChargeEpochFee(ctx sdk.Context, fee math.Int, budget math.Int) error
+	ChargeEpochFee(ctx sdk.Context, fee math.Int, params shieldtypes.Params, msg *shieldtypes.MsgShieldedExec) error
+	RefundEpochFee(ctx sdk.Context, epoch uint64, amount math.Int, identity string) error
 	GetVerificationKeyVal(ctx context.Context, circuitID string) (shieldtypes.VerificationKey, bool)
 	GetShieldedOp(ctx context.Context, typeURL string) (shieldtypes.ShieldedOpRegistration, bool)
 	BondDenom(ctx context.Context) string
@@ -58,6 +60,7 @@ type ShieldGasDecorator struct {
 	shieldKeeper ShieldKeeper
 	bankKeeper   BankKeeper
 	guard        *proofGuard
+	marks        *FeeMarks
 }
 
 // NewShieldGasDecorator creates a new ShieldGasDecorator.
@@ -66,8 +69,13 @@ func NewShieldGasDecorator(sk ShieldKeeper, bk BankKeeper) ShieldGasDecorator {
 		shieldKeeper: sk,
 		bankKeeper:   bk,
 		guard:        newProofGuard(),
+		marks:        NewFeeMarks(),
 	}
 }
+
+// FeeMarks is where the decorator records each finalize-mode charge for the
+// FeeRefundDecorator (post handler) that pays the unused part back.
+func (d ShieldGasDecorator) FeeMarks() *FeeMarks { return d.marks }
 
 func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msgs := tx.GetMsgs()
@@ -183,8 +191,11 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	// Chain-wide budget: the fees the module pays in one shield epoch are
 	// capped (max_fees_per_epoch), so no set of identities, however many
 	// in-quota execs they run, can spend the day's funding in a few epochs
-	// and leave the reserve at ErrShieldGasDepleted for everyone else.
-	if err := d.shieldKeeper.ChargeEpochFee(ctx, fees.AmountOf(d.shieldKeeper.BondDenom(ctx)), params.MaxFeesPerEpoch); err != nil {
+	// and leave the reserve at ErrShieldGasDepleted for everyone else. One
+	// identity may use only a share of it, and a slice is reserved for
+	// group-tree (secret-ballot) execs, so neither one member nor trust-tree
+	// traffic can lock everyone else, or secret-ballot governance, out.
+	if err := d.shieldKeeper.ChargeEpochFee(ctx, fees.AmountOf(d.shieldKeeper.BondDenom(ctx)), params, shieldMsg); err != nil {
 		return ctx, err
 	}
 
@@ -197,6 +208,18 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	)
 	if err != nil {
 		return ctx, shieldtypes.ErrShieldGasDepleted
+	}
+
+	// Only a block's own execution is refunded (FeeRefundDecorator): the
+	// messages do not run in CheckTx, so a check-state refund would measure
+	// nothing, and the check state is discarded at commit anyway.
+	if !simulate && ctx.ExecMode() == sdk.ExecModeFinalize {
+		d.marks.mark(ctx, FeeCharge{
+			Fee:      fees,
+			GasLimit: feeTx.GetGas(),
+			Epoch:    d.shieldKeeper.GetCurrentEpoch(ctx),
+			Identity: hex.EncodeToString(shieldMsg.RateLimitNullifier),
+		})
 	}
 
 	// Set fee-paid flag so the standard DeductFeeDecorator skips this tx

@@ -141,34 +141,3 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 	}
 	return nil
 }
-
-// MaxLiveVotingPeriodSeconds returns the longest voting period any registered
-// decision policy uses. x/rep refuses to lower zk_key_activation_delay below
-// it (plan decision 17).
-func (k Keeper) MaxLiveVotingPeriodSeconds(ctx context.Context) int64 {
-	var max int64
-	if err := k.DecisionPolicies.Walk(ctx, nil, func(_ string, dp types.DecisionPolicy) (bool, error) {
-		if dp.VotingPeriod > max {
-			max = dp.VotingPeriod
-		}
-		return false, nil
-	}); err != nil {
-		sdk.UnwrapSDKContext(ctx).Logger().Error("MaxLiveVotingPeriodSeconds: DecisionPolicies.Walk failed", "err", err)
-	}
-	return max
-}
-
-// checkVotingPeriodCap refuses a voting period longer than x/rep's ZK key
-// activation delay: a council could otherwise register a window longer than
-// the delay and reopen the anonymous double-vote hole the delay closes.
-// Without x/rep wired (unit tests) there is no cap.
-func (k Keeper) checkVotingPeriodCap(ctx context.Context, votingPeriodSeconds int64) error {
-	if k.late.repKeeper == nil {
-		return nil
-	}
-	cap := k.late.repKeeper.ZkKeyActivationDelaySeconds(ctx)
-	if cap > 0 && votingPeriodSeconds > cap {
-		return fmt.Errorf("voting_period %ds exceeds the zk key activation delay (%ds); see x/rep zk_key_activation_delay", votingPeriodSeconds, cap)
-	}
-	return nil
-}

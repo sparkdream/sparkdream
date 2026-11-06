@@ -1,12 +1,13 @@
 package simulation
 
 import (
+	commontypes "sparkdream/x/common/types"
+
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"

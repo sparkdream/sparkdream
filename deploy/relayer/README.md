@@ -268,7 +268,7 @@ is deliberately not on this machine, so drive it from the UI's federation page:
 
 | Step | How |
 |---|---|
-| Register `sparkdream-dev-1` | Direct signing. Type SPARK_DREAM, `ibc_channel_id` from `.ibc_channels` |
+| Register `sparkdream-dev-1` | Direct signing. Type SPARK_DREAM, `ibc_channel_id` from `.ibc_channels`, `expected_chain_id` = `sparkdream-dev-1` (activation refuses a channel whose light client names another chain) |
 | Edit policy | Direct signing. Same content types both directions; reputation flags on |
 | **Activate** | **Proposal path only.** Submit to the Operations Committee policy, vote yes, execute after 10 min |
 

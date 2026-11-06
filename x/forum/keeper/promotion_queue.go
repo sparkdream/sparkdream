@@ -67,10 +67,13 @@ func (k Keeper) drainPromotionQueue(ctx context.Context, budget int) int {
 	blockTime := sdkCtx.BlockTime().Unix()
 
 	// Snapshot queue entries so we can mutate the map safely during iteration.
+	// At most `budget` authors: each one either promotes a post (spending
+	// budget) or is drained of stale entries and dropped, so the rest of the
+	// queue waits for a later block instead of being read every block.
 	var authors []string
 	if err := k.PromotionQueue.Walk(ctx, nil, func(author string, _ int64) (bool, error) {
 		authors = append(authors, author)
-		return false, nil
+		return len(authors) >= budget, nil
 	}); err != nil {
 		sdk.UnwrapSDKContext(ctx).Logger().Error("drainPromotionQueue: PromotionQueue.Walk failed", "err", err)
 	}
@@ -101,14 +104,26 @@ func (k Keeper) promoteAuthorEphemerals(
 	promoted *int,
 	budget int,
 ) bool {
-	// Snapshot (author, postID) entries to avoid mid-iteration mutation.
+	// Snapshot (author, postID) entries to avoid mid-iteration mutation,
+	// reading no more than the remaining budget: a stale entry is dropped
+	// without spending budget, so the rest is read on a later block.
+	limit := budget - *promoted
+	if limit <= 0 {
+		return false
+	}
 	var postIDs []uint64
+	truncated := false
 	rng := collections.NewPrefixedPairRange[string, uint64](author)
 	if err := k.EphemeralByAuthor.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		if len(postIDs) >= limit {
+			truncated = true
+			return true, nil
+		}
 		postIDs = append(postIDs, key.K2())
 		return false, nil
 	}); err != nil {
 		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteAuthorEphemerals: EphemeralByAuthor.Walk failed", "err", err)
+		return false
 	}
 
 	for _, id := range postIDs {
@@ -117,7 +132,7 @@ func (k Keeper) promoteAuthorEphemerals(
 		}
 		k.promoteEphemeralPost(ctx, sdkCtx, author, id, blockTime, promoted)
 	}
-	return true
+	return !truncated
 }
 
 // promoteEphemeralPost promotes a single ephemeral post identified by `id` to

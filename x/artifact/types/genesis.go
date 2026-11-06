@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 )
 
 // DefaultGenesis returns the default genesis state
@@ -85,6 +87,9 @@ func (gs GenesisState) Validate() error {
 		if t.Deposit.IsNil() || t.Deposit.IsNegative() {
 			return fmt.Errorf("token %d/%d has an invalid deposit", t.ClassId, t.Id)
 		}
+		if err := validateDepositPayer(t.DepositPayer); err != nil {
+			return fmt.Errorf("token %d/%d: %w", t.ClassId, t.Id, err)
+		}
 		if !t.Paid.IsNil() && t.Paid.IsNegative() {
 			return fmt.Errorf("token %d/%d has a negative escrowed payment", t.ClassId, t.Id)
 		}
@@ -120,6 +125,9 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicate pending mint %d/%d", pm.ClassId, pm.TokenId)
 		}
 		seenPending[k] = true
+		if err := validateDepositPayer(pm.DepositPayer); err != nil {
+			return fmt.Errorf("pending mint %d/%d: %w", pm.ClassId, pm.TokenId, err)
+		}
 		if _, clash := tokens[k]; clash {
 			return fmt.Errorf("pending mint %d/%d collides with a token", pm.ClassId, pm.TokenId)
 		}
@@ -287,6 +295,9 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 			return fmt.Errorf("invalid or duplicate pending units %d", pu.Id)
 		}
 		seenPU[pu.Id] = true
+		if err := validateDepositPayer(pu.DepositPayer); err != nil {
+			return fmt.Errorf("pending units %d: %w", pu.Id, err)
+		}
 		switch pu.Kind {
 		case InboxKind_INBOX_KIND_UNIT_MINT:
 			t.reserved += pu.Amount
@@ -312,6 +323,9 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 			return fmt.Errorf("invalid or duplicate balance %d/%d %s", b.ClassId, b.EditionId, b.Owner)
 		}
 		seenBal[k] = true
+		if err := validateDepositPayer(b.DepositPayer); err != nil {
+			return fmt.Errorf("balance %d/%d %s: %w", b.ClassId, b.EditionId, b.Owner, err)
+		}
 		if b.Units() == 0 || b.Locked != locked[k] {
 			return fmt.Errorf("balance %d/%d %s: %d units, %d locked (want %d)", b.ClassId, b.EditionId, b.Owner, b.Units(), b.Locked, locked[k])
 		}
@@ -437,6 +451,18 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 		if descendants[k] != t.Descendants {
 			return fmt.Errorf("token %d/%d descendants %d != %d", k.class, k.token, t.Descendants, descendants[k])
 		}
+	}
+	return nil
+}
+
+// validateDepositPayer checks an optional deposit_payer (set only on
+// deposits a session key paid, SES-101): empty, or a bech32 address.
+func validateDepositPayer(addr string) error {
+	if addr == "" {
+		return nil
+	}
+	if _, _, err := bech32.DecodeAndConvert(addr); err != nil {
+		return fmt.Errorf("invalid deposit_payer %q: %w", addr, err)
 	}
 	return nil
 }

@@ -44,6 +44,12 @@ func (k Keeper) SetVaultChecker(fn func(ctx context.Context, addr string) bool) 
 	k.late.isVault = fn
 }
 
+// MigrationHooks returns the wired cross-module migration hooks, for the
+// app-level guard that walks them (app/migration_hooks_guard_test.go).
+func (k Keeper) MigrationHooks() types.MemberMigrationHooks {
+	return k.migrationHooks()
+}
+
 func (k Keeper) migrationHooks() types.MemberMigrationHooks {
 	if k.late.migrationHooks == nil {
 		return types.MultiMemberMigrationHooks{}
@@ -672,23 +678,11 @@ func (k Keeper) ObjectMigration(ctx context.Context, member string, id uint64, r
 	if err != nil {
 		return errorsmod.Wrap(err, "failed to open objection jury review")
 	}
-	// Seat a jury that excludes both parties. Best effort, like appeals: a
-	// review nobody can be seated on resolves INCONCLUSIVE at its deadline.
-	if jurors, jErr := k.selectModerationAppealJury(ctx, reviewID, []string{m.FromAddress, m.ToAddress}); jErr != nil {
-		sdkCtx.Logger().Warn("failed to seat migration objection jury", "review_id", reviewID, "error", jErr)
-	} else if len(jurors) > 0 {
-		if review, rErr := k.GetJuryReview(ctx, reviewID); rErr == nil {
-			review.Jurors = jurors
-			review.RequiredVotes = commontypes.Saturate[uint32](k.appealRequiredVotes(ctx, len(jurors)))
-			if err := k.JuryReview.Set(ctx, reviewID, review); err == nil {
-				if err := k.AddJuryReviewToJurorIndex(ctx, review); err != nil {
-					return err
-				}
-				if err := k.RecordJurySeating(ctx, jurors); err != nil {
-					return err
-				}
-			}
-		}
+	// Seat a jury that excludes both parties, drawn at the end of the block
+	// so the objector cannot pick it (REP-R-102). Best effort, like appeals:
+	// a review nobody can be seated on resolves INCONCLUSIVE at its deadline.
+	if err := k.openAppealJury(ctx, reviewID, []string{m.FromAddress, m.ToAddress}); err != nil {
+		return err
 	}
 
 	// Leave the queue while the jury sits; the verdict re-enqueues or
@@ -959,33 +953,6 @@ func (k Keeper) GetPendingMigrationByTarget(ctx context.Context, to string) (typ
 		sdk.UnwrapSDKContext(ctx).Logger().Error("GetPendingMigrationByTarget: MigrationRequestsByTarget.Walk failed", "err", err)
 	}
 	return found, ok
-}
-
-// ZkKeyActivationDelaySeconds is the ZK key activation delay converted to
-// seconds, the ceiling x/commons applies to council voting periods.
-func (k Keeper) ZkKeyActivationDelaySeconds(ctx context.Context) int64 {
-	if !types.VotingPeriodCapEnabled {
-		return 0 // no cap in the test build
-	}
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return 0
-	}
-	return params.ZkKeyActivationDelaySeconds()
-}
-
-// checkZkDelayAgainstVotingPeriods refuses params that would lower the ZK
-// key activation delay below a council voting period already in use
-// (member-key-migration plan, decision 17).
-func (k Keeper) checkZkDelayAgainstVotingPeriods(ctx context.Context, params types.Params) error {
-	if k.commonsKeeper == nil || !types.VotingPeriodCapEnabled {
-		return nil
-	}
-	if live := k.commonsKeeper.MaxLiveVotingPeriodSeconds(ctx); live > params.ZkKeyActivationDelaySeconds() {
-		return errorsmod.Wrapf(types.ErrVotingPeriodExceedsZkDelay,
-			"delay %ds, longest live voting period %ds", params.ZkKeyActivationDelaySeconds(), live)
-	}
-	return nil
 }
 
 // CheckMigrationTarget runs the full target-freshness check for a prospective

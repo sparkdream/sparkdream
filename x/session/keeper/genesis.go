@@ -60,6 +60,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// never trusted on their own: an inflated count would refuse new grants,
 	// an understated one would bypass the per-granter caps.
 	for _, g := range genState.Grants {
+		if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+			// Per-granter pending counts are never exported: recomputed.
+			if err := k.incPendingGrantCount(ctx, g.Granter); err != nil {
+				return err
+			}
+			continue
+		}
 		if !activeStatus(g.Status) {
 			continue
 		}
@@ -86,39 +93,20 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
-
-	return nil
-}
-
-// writeGrantNoCount persists a grant and all secondary indexes without
-// adjusting ActiveGrantCountByType. Used at genesis init since
-// ActiveGrantCountByType is either restored from the snapshot or
-// recomputed once at the end, not incremented per-grant via the normal
-// writeGrant path.
-func (k Keeper) writeGrantNoCount(ctx context.Context, g types.Grant) error {
-	if err := k.Grants.Set(ctx, g.Id, g); err != nil {
-		return err
-	}
-	if err := k.GrantsByGranter.Set(ctx, collections.Join(g.Granter, g.Id)); err != nil {
-		return err
-	}
-	if err := k.GrantsByGrantee.Set(ctx, collections.Join(g.Grantee, g.Id)); err != nil {
-		return err
-	}
-	if err := k.GrantsByExpiration.Set(ctx, collections.Join(g.ExpiresAt.Unix(), g.Id)); err != nil {
-		return err
-	}
-	if err := k.GrantsByTypeAndGranter.Set(ctx, collections.Join3(int32(g.Type), g.Granter, g.Id)); err != nil {
-		return err
-	}
-	if g.Type == types.GrantType_GRANT_TYPE_SESSION_KEY {
-		if err := k.SessionKeyByPair.Set(ctx, collections.Join(g.Granter, g.Grantee), g.Id); err != nil {
+	// Grantee consent (SES-102): allowed granters (both directions) and the
+	// deposits escrowed for pending grants.
+	for _, a := range genState.AllowedGranters {
+		if err := k.setAllowedGranter(ctx, a.Grantee, a.Granter); err != nil {
 			return err
 		}
 	}
-	// The fire-time (ACTIVE) and paused-TTL (PAUSED, fire_at holds the
-	// pause time) indexes are rebuilt from the grant alone.
-	return k.setOneshotTimeIndexes(ctx, g)
+	for _, d := range genState.PendingGrantDeposits {
+		if err := k.PendingGrantDeposit.Set(ctx, d.GrantId, d.Amount); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ExportGenesis returns the module's exported genesis state.
@@ -176,6 +164,20 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	err = k.GrantCreatorModule.Walk(ctx, nil, func(id uint64, addr string) (bool, error) {
 		genesis.GrantCreators = append(genesis.GrantCreators, types.GrantCreator{GrantId: id, ModuleAddress: addr})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.AllowedGranters.Walk(ctx, nil, func(key collections.Pair[string, string]) (bool, error) {
+		genesis.AllowedGranters = append(genesis.AllowedGranters, types.AllowedGranter{Grantee: key.K1(), Granter: key.K2()})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.PendingGrantDeposit.Walk(ctx, nil, func(id uint64, c sdk.Coin) (bool, error) {
+		genesis.PendingGrantDeposits = append(genesis.PendingGrantDeposits, types.PendingGrantDeposit{GrantId: id, Amount: c})
 		return false, nil
 	})
 	if err != nil {

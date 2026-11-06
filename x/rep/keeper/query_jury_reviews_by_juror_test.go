@@ -90,6 +90,7 @@ func TestChallengeJurySeatingIsDiscoverable(t *testing.T) {
 	require.NoError(t, k.UpdateChallengeStatusIndex(ctx, old, challenge.Status, chalID))
 
 	require.NoError(t, k.CreateJuryReview(ctx, chalID, "response", nil))
+	require.NoError(t, k.DrawPendingJuries(ctx))
 
 	seatedSomeone := false
 	for _, juror := range pool {

@@ -81,9 +81,10 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		group.UpdateCooldown = int64(msg.UpdateCooldown)
 	}
 
-	enablingFutarchy := false
+	enablingFutarchy, disablingFutarchy := false, false
 	if msg.FutarchyEnabled != nil {
 		enablingFutarchy = msg.FutarchyEnabled.Value && !group.FutarchyEnabled
+		disablingFutarchy = !msg.FutarchyEnabled.Value && group.FutarchyEnabled
 		group.FutarchyEnabled = msg.FutarchyEnabled.Value
 	}
 
@@ -111,6 +112,21 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 	}
 	if err := checkCommitteeBounds(msg.GroupName, targetMin, targetMax); err != nil {
 		return nil, err
+	}
+	// An operational group (at least OperationalMembers seats, the one-way
+	// ratchet of docs/security-hardening.md) always holds min_members or
+	// more; raising the floor above the current count would break that
+	// (MemberBoundsInvariant) and leave the parent unable to touch the
+	// roster without a one-shot add. Grow the roster first.
+	if minChanged {
+		count, err := k.CountCouncilMembers(ctx, msg.GroupName)
+		if err != nil {
+			return nil, err
+		}
+		if count >= OperationalMembers && count < targetMin {
+			return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize,
+				"min_members (%d) cannot exceed the current %d members of an operational group; add members first", targetMin, count)
+		}
 	}
 	group.MinMembers = targetMin
 	group.MaxMembers = targetMax
@@ -145,11 +161,8 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		if msg.PolicyType != PolicyTypePercentage && msg.PolicyType != PolicyTypeThreshold {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid policy_type '%s'. Must be '%s' or '%s'", msg.PolicyType, PolicyTypePercentage, PolicyTypeThreshold)
 		}
-		if msg.VotingPeriod <= 0 {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "voting_period must be greater than 0")
-		}
-		if err := k.checkVotingPeriodCap(ctx, int64(msg.VotingPeriod)); err != nil {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		if err := validateDecisionPeriods(int64(msg.VotingPeriod), int64(msg.MinExecutionPeriod)); err != nil {
+			return nil, err
 		}
 
 		members, err := k.GetCouncilMembers(ctx, msg.GroupName)
@@ -183,6 +196,28 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		}
 	}
 
+	// A voting_period / min_execution_period change without a new
+	// threshold or policy type updates the stored decision policy in
+	// place (it used to be silently dropped).
+	if msg.VoteThreshold == nil && msg.PolicyType == "" && (msg.VotingPeriod > 0 || msg.MinExecutionPeriod > 0) {
+		decPolicy, err := k.DecisionPolicies.Get(ctx, group.PolicyAddress)
+		if err != nil {
+			return nil, errorsmod.Wrapf(err, "decision policy for %s", msg.GroupName)
+		}
+		if msg.VotingPeriod > 0 {
+			decPolicy.VotingPeriod = int64(msg.VotingPeriod)
+		}
+		if msg.MinExecutionPeriod > 0 {
+			decPolicy.MinExecutionPeriod = int64(msg.MinExecutionPeriod)
+		}
+		if err := validateDecisionPeriods(decPolicy.VotingPeriod, decPolicy.MinExecutionPeriod); err != nil {
+			return nil, err
+		}
+		if err := k.DecisionPolicies.Set(ctx, group.PolicyAddress, decPolicy); err != nil {
+			return nil, errorsmod.Wrapf(err, "failed to update decision policy for %s", msg.GroupName)
+		}
+	}
+
 	// Every config change invalidates proposals voted under the old config
 	// (spec §7), not only decision-policy changes. Bumped at most once.
 	if msg.VoteThreshold == nil && msg.PolicyType == "" {
@@ -199,7 +234,16 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 	}
 
 	// Turning futarchy on schedules the first confidence market; the
-	// commons EndBlocker fires it (CMN-08).
+	// commons EndBlocker fires it (CMN-08). Turning it off drops the queued
+	// trigger, and turning it on replaces any trigger still queued, so a
+	// group never runs two confidence-market loops (FUT-101): an entry left
+	// queued by an off/on toggle used to fire alongside the new one, and
+	// each rescheduled itself.
+	if disablingFutarchy || enablingFutarchy {
+		if err := k.clearMarketTriggers(ctx, msg.GroupName); err != nil {
+			return nil, err
+		}
+	}
 	if enablingFutarchy {
 		if err := k.MarketTriggerQueue.Set(ctx, collections.Join(now, msg.GroupName)); err != nil {
 			return nil, err

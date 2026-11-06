@@ -148,14 +148,17 @@ func TestHarbergerGiftsAndExclusions(t *testing.T) {
 	require.Equal(t, spark(10).Amount, f.token(classID, 1).Harberger.Price, "assessed at the mint price")
 
 	// Grace passes without a grant: the price falls. A gift carries the
-	// current price, so moving the token never sheds a foreclosure.
+	// tax state, so moving the token never sheds a foreclosure.
 	f.advance(600, 1)
 	_, err = f.msg.Transfer(f.ctx, &types.MsgTransfer{Sender: f.bob.String(),
 		Entries: []types.TransferEntry{{ClassId: classID, TokenId: 1, Recipient: f.carol.String()}}})
 	require.NoError(t, err)
 	h := f.token(classID, 1).Harberger
-	require.Equal(t, math.NewInt(5_000_000), h.Price)
-	require.Zero(t, h.ForeclosedAt)
+	require.Equal(t, spark(10).Amount, h.Price)
+	q, err := f.query.HarbergerQuote(f.ctx, &types.QueryHarbergerQuoteRequest{ClassId: classID, TokenId: 1})
+	require.NoError(t, err)
+	require.True(t, q.Foreclosed)
+	require.Equal(t, math.NewInt(5_000_000).String(), q.CurrentPrice)
 
 	// No rentals or nesting.
 	_, err = f.msg.OfferRental(f.ctx, &types.MsgOfferRental{Owner: f.carol.String(), ClassId: classID, TokenId: 1,

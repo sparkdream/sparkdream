@@ -100,4 +100,9 @@ var (
 	// RetiredDomainsKey maps a nullifier domain no live op uses to the
 	// registration of the last op that used it.
 	RetiredDomainsKey = collections.NewPrefix("shield/retired_domain/")
+
+	// IdentityEpochFeesKey is the fees the module paid per identity
+	// (key: epoch, rate-limit nullifier hex), each capped at a share of
+	// params.max_fees_per_epoch.
+	IdentityEpochFeesKey = collections.NewPrefix("shield/identity_fees/")
 )

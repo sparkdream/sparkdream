@@ -69,6 +69,19 @@ type CommonsKeeper interface {
 	// project-wide pattern (see x/rep's `MsgResolveGovActionAppeal`,
 	// forum's appeal-resolve handlers, etc.).
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+
+	// IsCouncilOrCommitteePolicy reports whether `addr` is governance or
+	// the (council, committee) policy address, i.e. an executed
+	// committee decision rather than one member's signature. Gates the
+	// MsgResolveReportByJury choices that depart from the jury verdict
+	// (REDUCE, dissolve).
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
+
+	// GroupPolicyMembers returns the member addresses of the group whose
+	// policy address is `policyAddr` (nil if unknown). Used to keep a
+	// controller group's members off the jury reviewing that group's
+	// decision.
+	GroupPolicyMembers(ctx context.Context, policyAddr string) ([]string, error)
 }
 
 // RepKeeper defines the slice of x/rep that x/service depends on for

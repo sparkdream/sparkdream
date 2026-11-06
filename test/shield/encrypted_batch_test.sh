@@ -327,28 +327,40 @@ build_payload() {
     return 1
 }
 
-build_payload "$OP_NULLIFIER_HEX" "EncBatchTest$(date +%s)" "Encrypted batch lifecycle test post"
-ENCRYPTED_PAYLOAD_B64="$PAYLOAD_B64"
-CURRENT_EPOCH="$PAYLOAD_EPOCH"
-
-if [ -z "$ENCRYPTED_PAYLOAD_B64" ]; then
-    echo "  Failed to generate encrypted payload"
-    record_result "Build encrypted payload" "FAIL"
-else
-    echo "  Encrypted payload size: ${#ENCRYPTED_PAYLOAD_B64} chars (base64)"
-    record_result "Build encrypted payload" "PASS"
-fi
+# wait_for_epoch_boundary: block until the shield epoch increments, so the
+# seal + hex conversion + broadcast below start with a whole 10-block epoch
+# ahead of them. The ante handler refuses a target_epoch that is no longer
+# current (code 21), and under four concurrent suites the gap between the
+# seal check and the broadcast alone can cross an epoch.
+wait_for_epoch_boundary() {
+    local start now i
+    start=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+    for i in $(seq 1 120); do
+        now=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+        [ "$now" != "$start" ] && return 0
+        sleep 0.5
+    done
+    return 1
+}
 
 # Submission nullifier and rate-limit nullifier (32-byte random values; a
 # real client takes both from the submission proof)
 NULLIFIER_HEX=00$(openssl rand -hex 31)
 RATE_NULLIFIER_HEX=00$(openssl rand -hex 31)
 
-# The CLI takes hex for every byte field (payload included); exec-mode 1 = ENCRYPTED_BATCH.
-ENCRYPTED_PAYLOAD_HEX=$(echo "$ENCRYPTED_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
+ENCRYPTED_PAYLOAD_B64=""
+for SUBMIT_ATTEMPT in 1 2; do
+    wait_for_epoch_boundary || echo "  [WARN] epoch did not advance within 60s; submitting anyway"
+    build_payload "$OP_NULLIFIER_HEX" "EncBatchTest$(date +%s)" "Encrypted batch lifecycle test post"
+    ENCRYPTED_PAYLOAD_B64="$PAYLOAD_B64"
+    CURRENT_EPOCH="$PAYLOAD_EPOCH"
+    [ -z "$ENCRYPTED_PAYLOAD_B64" ] && break
 
-echo "  Nullifier: ${NULLIFIER_HEX:0:16}..."
-echo "  Submitting encrypted batch tx..."
+    # The CLI takes hex for every byte field (payload included); exec-mode 1 = ENCRYPTED_BATCH.
+    ENCRYPTED_PAYLOAD_HEX=$(echo "$ENCRYPTED_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
+
+    echo "  Nullifier: ${NULLIFIER_HEX:0:16}..."
+    echo "  Submitting encrypted batch tx (epoch $CURRENT_EPOCH, attempt $SUBMIT_ATTEMPT)..."
 
 # Submit the encrypted batch via autocli
 TX_RES=$($BINARY tx shield shielded-exec \
@@ -395,6 +407,23 @@ DUP_TX_RES=$($BINARY tx shield shielded-exec \
     --gas 500000 \
     -y \
     --output json 2>&1)
+
+    # Code 21 is the ante's "target_epoch must be the current shield epoch":
+    # the epoch rolled over between sealing and broadcast. Reseal once.
+    if [ "$BROADCAST_CODE" = "21" ] && [ "$SUBMIT_ATTEMPT" = "1" ]; then
+        echo "  Epoch rolled over before the broadcast (code 21); resealing for the next epoch"
+        continue
+    fi
+    break
+done
+
+if [ -z "$ENCRYPTED_PAYLOAD_B64" ]; then
+    echo "  Failed to generate encrypted payload"
+    record_result "Build encrypted payload" "FAIL"
+else
+    echo "  Encrypted payload size: ${#ENCRYPTED_PAYLOAD_B64} chars (base64)"
+    record_result "Build encrypted payload" "PASS"
+fi
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
     echo "  Failed to submit encrypted batch: no txhash"

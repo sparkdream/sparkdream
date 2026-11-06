@@ -76,6 +76,13 @@ func (k msgServer) DeclineGrant(ctx context.Context, msg *types.MsgDeclineGrant)
 			refund = dep
 		}
 	}
+	// Declining a pending grant is a "no", not proof of spam: the consent
+	// deposit goes back to the granter (SES-102).
+	if grant.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if refund, err = k.refundPendingDeposit(ctx, grant, grant.Granter); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := k.deleteGrant(ctx, grant); err != nil {
 		return nil, err

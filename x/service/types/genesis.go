@@ -116,6 +116,9 @@ func (gs GenesisState) Validate() error {
 		if _, dup := serviceTypes[cfg.ServiceType]; dup {
 			return fmt.Errorf("genesis: duplicate service_type %q", cfg.ServiceType)
 		}
+		if err := cfg.ValidateAgainstParams(gs.Params); err != nil {
+			return fmt.Errorf("genesis: service_type %q: %w", cfg.ServiceType, err)
+		}
 		serviceTypes[cfg.ServiceType] = struct{}{}
 	}
 

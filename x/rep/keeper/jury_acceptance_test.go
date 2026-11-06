@@ -155,6 +155,8 @@ func TestSweepRedrawsUnansweredSeats(t *testing.T) {
 	// Past the acceptance window.
 	swept := ctx.WithBlockHeight(ctx.BlockHeight() + 11)
 	require.NoError(t, k.SweepUnansweredJurySeats(swept))
+	// The replacements are drawn by the EndBlocker step after the sweep.
+	require.NoError(t, k.DrawPendingJuries(swept))
 
 	after, err := k.GetJuryReview(swept, review.Id)
 	require.NoError(t, err)
@@ -255,8 +257,8 @@ func TestDecliningDoesNotLoadTheParticipationDenominator(t *testing.T) {
 	// Answered 3 of 4 (three declines), ignored one — so 0.75. The point is the
 	// contrast: had declines counted as silence this would be 0/4, floored to
 	// MinJurorSelectionWeight, and declining would cost as much as ignoring.
-	require.Equal(t, 0.75, k.JurorResponsivenessWeight(ctx, juror))
-	require.Greater(t, k.JurorResponsivenessWeight(ctx, juror), types.DefaultMinJurorSelectionWeight)
+	require.True(t, math.LegacyMustNewDecFromStr("0.75").Equal(k.JurorResponsivenessWeight(ctx, juror)))
+	require.True(t, k.JurorResponsivenessWeight(ctx, juror).GT(types.DefaultMinJurorSelectionWeight))
 }
 
 func TestSerialDeclinerKeepsFullStanding(t *testing.T) {
@@ -275,7 +277,7 @@ func TestSerialDeclinerKeepsFullStanding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(10), p.TotalDeclined)
 	require.Zero(t, p.TotalTimeouts)
-	require.Equal(t, 1.0, k.JurorResponsivenessWeight(ctx, juror))
+	require.True(t, k.JurorResponsivenessWeight(ctx, juror).Equal(math.LegacyOneDec()))
 }
 
 // Quorum is len(jurors)/2+1, so an unguarded sweep could vacate a five-seat

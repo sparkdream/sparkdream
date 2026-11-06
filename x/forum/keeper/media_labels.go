@@ -35,6 +35,16 @@ func withholdPostContent(post types.Post) types.Post {
 	return post
 }
 
+// getWithheldPost reads a post for a list query, content withheld when
+// media-flagged.
+func (k Keeper) getWithheldPost(ctx context.Context, id uint64) (types.Post, error) {
+	post, err := k.Post.Get(ctx, id)
+	if err != nil {
+		return types.Post{}, err
+	}
+	return withholdPostContent(post), nil
+}
+
 // checkMediaWrite enforces the media posting rules on a write labelled as
 // media and charges media_scan_fee (burned). Plain text passes untouched.
 // authorBond is the DREAM bond attached to a create, nil on edits.

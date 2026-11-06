@@ -105,7 +105,7 @@ func UnencumberedLicenses() []string
 
 ```go
 const MediaRulesVersion uint32 = 1
-func ContainsDataURI(s string) bool                          // rules version 2 (tools/datauri): browser-normalised RFC 2397 shape, linear, deterministic
+func ContainsDataURI(s string) bool                          // rules version 3 (tools/datauri): browser-normalised RFC 2397 shape, linear, deterministic
 func LabelBody(ct ContentType, body string) MediaLabels       // blog/forum bodies
 func LabelTombstone(body string) MediaLabels                  // chain-written placeholders
 func LabelFederatedContent(body, contentURI string) MediaLabels

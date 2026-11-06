@@ -10,12 +10,27 @@ import (
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params: DefaultParams(),
-		Season: nil, SeasonTransitionState: nil, TransitionRecoveryState: nil, NextSeasonInfo: nil, SeasonSnapshotMap: []SeasonSnapshot{}, MemberSeasonSnapshotMap: []MemberSeasonSnapshot{}, MemberProfileMap: []MemberProfile{}, MemberRegistrationMap: []MemberRegistration{}, AchievementMap: []Achievement{}, TitleMap: []Title{}, SeasonTitleEligibilityMap: []SeasonTitleEligibility{}, GuildList: []Guild{}, GuildMembershipMap: []GuildMembership{}, GuildInviteMap: []GuildInvite{}, QuestMap: []Quest{}, MemberQuestProgressMap: []MemberQuestProgress{}, EpochXpTrackerMap: []EpochXpTracker{}, VoteXpRecordMap: []VoteXpRecord{}, ForumXpCooldownMap: []ForumXpCooldown{}, DisplayNameModerationMap: []DisplayNameModeration{}, DisplayNameReportStakeMap: []DisplayNameReportStake{}, DisplayNameAppealStakeMap: []DisplayNameAppealStake{}}
+		Season: nil, SeasonTransitionState: nil, TransitionRecoveryState: nil, NextSeasonInfo: nil, SeasonSnapshotMap: []SeasonSnapshot{}, MemberSeasonSnapshotMap: []MemberSeasonSnapshot{}, MemberProfileMap: []MemberProfile{}, MemberRegistrationMap: []MemberRegistration{}, AchievementMap: []Achievement{}, TitleMap: []Title{}, SeasonTitleEligibilityMap: []SeasonTitleEligibility{}, GuildList: []Guild{}, GuildMembershipMap: []GuildMembership{}, GuildInviteMap: []GuildInvite{}, QuestMap: []Quest{}, MemberQuestProgressMap: []MemberQuestProgress{}, EpochXpTrackerMap: []EpochXpTracker{}, VoteXpRecordMap: []VoteXpRecord{}, ForumXpCooldownMap: []ForumXpCooldown{}, DisplayNameModerationMap: []DisplayNameModeration{}, DisplayNameReportStakeMap: []DisplayNameReportStake{}, DisplayNameAppealStakeMap: []DisplayNameAppealStake{}, SeasonHistoryList: []Season{}}
 }
 
 // Validate performs basic genesis state validation returning an error upon any
 // failure.
 func (gs GenesisState) Validate() error {
+	// Completed seasons: unique numbers, each below the live season's,
+	// status COMPLETED.
+	seasonHistoryNumbers := make(map[uint64]struct{})
+	for _, elem := range gs.SeasonHistoryList {
+		if _, ok := seasonHistoryNumbers[elem.Number]; ok {
+			return fmt.Errorf("duplicated season number %d in season_history_list", elem.Number)
+		}
+		seasonHistoryNumbers[elem.Number] = struct{}{}
+		if elem.Status != SeasonStatus_SEASON_STATUS_COMPLETED {
+			return fmt.Errorf("season %d in season_history_list has status %s, want COMPLETED", elem.Number, elem.Status)
+		}
+		if gs.Season != nil && elem.Number >= gs.Season.Number {
+			return fmt.Errorf("season %d in season_history_list is not below the live season %d", elem.Number, gs.Season.Number)
+		}
+	}
 	seasonSnapshotIndexMap := make(map[string]struct{})
 
 	for _, elem := range gs.SeasonSnapshotMap {
@@ -279,6 +294,13 @@ func (gs GenesisState) validateRelations() error {
 	if ts := gs.SeasonTransitionState; ts != nil {
 		if _, ok := TransitionPhase_name[int32(ts.Phase)]; !ok {
 			return fmt.Errorf("season transition phase %d is not defined", ts.Phase)
+		}
+		// The flag is the source of truth for IsInMaintenanceMode and is
+		// re-derived only when a batch commits, so a stale imported value
+		// would leave reputation moving under a SNAPSHOT that keeps
+		// failing (SEA-203).
+		if ts.MaintenanceMode != ts.Phase.IsMaintenance() {
+			return fmt.Errorf("season transition maintenance_mode %t does not match phase %s", ts.MaintenanceMode, ts.Phase)
 		}
 	}
 

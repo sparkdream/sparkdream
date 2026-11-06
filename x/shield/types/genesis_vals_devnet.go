@@ -31,5 +31,6 @@ func getShieldGenesisParams() Params {
 		MaxFeePerExec:               math.NewInt(50_000),  // 0.05 SPARK per exec
 		EnableBatchAfterDkg:         false,                // governance enables batch mode after the DKG
 		MaxFeesPerEpoch:             math.NewInt(325_000), // 0.325 SPARK x 576 epochs/day (25-block epochs) = 187 SPARK/day < max_funding_per_day
+		BeaconEnabled:               true,                 // every closed epoch's TLE key is a public random beacon once a DKG has run
 	}
 }

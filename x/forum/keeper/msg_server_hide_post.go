@@ -16,6 +16,9 @@ import (
 )
 
 func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types.MsgHidePostResponse, error) {
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}

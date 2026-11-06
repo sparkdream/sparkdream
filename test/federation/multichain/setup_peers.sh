@@ -5,7 +5,9 @@
 # This script:
 #   1. Registers fedtest-b as a SPARK_DREAM peer on chain-a
 #   2. Registers fedtest-a as a SPARK_DREAM peer on chain-b
-#   3. Activates both peers (they start as PENDING)
+#   3. Activates both peers (they start as PENDING). Activation checks that
+#      the light client behind the federation channel names the peer's
+#      expected_chain_id (the other chain's id; FED-106)
 #
 # Uses governance proposals via Commons Council.
 #
@@ -88,7 +90,8 @@ cat > "$PROP_DIR/register_peer_b.json" <<EOF
     "peer_id": "fedtest-b",
     "type": "PEER_TYPE_SPARK_DREAM",
     "display_name": "",
-    "ibc_channel_id": "$CHANNEL_A"$EXTRA_A
+    "ibc_channel_id": "$CHANNEL_A",
+    "expected_chain_id": "$CHAIN_B_ID"$EXTRA_A
   }],
   "metadata": "Register chain-b as IBC peer"
 }
@@ -135,7 +138,8 @@ cat > "$PROP_DIR/register_peer_a.json" <<EOF
     "peer_id": "fedtest-a",
     "type": "PEER_TYPE_SPARK_DREAM",
     "display_name": "",
-    "ibc_channel_id": "$CHANNEL_B"$EXTRA_B
+    "ibc_channel_id": "$CHANNEL_B",
+    "expected_chain_id": "$CHAIN_A_ID"$EXTRA_B
   }],
   "metadata": "Register chain-a as IBC peer"
 }

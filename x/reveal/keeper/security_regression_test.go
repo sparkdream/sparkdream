@@ -103,7 +103,9 @@ func TestRegression_REV01_FailedStepRollsBack(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_REVEALED, contrib.Tranches[0].Status)
 
+	// The failed entry was parked for the retry window (REV-104).
 	failing = false
+	f.advanceBlockHeight(keeper.DeadlineRetryBlocks)
 	require.NoError(t, f.keeper.ProcessDeadlines(f.ctx))
 	require.Equal(t, 2, mints)
 	require.Equal(t, 3, unlocks) // two stakes + bond, once each
@@ -133,7 +135,7 @@ func TestRegression_REV08_HoldbackMintRetried(t *testing.T) {
 	require.Equal(t, types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS, contrib.Status)
 
 	capHit = false
-	f.advanceBlockHeight(1)
+	f.advanceBlockHeight(keeper.DeadlineRetryBlocks) // parked for the retry window (REV-104)
 	require.NoError(t, f.keeper.ProcessDeadlines(f.ctx))
 	contrib, err = f.keeper.Contribution.Get(f.ctx, contribID)
 	require.NoError(t, err)

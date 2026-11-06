@@ -26,6 +26,7 @@ func DefaultGenesis() *GenesisState {
 		ChallengeCount:         1,
 		JuryReviewList:         []JuryReview{},
 		JuryReviewCount:        1,
+		PendingJuryDrawList:    []PendingJuryDraw{},
 		InterimList:            []Interim{},
 		InitiativeReviewList:   []InitiativeReview{},
 		InterimCount:           1,
@@ -138,6 +139,9 @@ func (gs GenesisState) Validate() error {
 	if err := gs.validateMigrationState(); err != nil {
 		return err
 	}
+	if err := gs.EconomicState.validateDecayPass(); err != nil {
+		return err
+	}
 	memberIndexMap := make(map[string]struct{})
 
 	for _, elem := range gs.MemberMap {
@@ -218,6 +222,34 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("juryReview id should be lower or equal than the last id")
 		}
 		juryReviewIdMap[elem.Id] = true
+		// The expert_* lists are parallel to expert_witnesses. Inviter and
+		// endorser lists may be shorter (an older record) but never longer,
+		// and an endorser must be a seat other than the inviter.
+		n := len(elem.ExpertWitnesses)
+		if len(elem.ExpertInterimIds) > n || len(elem.ExpertInviters) > n || len(elem.ExpertEndorsers) > n {
+			return fmt.Errorf("juryReview %d: expert lists longer than expert_witnesses", elem.Id)
+		}
+		for i, endorser := range elem.ExpertEndorsers {
+			if endorser == "" {
+				continue
+			}
+			if i >= len(elem.ExpertInviters) || elem.ExpertInviters[i] == "" || elem.ExpertInviters[i] == endorser {
+				return fmt.Errorf("juryReview %d: expert %d endorsed by its inviter or without a recorded inviter", elem.Id, i)
+			}
+		}
+	}
+	pendingDrawMap := make(map[uint64]bool)
+	for _, draw := range gs.PendingJuryDrawList {
+		if pendingDrawMap[draw.JuryReviewId] {
+			return fmt.Errorf("duplicated jury review id %d in pending_jury_draw_list", draw.JuryReviewId)
+		}
+		pendingDrawMap[draw.JuryReviewId] = true
+		if !juryReviewIdMap[draw.JuryReviewId] {
+			return fmt.Errorf("pending jury draw for unknown jury review %d", draw.JuryReviewId)
+		}
+		if draw.QueuedAtHeight < 0 {
+			return fmt.Errorf("pending jury draw %d: negative queued_at_height", draw.JuryReviewId)
+		}
 	}
 	interimIdMap := make(map[uint64]bool)
 	interimCount := gs.GetInterimCount()
@@ -503,6 +535,25 @@ func (gs GenesisState) validateMigrationState() error {
 		if c.Deposit.IsNil() || c.Deposit.IsNegative() {
 			return fmt.Errorf("sealed recovery commit deposit cannot be negative")
 		}
+	}
+	return nil
+}
+
+// validateDecayPass checks the in-flight decay pass: its cursors are
+// meaningful only while a pass runs (decay_pass_epoch != 0), and a stake
+// cursor only once the member phase is done.
+func (e *EconomicState) validateDecayPass() error {
+	if e == nil {
+		return nil
+	}
+	if e.DecayPassEpoch == 0 {
+		if e.DecayPassMemberCursor != "" || e.DecayPassStakePhase || e.DecayPassStakeCursor != 0 {
+			return fmt.Errorf("economic_state: decay pass cursors set with no decay pass in flight (decay_pass_epoch 0)")
+		}
+		return nil
+	}
+	if !e.DecayPassStakePhase && e.DecayPassStakeCursor != 0 {
+		return fmt.Errorf("economic_state: decay_pass_stake_cursor %d set before the stake phase", e.DecayPassStakeCursor)
 	}
 	return nil
 }

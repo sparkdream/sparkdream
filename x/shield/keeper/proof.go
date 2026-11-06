@@ -96,7 +96,21 @@ func (k Keeper) verifyProofAtEpoch(ctx context.Context, msg *types.MsgShieldedEx
 	}
 
 	// 5. Construct public witness and verify
-	return k.verifyShieldProof(vk, proof, msg, binding, epoch)
+	return k.verifyShieldProof(vk, proof, msg, binding, rateLimitEpochInput(msg.ProofDomain, binding.scope, epoch))
+}
+
+// rateLimitEpochInput is the RateLimitEpoch public input for an exec in the
+// given shield epoch. A PROOF_DOMAIN_GROUP_TREE exec (a secret-ballot vote)
+// binds the epoch to its scope (crypto.GroupTreeRateLimitEpochForScope), so
+// its rate-limit nullifier is unique to the member and the ballot and links
+// neither two votes nor a vote and a trust-tree action in the same epoch
+// (SHD-101). Every other domain uses the plain epoch: its rate-limit
+// nullifier is the member's per-epoch quota key.
+func rateLimitEpochInput(domain types.ProofDomain, scope []byte, epoch uint64) *big.Int {
+	if domain == types.ProofDomain_PROOF_DOMAIN_GROUP_TREE {
+		return new(big.Int).SetBytes(zkcrypto.GroupTreeRateLimitEpochForScope(scope, epoch))
+	}
+	return new(big.Int).SetUint64(epoch)
 }
 
 // verifyShieldProof verifies a Groth16 proof against the unified ShieldCircuit.
@@ -106,14 +120,14 @@ func (k Keeper) verifyProofAtEpoch(ctx context.Context, msg *types.MsgShieldedEx
 // Scope and MessageHash come from the binding: the scope is the domain-separated
 // scope element (never the raw scope: the circuit hashes only secret key and
 // scope, so a raw scope shared by two domains would give one member the same
-// public nullifier in both). The epoch parameter is the current shield epoch
-// (used for rate-limit nullifier binding).
+// public nullifier in both). rateLimitEpoch is the RateLimitEpoch public input
+// (rateLimitEpochInput).
 func (k Keeper) verifyShieldProof(
 	vk groth16.VerifyingKey,
 	proof groth16.Proof,
 	msg *types.MsgShieldedExec,
 	binding proofBinding,
-	epoch uint64,
+	rateLimitEpoch *big.Int,
 ) error {
 	assignment := &circuit.ShieldCircuit{
 		MerkleRoot:         new(big.Int).SetBytes(msg.MerkleRoot),
@@ -121,7 +135,7 @@ func (k Keeper) verifyShieldProof(
 		RateLimitNullifier: new(big.Int).SetBytes(msg.RateLimitNullifier),
 		MinTrustLevel:      msg.MinTrustLevel,
 		Scope:              new(big.Int).SetBytes(binding.scope),
-		RateLimitEpoch:     epoch,
+		RateLimitEpoch:     rateLimitEpoch,
 		MessageHash:        new(big.Int).SetBytes(binding.messageHash),
 	}
 

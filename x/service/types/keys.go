@@ -172,3 +172,7 @@ var (
 	// NextEscrowIDKey: collections.Sequence for Tier1Escrow primary key.
 	NextEscrowIDKey = collections.NewPrefix("next_escrow_id/")
 )
+
+// MaxSlashBps is 100% of a bond in basis points: the ceiling on any
+// proposed or applied slash_bps.
+const MaxSlashBps = 10000

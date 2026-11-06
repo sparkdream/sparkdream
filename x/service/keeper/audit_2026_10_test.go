@@ -39,6 +39,25 @@ func TestJuryCasesAreSeatedWithPartiesExcluded(t *testing.T) {
 	require.ElementsMatch(t, []string{testOperator1, testReporter, testController}, g.repKeeper.SeatedExcludes[0])
 }
 
+// SVC-102: the members of the controller group that slashed the operator
+// are parties to the contest jury, not only the group's policy address.
+func TestContestJuryExcludesControllerMembers(t *testing.T) {
+	f := initFixture(t)
+	f.commonsKeeper.GroupPolicyMembersFn = func(_ context.Context, policy string) ([]string, error) {
+		if policy == testController {
+			return []string{testCouncil, testRandom}, nil
+		}
+		return nil, nil
+	}
+	contested := f.seedResolvedT1ReportAndSlash(t, 200)
+	_, err := f.msgServer.ContestSlash(f.ctx, &types.MsgContestSlash{Operator: testOperator1, ServiceType: testServiceType, ReportId: contested})
+	require.NoError(t, err)
+	require.Len(t, f.repKeeper.SeatedExcludes, 1)
+	require.ElementsMatch(t,
+		[]string{testOperator1, testReporter, testController, testCouncil, testRandom},
+		f.repKeeper.SeatedExcludes[0])
+}
+
 // SVC-02: SystemReportDedup is pruned once its report is terminal and the
 // retention has passed, and kept (re-queued) while the report is open; the
 // map and the rate-limit buffers round-trip through genesis.

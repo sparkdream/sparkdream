@@ -34,7 +34,7 @@ All proofs use a unified `ShieldCircuit` (Groth16 over BN254) with public inputs
 - `RateLimitNullifier` — per-identity epoch-scoped rate limiting
 - `MinTrustLevel` — minimum trust level being proven
 - `Scope` — domain-separated scope element `crypto.ScopeElement(domain, raw_scope) = MiMC(be(domain), be(raw_scope))`. The circuit computes `Nullifier = MiMC(secret_key, Scope)`, so hashing the domain in keeps one member's nullifiers from matching across operations that share a raw scope (blog post 5 / forum post 5 / commons proposal 5, every GLOBAL op). This needs no circuit change; Scope was already a field element
-- `RateLimitEpoch` — current shield epoch
+- `RateLimitEpoch` — current shield epoch; for a `PROOF_DOMAIN_GROUP_TREE` exec (secret-ballot vote) `MiMC(scope element, epoch)`, so a vote's rate-limit nullifier is unique to the member and the ballot
 - `MessageHash` - `crypto.ShieldMessageHash(type_url, value)` of the inner `Any` exactly as submitted (domain-separated sha256, top 3 bits cleared). Binds the proof to one inner message, so a proof seen in the mempool can't be resubmitted with different content. The circuit squares it, since a public input in no constraint would get a zero verifying-key term and verify for any value. Ownership-mode ops use `crypto.ShieldOwnedMessageHash(type_url, value, sequence)` instead (separate domain string, plus the owner's be64 sequence)
 
 Verification keys are stored on-chain by circuit ID. They are set at genesis and can only be changed by a chain upgrade (there is no message that sets one), so governance cannot substitute a malicious key.
@@ -89,6 +89,8 @@ Auto-trigger: BeginBlocker starts DKG when bonded validators >= `min_tle_validat
 
 ```
 Epoch N closes (boundary block B)
+  → EndBlocker: beacon on and DKG complete, and (batch mode off or epoch N
+    holds no pending ops)?  yes → record DecryptionDemand(N, B)  (beacon)
   → EndBlocker: is epoch N's batch ready?  (>= min_batch_size alone or together
     with other closed epochs, or waited max_pending_epochs)
       yes → record DecryptionDemand(N, B)
@@ -108,11 +110,15 @@ Height B + interval (every block, before expiry)
 
 A key is never reconstructed for an epoch whose batch is not ready, so a small batch waits *encrypted* rather than decryptable on chain. Idle epochs demand nothing and count against nobody.
 
+### Randomness Beacon
+
+The epoch key `d = s·H1(N)` is a threshold BLS signature over the epoch number: unique, unpredictable below the threshold, unbiasable. With `beacon_enabled` and a completed DKG the EndBlocker demands it for every closing epoch, so every epoch yields a public random value one or two blocks after it closes, read through `BeaconKey`/`BeaconStatus` (`AVAILABLE` / `PENDING` / `UNAVAILABLE`) or the `Beacon` query. Releasing a key for an epoch with no batch leaks nothing: it only opens ciphertexts sealed to that already-closed epoch. Consumer: x/rep jury draws (late-wired `SetBeaconSource`), with a block-hash fallback. Spec: "Randomness beacon".
+
 ### Module-Paid Gas
 
 The shield module account holds gas reserves in the chain's bond denom (from x/identity). A custom ante decorator (`ShieldGasDecorator`) detects `MsgShieldedExec` transactions and deducts fees from the module account instead of the submitter. A companion `SkipIfFeePaidDecorator` wraps the standard `DeductFeeDecorator` to prevent double-deduction when fees have already been paid by the shield module. BeginBlocker auto-refills from the community pool when balance drops below `min_gas_reserve`, capped at `max_funding_per_day` (tracked per UTC day of the block time).
 
-Because the module pays, it pays only for execs that will run: both modes have a proof, a nullifier and the identity rate limit checked in the ante handler (`PrecheckExec`) before any fee moves — the operation proof for an immediate exec, the cleartext *submission proof* for an encrypted-batch exec (bound to the ciphertext; the operation proof and nullifier stay sealed) — and the fee itself must be in the bond denom and at most `max_fee_per_exec` (otherwise `ErrFeeTooHigh`). The identity rate limit, now proven in both modes, bounds spend per member, so there is no per-submitter-address cap. Batch execs are rejected in the ante handler (`ErrEncryptedBatchDisabled`) while `encrypted_batch_enabled` is false. For an immediate exec the precheck **spends** the exec in the ante state in every mode but simulate - records the consume-mode nullifier (or advances the ownership-mode owner sequence) and counts the identity rate limit - and the msg server, told so through `types.WithExecConsumed`, only runs the inner message. In DeliverTx that state commits with the fee even when the inner message fails, so a failing exec costs its nullifier and slot like a successful one and can't be replayed at the reserve's expense; in CheckTx it is discarded at commit and only keeps rewrapped copies of a pending exec out of the mempool. A batch submission's nullifier is marked pending in CheckTx. Further ante rules: public inputs (nullifier, rate-limit nullifier, merkle root) must be canonical BN254 field elements (`ErrNonCanonicalPublicInput`: the verifier reduces mod r, so `n + r` would alias `n`); in CheckTx the fee must meet the node's minimum gas prices; the fees the module pays per shield epoch are capped chain-wide by `max_fees_per_epoch` (`ErrEpochFeeBudgetExhausted`); and txs signed by the public submitter must be unordered (`ErrOrderedPublicSubmitterTx`). The msg server skips re-verifying a proof the ante handler already verified for the same message. The inner handler runs under a `max_gas_per_exec` meter and what it uses is charged to the outer tx.
+Because the module pays, it pays only for execs that will run: both modes have a proof, a nullifier and the identity rate limit checked in the ante handler (`PrecheckExec`) before any fee moves — the operation proof for an immediate exec, the cleartext *submission proof* for an encrypted-batch exec (bound to the ciphertext; the operation proof and nullifier stay sealed) — and the fee itself must be in the bond denom and at most `max_fee_per_exec` (otherwise `ErrFeeTooHigh`). The identity rate limit, now proven in both modes, bounds spend per member, so there is no per-submitter-address cap. Batch execs are rejected in the ante handler (`ErrEncryptedBatchDisabled`) while `encrypted_batch_enabled` is false. For an immediate exec the precheck **spends** the exec in the ante state in every mode but simulate - records the consume-mode nullifier (or advances the ownership-mode owner sequence) and counts the identity rate limit - and the msg server, told so through `types.WithExecConsumed`, only runs the inner message. In DeliverTx that state commits with the fee even when the inner message fails, so a failing exec costs its nullifier and slot like a successful one and can't be replayed at the reserve's expense; in CheckTx it is discarded at commit and only keeps rewrapped copies of a pending exec out of the mempool. A batch submission's nullifier is marked pending in CheckTx. Further ante rules: public inputs (nullifier, rate-limit nullifier, merkle root) must be canonical BN254 field elements (`ErrNonCanonicalPublicInput`: the verifier reduces mod r, so `n + r` would alias `n`); in CheckTx the fee must meet the node's minimum gas prices; the fees the module pays per shield epoch are capped chain-wide by `max_fees_per_epoch` (`ErrEpochFeeBudgetExhausted`), with at most a tenth of it per identity (`ErrIdentityFeeShareExhausted`) and a fifth reserved for group-tree execs, and a post handler (`FeeRefundDecorator`) returns the unused part of a successful exec's fee (`fee - ceil(fee x gas_used / gas_limit)`) from the fee collector to the module and unbooks it, so both budgets measure gas used rather than gas declared (a failed exec is not refunded: baseapp discards a failed tx's post-handler writes); and txs signed by the public submitter must be unordered (`ErrOrderedPublicSubmitterTx`). The msg server skips re-verifying a proof the ante handler already verified for the same message. The inner handler runs under a `max_gas_per_exec` meter and what it uses is charged to the outer tx.
 
 Verifying in CheckTx costs every node a Groth16 pairing check (~1.5-3 ms) per admitted exec, and public-submitter txs are free to submit, so the ante handler guards it with two node-local, non-consensus defences (review finding M4 - mitigated; `x/shield/ante/proof_guard.go`):
 
@@ -202,6 +208,7 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 | `VerificationKey` | ZK verification key by circuit ID |
 | `TLEMissCount` | Validator's TLE miss count |
 | `DecryptionShares` | Decryption shares for an epoch |
+| `Beacon` | Randomness beacon value and status for an epoch (0 = latest closed epoch) |
 | `IdentityRateLimit` | Rate limit status for a rate-limit nullifier |
 | `DKGState` | Current DKG ceremony state |
 | `DKGContributions` | All DKG contributions for current round |
@@ -232,6 +239,12 @@ Defaults below are the production (`mainnet`/`testnet` build) values; `DefaultPa
 | `max_pending_queue_size` | 1,000 | Queue capacity |
 | `max_encrypted_payload_size` | 16 KB | Max encrypted payload |
 | `max_ops_per_batch` | 100 | Max ops processed per block |
+
+### Randomness beacon
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `beacon_enabled` | true | Once a DKG has completed, demand the TLE key of every epoch as it closes (batch or not), making it a public random value per epoch (`BeaconKey`/`BeaconStatus`, `Beacon` query). Consumer: x/rep jury draws. See the spec's "Randomness beacon" |
 
 ### TLE Liveness
 
@@ -287,11 +300,12 @@ Nothing runs while `params.enabled` is false (no funding, no DKG phase advance; 
 ## EndBlocker
 
 1. **Epoch advancement** — advance shield epoch when interval reached, whether or not encrypted batch mode is enabled (immediate mode uses it for EPOCH-scoped nullifiers and per-epoch rate limits; a frozen epoch would make those lifetime limits)
-2. **TLE liveness** *(batch mode, every block)* — judge each demand exactly one full interval after it was recorded, before expiry can forget it: bonded key-set validators without a stored share for that epoch missed; past `tle_miss_tolerance` misses in the ring the validator is jailed and `JailUntil` is set `tle_jail_duration` seconds ahead
+2. **TLE liveness** *(batch mode or beacon on, every block)* — judge each demand exactly one full interval after it was recorded, before expiry can forget it: bonded key-set validators without a stored share for that epoch missed; past `tle_miss_tolerance` misses in the ring the validator is jailed and `JailUntil` is set `tle_jail_duration` seconds ahead
 3. **Expired op cleanup** *(every block, batch mode on or off)* — drop ops past `max_pending_epochs` and forget their demands
-4. **Decryption demands** *(batch mode, every block)* — mark each closed epoch whose batch is ready (a key-only count per epoch); validators only release shares for demanded epochs
-5. **Batch execution** *(batch mode, every block)* — for every demanded closed epoch whose key exists: decrypt, verify the operation proofs (against the submission epoch, the cleartext fields stored on the pending op and the submission's rate-limit nullifier), shuffle, execute, at most `max_ops_per_batch` per block
-6. **State pruning** — every epoch: identity rate limits, EPOCH-scoped nullifiers (one range scan per EPOCH-scoped domain), day fundings, stale decryption keys and shares
+4. **Beacon demand** *(beacon on and DKG complete, every epoch boundary)* — demand the key of the epoch that just closed, unless batch mode is on and the epoch holds pending ops (then the batch rule below decides)
+5. **Decryption demands** *(batch mode, every block)* — mark each closed epoch whose batch is ready (a key-only count per epoch); validators only release shares for demanded epochs
+6. **Batch execution** *(batch mode, every block)* — for every demanded closed epoch whose key exists: decrypt, verify the operation proofs (against the submission epoch, the cleartext fields stored on the pending op and the submission's rate-limit nullifier), shuffle, execute, at most `max_ops_per_batch` per block
+7. **State pruning** — every epoch: identity rate limits, EPOCH-scoped nullifiers (one range scan per EPOCH-scoped domain), day fundings, stale decryption keys and shares
 
 ## ABCI Extensions
 
@@ -303,6 +317,7 @@ Validators carry the DKG ceremony (registrations, contributions, complaints, jus
 
 - **`ShieldGasDecorator`** — detects `MsgShieldedExec` transactions (must be single-message), prechecks both modes (nullifiers, identity rate limit, then the operation or submission proof, behind a node-local rejected-proof cache and verification throttle in CheckTx), caps the fee at `max_fee_per_exec`, transfers fees from shield module account to fee pool, and sets `ContextKeyFeePaid` flag. Also refuses any non-shield tx signed by the public anonymous submitter
 - **`SkipIfFeePaidDecorator`** — wraps the standard `DeductFeeDecorator`; if `ContextKeyFeePaid` flag is set, skips inner fee deduction to prevent double-charging
+- **`FeeRefundDecorator`** (post handler, chained after `app/relayrefund`'s) — after a successful shielded exec, returns `fee - ceil(fee x gas_used / gas_limit)` from the fee collector to the shield module account and unbooks it from the epoch fee ledger and the identity's share (`RefundEpochFee`); the ante hands it the charge through the in-memory per-block `FeeMarks` (finalize mode only). Event `shield_fee_refund`
 
 ## Events
 
@@ -327,7 +342,7 @@ All state-changing operations emit typed events:
 
 | Event | Description |
 |-------|-------------|
-| `shield_decryption_key_available` | Epoch decryption key reconstructed |
+| `shield_decryption_key_available` | Epoch decryption key reconstructed (`source`: `batch` or `beacon`) |
 | `shield_decryption_key_failed` | Key reconstruction failed |
 
 ### Funding

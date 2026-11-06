@@ -79,9 +79,6 @@ genesis:
         chain_domain: "gno.land"
         default_deposit: "100000uspark.sparkdream"
         storage_price: "1uspark.sparkdream"
-    crisis:
-      constant_fee:
-        denom: uspark.sparkdream
     distribution:
       params:
         community_tax: "0.15"
@@ -125,6 +122,7 @@ genesis:
         transition_grace_period: "10"  # 10 blocks grace after abort (short for testing)
         display_name_appeal_period_blocks: "20"  # ~20 seconds (short for testing; default 100800)
         # Nomination params - TESTING values
+        nomination_window_epochs: "5"  # e2e only (default 14): the default window (1400 blocks) is longer than the 1000-block e2e season, so season 1 would open in NOMINATION at block 1 and test/_season_horizon.sh could not extend it
         nomination_min_stake: "1"  # 1 udream minimum stake for testing
         retro_reward_budget_ratio: "0.250000000000000000"  # 25% of initiative minting
         retro_reward_budget_min: "1000000000"  # 1000 DREAM in micro-DREAM for testing
@@ -202,12 +200,13 @@ genesis:
         # eligible and every unstake would forfeit its accrued rewards.
         min_stake_duration_seconds: "60"  # 1 epoch (was 86400 ~24h)
         # Review periods - EXTRA FAST for testing
-        default_review_period_epochs: "1"  # ~1 minute (was ~1 week)
+        default_review_period_epochs: "2"  # 20 blocks (was ~1 week): the expert-witness flow (invite, endorse, testify) needs ~6 sequential txs inside the jury review window; 1 epoch (10 blocks) does not fit them
         default_challenge_period_epochs: "1"  # ~1 minute (was ~1 week)
+        max_proposed_projects_per_creator: 50  # e2e only (default 3): the project tests propose many budget-backed fixtures as alice and leave them PROPOSED; the cap itself is covered by unit tests
         # Invitations - FAST for testing
         invitation_accountability_epochs: "10"  # ~10 minutes (was ~5 months)
         # Interim compensation - FAST for testing
-        interim_deadline_epochs: "3"  # ~3 minutes (was ~1 week)
+        interim_deadline_epochs: "3"  # default deadline of a create-interim sent with deadline 0; ~3 minutes (was ~1 week)
         # Interim budgets - REALISTIC for testing (in micro-DREAM)
         simple_complexity_budget: "50000000"    # 50 DREAM (50 * 1e6 micro-DREAM)
         standard_complexity_budget: "150000000"  # 150 DREAM (150 * 1e6 micro-DREAM)

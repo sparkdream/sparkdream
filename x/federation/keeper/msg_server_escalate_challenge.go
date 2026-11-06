@@ -67,7 +67,7 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 	creatorAddr, _ := k.addressCodec.StringToBytes(msg.Creator)
 	escalationFee := sdk.NewCoin(k.BondDenom(ctx), params.EscalationFeeAmount)
 	feeCoins := sdk.NewCoins(escalationFee)
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, feeCoins); err != nil {
+	if err := k.BankKeeper().SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, feeCoins); err != nil {
 		return nil, errorsmod.Wrapf(err, "failed to escrow escalation fee %s", escalationFee)
 	}
 

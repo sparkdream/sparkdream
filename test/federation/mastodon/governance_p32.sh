@@ -72,6 +72,11 @@ FED_PARAMS=$(q federation params | jq '.params')
 SVC_CFG=$(q service service-type "$SERVICE_TYPE" | jq '.config')
 [[ -n "$GOV_ADDR" && "$FED_PARAMS" != "null" && "$SVC_CFG" != "null" ]] || {
   echo "could not read gov address / federation params / $SERVICE_TYPE config" >&2; exit 1; }
+# x/service refuses a per-type unbonding period shorter than the report
+# contest window (SVC-104).
+CONTEST_WINDOW=$(q service params | jq -r '.params.report_contest_window_blocks')
+(( UNBONDING_BLOCKS >= CONTEST_WINDOW )) || {
+  echo "UNBONDING_BLOCKS ($UNBONDING_BLOCKS) must be >= report_contest_window_blocks ($CONTEST_WINDOW)" >&2; exit 2; }
 
 # LegacyDec round-trip: the query prints the internal 18-digit integer form.
 FED_NEW=$(echo "$FED_PARAMS" | python3 -c "

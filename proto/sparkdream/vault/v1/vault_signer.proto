@@ -18,4 +18,11 @@ message VaultSigner {
   // MsgAcceptVaultSigner. Only accepted entries carry weight in the tally, may
   // propose, approve or execute, and count toward MaxVaultsPerSigner.
   bool accepted = 3;
+  // Set by the chain, ignored on input. Unix seconds after which an
+  // unaccepted entry is removed by the EndBlocker (block time of the listing
+  // + InviteTTL); 0 on an accepted entry, or on an unaccepted entry that is
+  // the vault's only one (it never expires: removing it would leave no
+  // signer). Removing an invitee whose weight the threshold still needed
+  // clamps the threshold to the remaining reachable weight (§3.4).
+  int64 invite_expires_at = 4;
 }

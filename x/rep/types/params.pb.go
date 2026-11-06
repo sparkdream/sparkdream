@@ -199,82 +199,76 @@ type Params struct {
 	MaxGiftPerInvitee  cosmossdk_io_math.Int `protobuf:"bytes,7,opt,name=max_gift_per_invitee,json=maxGiftPerInvitee,proto3,customtype=cosmossdk.io/math.Int" json:"max_gift_per_invitee"`
 	GiftOnlyToInvitees bool                  `protobuf:"varint,8,opt,name=gift_only_to_invitees,json=giftOnlyToInvitees,proto3" json:"gift_only_to_invitees,omitempty"`
 	// Initiative rewards
-	CompleterShare          cosmossdk_io_math.LegacyDec `protobuf:"bytes,9,opt,name=completer_share,json=completerShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"completer_share"`
-	TreasuryShare           cosmossdk_io_math.LegacyDec `protobuf:"bytes,10,opt,name=treasury_share,json=treasuryShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"treasury_share"`
-	MinReputationMultiplier cosmossdk_io_math.LegacyDec `protobuf:"bytes,11,opt,name=min_reputation_multiplier,json=minReputationMultiplier,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_reputation_multiplier"`
+	CompleterShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,9,opt,name=completer_share,json=completerShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"completer_share"`
+	TreasuryShare  cosmossdk_io_math.LegacyDec `protobuf:"bytes,10,opt,name=treasury_share,json=treasuryShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"treasury_share"`
 	// Initiative tiers
-	ApprenticeTier TierConfig `protobuf:"bytes,12,opt,name=apprentice_tier,json=apprenticeTier,proto3" json:"apprentice_tier"`
-	StandardTier   TierConfig `protobuf:"bytes,13,opt,name=standard_tier,json=standardTier,proto3" json:"standard_tier"`
-	ExpertTier     TierConfig `protobuf:"bytes,14,opt,name=expert_tier,json=expertTier,proto3" json:"expert_tier"`
-	EpicTier       TierConfig `protobuf:"bytes,15,opt,name=epic_tier,json=epicTier,proto3" json:"epic_tier"`
+	ApprenticeTier TierConfig `protobuf:"bytes,11,opt,name=apprentice_tier,json=apprenticeTier,proto3" json:"apprentice_tier"`
+	StandardTier   TierConfig `protobuf:"bytes,12,opt,name=standard_tier,json=standardTier,proto3" json:"standard_tier"`
+	ExpertTier     TierConfig `protobuf:"bytes,13,opt,name=expert_tier,json=expertTier,proto3" json:"expert_tier"`
+	EpicTier       TierConfig `protobuf:"bytes,14,opt,name=epic_tier,json=epicTier,proto3" json:"epic_tier"`
 	// Conviction
-	ConvictionHalfLifeEpochs int64                       `protobuf:"varint,16,opt,name=conviction_half_life_epochs,json=convictionHalfLifeEpochs,proto3" json:"conviction_half_life_epochs,omitempty"`
-	ExternalConvictionRatio  cosmossdk_io_math.LegacyDec `protobuf:"bytes,17,opt,name=external_conviction_ratio,json=externalConvictionRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"external_conviction_ratio"`
-	ConvictionPerDream       cosmossdk_io_math.LegacyDec `protobuf:"bytes,18,opt,name=conviction_per_dream,json=convictionPerDream,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_per_dream"`
+	ConvictionHalfLifeEpochs int64                       `protobuf:"varint,15,opt,name=conviction_half_life_epochs,json=convictionHalfLifeEpochs,proto3" json:"conviction_half_life_epochs,omitempty"`
+	ExternalConvictionRatio  cosmossdk_io_math.LegacyDec `protobuf:"bytes,16,opt,name=external_conviction_ratio,json=externalConvictionRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"external_conviction_ratio"`
+	ConvictionPerDream       cosmossdk_io_math.LegacyDec `protobuf:"bytes,17,opt,name=conviction_per_dream,json=convictionPerDream,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_per_dream"`
 	// Review periods
-	DefaultReviewPeriodEpochs    int64 `protobuf:"varint,19,opt,name=default_review_period_epochs,json=defaultReviewPeriodEpochs,proto3" json:"default_review_period_epochs,omitempty"`
-	DefaultChallengePeriodEpochs int64 `protobuf:"varint,20,opt,name=default_challenge_period_epochs,json=defaultChallengePeriodEpochs,proto3" json:"default_challenge_period_epochs,omitempty"`
+	DefaultReviewPeriodEpochs    int64 `protobuf:"varint,18,opt,name=default_review_period_epochs,json=defaultReviewPeriodEpochs,proto3" json:"default_review_period_epochs,omitempty"`
+	DefaultChallengePeriodEpochs int64 `protobuf:"varint,19,opt,name=default_challenge_period_epochs,json=defaultChallengePeriodEpochs,proto3" json:"default_challenge_period_epochs,omitempty"`
 	// Invitations
-	MinInvitationStake             cosmossdk_io_math.Int       `protobuf:"bytes,21,opt,name=min_invitation_stake,json=minInvitationStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_invitation_stake"`
-	InvitationAccountabilityEpochs int64                       `protobuf:"varint,22,opt,name=invitation_accountability_epochs,json=invitationAccountabilityEpochs,proto3" json:"invitation_accountability_epochs,omitempty"`
-	ReferralRewardRate             cosmossdk_io_math.LegacyDec `protobuf:"bytes,23,opt,name=referral_reward_rate,json=referralRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"referral_reward_rate"`
-	InvitationCostMultiplier       cosmossdk_io_math.LegacyDec `protobuf:"bytes,24,opt,name=invitation_cost_multiplier,json=invitationCostMultiplier,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_cost_multiplier"`
+	MinInvitationStake             cosmossdk_io_math.Int       `protobuf:"bytes,20,opt,name=min_invitation_stake,json=minInvitationStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_invitation_stake"`
+	InvitationAccountabilityEpochs int64                       `protobuf:"varint,21,opt,name=invitation_accountability_epochs,json=invitationAccountabilityEpochs,proto3" json:"invitation_accountability_epochs,omitempty"`
+	ReferralRewardRate             cosmossdk_io_math.LegacyDec `protobuf:"bytes,22,opt,name=referral_reward_rate,json=referralRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"referral_reward_rate"`
+	InvitationCostMultiplier       cosmossdk_io_math.LegacyDec `protobuf:"bytes,23,opt,name=invitation_cost_multiplier,json=invitationCostMultiplier,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_cost_multiplier"`
 	// Trust levels
-	TrustLevelConfig TrustLevelConfig `protobuf:"bytes,25,opt,name=trust_level_config,json=trustLevelConfig,proto3" json:"trust_level_config"`
+	TrustLevelConfig TrustLevelConfig `protobuf:"bytes,24,opt,name=trust_level_config,json=trustLevelConfig,proto3" json:"trust_level_config"`
 	// Challenges
-	MinChallengeStake    cosmossdk_io_math.Int       `protobuf:"bytes,26,opt,name=min_challenge_stake,json=minChallengeStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_challenge_stake"`
-	ChallengerRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,27,opt,name=challenger_reward_rate,json=challengerRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"challenger_reward_rate"`
-	JurySize             uint32                      `protobuf:"varint,28,opt,name=jury_size,json=jurySize,proto3" json:"jury_size,omitempty"`
-	JurySuperMajority    cosmossdk_io_math.LegacyDec `protobuf:"bytes,29,opt,name=jury_super_majority,json=jurySuperMajority,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_super_majority"`
-	MinJurorReputation   cosmossdk_io_math.LegacyDec `protobuf:"bytes,30,opt,name=min_juror_reputation,json=minJurorReputation,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_reputation"`
+	MinChallengeStake    cosmossdk_io_math.Int       `protobuf:"bytes,25,opt,name=min_challenge_stake,json=minChallengeStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_challenge_stake"`
+	ChallengerRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,26,opt,name=challenger_reward_rate,json=challengerRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"challenger_reward_rate"`
+	JurySize             uint32                      `protobuf:"varint,27,opt,name=jury_size,json=jurySize,proto3" json:"jury_size,omitempty"`
+	JurySuperMajority    cosmossdk_io_math.LegacyDec `protobuf:"bytes,28,opt,name=jury_super_majority,json=jurySuperMajority,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_super_majority"`
+	MinJurorReputation   cosmossdk_io_math.LegacyDec `protobuf:"bytes,29,opt,name=min_juror_reputation,json=minJurorReputation,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_reputation"`
 	// Interim compensation
-	SimpleComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,31,opt,name=simple_complexity_budget,json=simpleComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"simple_complexity_budget"`
-	StandardComplexityBudget cosmossdk_io_math.Int       `protobuf:"bytes,32,opt,name=standard_complexity_budget,json=standardComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"standard_complexity_budget"`
-	ComplexComplexityBudget  cosmossdk_io_math.Int       `protobuf:"bytes,33,opt,name=complex_complexity_budget,json=complexComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"complex_complexity_budget"`
-	ExpertComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,34,opt,name=expert_complexity_budget,json=expertComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"expert_complexity_budget"`
-	SoloExpertBonusRate      cosmossdk_io_math.LegacyDec `protobuf:"bytes,35,opt,name=solo_expert_bonus_rate,json=soloExpertBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"solo_expert_bonus_rate"`
-	InterimDeadlineEpochs    int64                       `protobuf:"varint,36,opt,name=interim_deadline_epochs,json=interimDeadlineEpochs,proto3" json:"interim_deadline_epochs,omitempty"`
-	// Rate limits
-	MaxActiveChallengesPerCommittee uint32 `protobuf:"varint,37,opt,name=max_active_challenges_per_committee,json=maxActiveChallengesPerCommittee,proto3" json:"max_active_challenges_per_committee,omitempty"`
-	MaxNewChallengesPerEpoch        uint32 `protobuf:"varint,38,opt,name=max_new_challenges_per_epoch,json=maxNewChallengesPerEpoch,proto3" json:"max_new_challenges_per_epoch,omitempty"`
-	ChallengeQueueMaxSize           uint32 `protobuf:"varint,39,opt,name=challenge_queue_max_size,json=challengeQueueMaxSize,proto3" json:"challenge_queue_max_size,omitempty"`
+	SimpleComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,30,opt,name=simple_complexity_budget,json=simpleComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"simple_complexity_budget"`
+	StandardComplexityBudget cosmossdk_io_math.Int       `protobuf:"bytes,31,opt,name=standard_complexity_budget,json=standardComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"standard_complexity_budget"`
+	ComplexComplexityBudget  cosmossdk_io_math.Int       `protobuf:"bytes,32,opt,name=complex_complexity_budget,json=complexComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"complex_complexity_budget"`
+	ExpertComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,33,opt,name=expert_complexity_budget,json=expertComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"expert_complexity_budget"`
+	SoloExpertBonusRate      cosmossdk_io_math.LegacyDec `protobuf:"bytes,34,opt,name=solo_expert_bonus_rate,json=soloExpertBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"solo_expert_bonus_rate"`
+	// Default lifetime of a member-created interim, in epochs: MsgCreateInterim
+	// with deadline 0 is due interim_deadline_epochs * epoch_blocks from now.
+	InterimDeadlineEpochs int64 `protobuf:"varint,35,opt,name=interim_deadline_epochs,json=interimDeadlineEpochs,proto3" json:"interim_deadline_epochs,omitempty"`
 	// Slashing
-	MinorSlashPenalty    cosmossdk_io_math.LegacyDec `protobuf:"bytes,40,opt,name=minor_slash_penalty,json=minorSlashPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"minor_slash_penalty"`
-	ModerateSlashPenalty cosmossdk_io_math.LegacyDec `protobuf:"bytes,41,opt,name=moderate_slash_penalty,json=moderateSlashPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"moderate_slash_penalty"`
-	SevereSlashPenalty   cosmossdk_io_math.LegacyDec `protobuf:"bytes,42,opt,name=severe_slash_penalty,json=severeSlashPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"severe_slash_penalty"`
-	ZeroingSlashPenalty  cosmossdk_io_math.LegacyDec `protobuf:"bytes,43,opt,name=zeroing_slash_penalty,json=zeroingSlashPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"zeroing_slash_penalty"`
+	SevereSlashPenalty cosmossdk_io_math.LegacyDec `protobuf:"bytes,36,opt,name=severe_slash_penalty,json=severeSlashPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"severe_slash_penalty"`
 	// Extended staking
-	ProjectCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,44,opt,name=project_completion_bonus_rate,json=projectCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"project_completion_bonus_rate"`
-	MemberStakeRevenueShare    cosmossdk_io_math.LegacyDec `protobuf:"bytes,45,opt,name=member_stake_revenue_share,json=memberStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"member_stake_revenue_share"`
-	TagStakeRevenueShare       cosmossdk_io_math.LegacyDec `protobuf:"bytes,46,opt,name=tag_stake_revenue_share,json=tagStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"tag_stake_revenue_share"`
-	MinStakeDurationSeconds    int64                       `protobuf:"varint,47,opt,name=min_stake_duration_seconds,json=minStakeDurationSeconds,proto3" json:"min_stake_duration_seconds,omitempty"`
-	AllowSelfMemberStake       bool                        `protobuf:"varint,48,opt,name=allow_self_member_stake,json=allowSelfMemberStake,proto3" json:"allow_self_member_stake,omitempty"`
+	ProjectCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,37,opt,name=project_completion_bonus_rate,json=projectCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"project_completion_bonus_rate"`
+	MemberStakeRevenueShare    cosmossdk_io_math.LegacyDec `protobuf:"bytes,38,opt,name=member_stake_revenue_share,json=memberStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"member_stake_revenue_share"`
+	TagStakeRevenueShare       cosmossdk_io_math.LegacyDec `protobuf:"bytes,39,opt,name=tag_stake_revenue_share,json=tagStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"tag_stake_revenue_share"`
+	MinStakeDurationSeconds    int64                       `protobuf:"varint,40,opt,name=min_stake_duration_seconds,json=minStakeDurationSeconds,proto3" json:"min_stake_duration_seconds,omitempty"`
+	AllowSelfMemberStake       bool                        `protobuf:"varint,41,opt,name=allow_self_member_stake,json=allowSelfMemberStake,proto3" json:"allow_self_member_stake,omitempty"`
 	// Challenge response deadline (epochs)
 	// If assignee doesn't respond within this time, challenge is auto-upheld
-	ChallengeResponseDeadlineEpochs int64 `protobuf:"varint,49,opt,name=challenge_response_deadline_epochs,json=challengeResponseDeadlineEpochs,proto3" json:"challenge_response_deadline_epochs,omitempty"`
+	ChallengeResponseDeadlineEpochs int64 `protobuf:"varint,42,opt,name=challenge_response_deadline_epochs,json=challengeResponseDeadlineEpochs,proto3" json:"challenge_response_deadline_epochs,omitempty"`
 	// Recipient-side transfer limits. DREAM an account may take in through tips
 	// and initiative bounty payouts per epoch and per season. Sender caps alone
 	// cannot bound a buyer, who can collect from any number of senders; these
 	// bound how fast any one position can be bought. Gifts are excluded: each
 	// member has one inviter, so max_gift_per_invitee already bounds them.
-	MaxTransferReceivedPerEpoch  cosmossdk_io_math.Int `protobuf:"bytes,50,opt,name=max_transfer_received_per_epoch,json=maxTransferReceivedPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_epoch"`
-	MaxTransferReceivedPerSeason cosmossdk_io_math.Int `protobuf:"bytes,51,opt,name=max_transfer_received_per_season,json=maxTransferReceivedPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_season"`
+	MaxTransferReceivedPerEpoch  cosmossdk_io_math.Int `protobuf:"bytes,43,opt,name=max_transfer_received_per_epoch,json=maxTransferReceivedPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_epoch"`
+	MaxTransferReceivedPerSeason cosmossdk_io_math.Int `protobuf:"bytes,44,opt,name=max_transfer_received_per_season,json=maxTransferReceivedPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_season"`
 	// Content conviction staking
-	ContentConvictionHalfLifeEpochs int64                       `protobuf:"varint,52,opt,name=content_conviction_half_life_epochs,json=contentConvictionHalfLifeEpochs,proto3" json:"content_conviction_half_life_epochs,omitempty"`
-	MaxContentStakePerMember        cosmossdk_io_math.Int       `protobuf:"bytes,53,opt,name=max_content_stake_per_member,json=maxContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_content_stake_per_member"`
-	MaxAuthorBondPerContent         cosmossdk_io_math.Int       `protobuf:"bytes,54,opt,name=max_author_bond_per_content,json=maxAuthorBondPerContent,proto3,customtype=cosmossdk.io/math.Int" json:"max_author_bond_per_content"`
-	AuthorBondSlashOnModeration     bool                        `protobuf:"varint,55,opt,name=author_bond_slash_on_moderation,json=authorBondSlashOnModeration,proto3" json:"author_bond_slash_on_moderation,omitempty"`
-	ContentChallengeRewardShare     cosmossdk_io_math.LegacyDec `protobuf:"bytes,56,opt,name=content_challenge_reward_share,json=contentChallengeRewardShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"content_challenge_reward_share"`
-	ConvictionPropagationRatio      cosmossdk_io_math.LegacyDec `protobuf:"bytes,57,opt,name=conviction_propagation_ratio,json=convictionPropagationRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_propagation_ratio"`
+	ContentConvictionHalfLifeEpochs int64                       `protobuf:"varint,45,opt,name=content_conviction_half_life_epochs,json=contentConvictionHalfLifeEpochs,proto3" json:"content_conviction_half_life_epochs,omitempty"`
+	MaxContentStakePerMember        cosmossdk_io_math.Int       `protobuf:"bytes,46,opt,name=max_content_stake_per_member,json=maxContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_content_stake_per_member"`
+	MaxAuthorBondPerContent         cosmossdk_io_math.Int       `protobuf:"bytes,47,opt,name=max_author_bond_per_content,json=maxAuthorBondPerContent,proto3,customtype=cosmossdk.io/math.Int" json:"max_author_bond_per_content"`
+	AuthorBondSlashOnModeration     bool                        `protobuf:"varint,48,opt,name=author_bond_slash_on_moderation,json=authorBondSlashOnModeration,proto3" json:"author_bond_slash_on_moderation,omitempty"`
+	ContentChallengeRewardShare     cosmossdk_io_math.LegacyDec `protobuf:"bytes,49,opt,name=content_challenge_reward_share,json=contentChallengeRewardShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"content_challenge_reward_share"`
+	ConvictionPropagationRatio      cosmossdk_io_math.LegacyDec `protobuf:"bytes,50,opt,name=conviction_propagation_ratio,json=convictionPropagationRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_propagation_ratio"`
 	// Tag anti-gaming
-	MaxTagsPerInitiative uint32 `protobuf:"varint,58,opt,name=max_tags_per_initiative,json=maxTagsPerInitiative,proto3" json:"max_tags_per_initiative,omitempty"`
+	MaxTagsPerInitiative uint32 `protobuf:"varint,51,opt,name=max_tags_per_initiative,json=maxTagsPerInitiative,proto3" json:"max_tags_per_initiative,omitempty"`
 	// Anti-gaming parameters
-	ReputationDecayRate         cosmossdk_io_math.LegacyDec `protobuf:"bytes,59,opt,name=reputation_decay_rate,json=reputationDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reputation_decay_rate"`
-	MaxConvictionSharePerMember cosmossdk_io_math.LegacyDec `protobuf:"bytes,60,opt,name=max_conviction_share_per_member,json=maxConvictionSharePerMember,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_conviction_share_per_member"`
-	InvitationStakeBurnRate     cosmossdk_io_math.LegacyDec `protobuf:"bytes,61,opt,name=invitation_stake_burn_rate,json=invitationStakeBurnRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_stake_burn_rate"`
-	MaxReputationGainPerEpoch   cosmossdk_io_math.LegacyDec `protobuf:"bytes,62,opt,name=max_reputation_gain_per_epoch,json=maxReputationGainPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_reputation_gain_per_epoch"`
+	ReputationDecayRate         cosmossdk_io_math.LegacyDec `protobuf:"bytes,52,opt,name=reputation_decay_rate,json=reputationDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reputation_decay_rate"`
+	MaxConvictionSharePerMember cosmossdk_io_math.LegacyDec `protobuf:"bytes,53,opt,name=max_conviction_share_per_member,json=maxConvictionSharePerMember,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_conviction_share_per_member"`
+	InvitationStakeBurnRate     cosmossdk_io_math.LegacyDec `protobuf:"bytes,54,opt,name=invitation_stake_burn_rate,json=invitationStakeBurnRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_stake_burn_rate"`
+	MaxReputationGainPerEpoch   cosmossdk_io_math.LegacyDec `protobuf:"bytes,55,opt,name=max_reputation_gain_per_epoch,json=maxReputationGainPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_reputation_gain_per_epoch"`
 	// Seasonal staking reward pool
-	MaxStakingRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,63,opt,name=max_staking_rewards_per_season,json=maxStakingRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_staking_rewards_per_season"`
+	MaxStakingRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,56,opt,name=max_staking_rewards_per_season,json=maxStakingRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_staking_rewards_per_season"`
 	// Ceiling on each epoch's reward slice, as a yield on the DREAM actually
 	// staked (default 0.0005 = 0.05% per epoch, 7.5% over a 150-epoch season
 	// gross, ~3.75% net of staked_decay_rate).
@@ -284,7 +278,7 @@ type Params struct {
 	// acc_per_share grows without bound: a chain with 1.47 DREAM staked hands the
 	// entire season budget to three dust stakes. Whatever this cap withholds
 	// stays in the pool rather than being distributed or dropped.
-	StakingRewardYieldPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,136,opt,name=staking_reward_yield_per_epoch,json=stakingRewardYieldPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_reward_yield_per_epoch"`
+	StakingRewardYieldPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,129,opt,name=staking_reward_yield_per_epoch,json=stakingRewardYieldPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_reward_yield_per_epoch"`
 	// Share of the previous season's non-staking DREAM mints that funds this
 	// season's staking reward pool (default 0.05 = 5%), so emission tracks what
 	// the chain actually produced rather than the calendar.
@@ -292,7 +286,7 @@ type Params struct {
 	// Staking rewards are excluded from the base. Counting them would let each
 	// season's pool inflate the next one's, compounding with nothing but the
 	// schedule cap below to stop it.
-	StakingPoolMintShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,137,opt,name=staking_pool_mint_share,json=stakingPoolMintShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_mint_share"`
+	StakingPoolMintShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,130,opt,name=staking_pool_mint_share,json=stakingPoolMintShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_mint_share"`
 	// Schedule ceiling on the seasonal pool:
 	//
 	//   cap = staking_pool_cap_base * (season + 1) * staking_pool_cap_rate
@@ -302,18 +296,18 @@ type Params struct {
 	// and widens by that much each season. It backstops the mint-share term above
 	// on a chain whose mint volume spikes; max_staking_rewards_per_season remains
 	// the absolute ceiling over both.
-	StakingPoolCapBase        cosmossdk_io_math.Int       `protobuf:"bytes,138,opt,name=staking_pool_cap_base,json=stakingPoolCapBase,proto3,customtype=cosmossdk.io/math.Int" json:"staking_pool_cap_base"`
-	StakingPoolCapRate        cosmossdk_io_math.LegacyDec `protobuf:"bytes,139,opt,name=staking_pool_cap_rate,json=stakingPoolCapRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_cap_rate"`
-	StakedDecayRate           cosmossdk_io_math.LegacyDec `protobuf:"bytes,64,opt,name=staked_decay_rate,json=stakedDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staked_decay_rate"`
-	NewMemberDecayGraceEpochs int64                       `protobuf:"varint,65,opt,name=new_member_decay_grace_epochs,json=newMemberDecayGraceEpochs,proto3" json:"new_member_decay_grace_epochs,omitempty"`
+	StakingPoolCapBase        cosmossdk_io_math.Int       `protobuf:"bytes,131,opt,name=staking_pool_cap_base,json=stakingPoolCapBase,proto3,customtype=cosmossdk.io/math.Int" json:"staking_pool_cap_base"`
+	StakingPoolCapRate        cosmossdk_io_math.LegacyDec `protobuf:"bytes,132,opt,name=staking_pool_cap_rate,json=stakingPoolCapRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_cap_rate"`
+	StakedDecayRate           cosmossdk_io_math.LegacyDec `protobuf:"bytes,57,opt,name=staked_decay_rate,json=stakedDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staked_decay_rate"`
+	NewMemberDecayGraceEpochs int64                       `protobuf:"varint,58,opt,name=new_member_decay_grace_epochs,json=newMemberDecayGraceEpochs,proto3" json:"new_member_decay_grace_epochs,omitempty"`
 	// Treasury management
-	MaxTreasuryBalance    cosmossdk_io_math.Int `protobuf:"bytes,66,opt,name=max_treasury_balance,json=maxTreasuryBalance,proto3,customtype=cosmossdk.io/math.Int" json:"max_treasury_balance"`
-	TreasuryFundsInterims bool                  `protobuf:"varint,67,opt,name=treasury_funds_interims,json=treasuryFundsInterims,proto3" json:"treasury_funds_interims,omitempty"`
-	TreasuryFundsRetroPgf bool                  `protobuf:"varint,68,opt,name=treasury_funds_retro_pgf,json=treasuryFundsRetroPgf,proto3" json:"treasury_funds_retro_pgf,omitempty"`
+	MaxTreasuryBalance    cosmossdk_io_math.Int `protobuf:"bytes,59,opt,name=max_treasury_balance,json=maxTreasuryBalance,proto3,customtype=cosmossdk.io/math.Int" json:"max_treasury_balance"`
+	TreasuryFundsInterims bool                  `protobuf:"varint,60,opt,name=treasury_funds_interims,json=treasuryFundsInterims,proto3" json:"treasury_funds_interims,omitempty"`
+	TreasuryFundsRetroPgf bool                  `protobuf:"varint,61,opt,name=treasury_funds_retro_pgf,json=treasuryFundsRetroPgf,proto3" json:"treasury_funds_retro_pgf,omitempty"`
 	// Anti-whale staking cap: max DREAM one member can stake on a single initiative (default 50,000 DREAM)
 	// Prevents reward pool extraction — conviction is already capped by max_conviction_share_per_member,
 	// but without this cap, a whale can stake disproportionately and extract most seasonal staking rewards.
-	MaxInitiativeStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,69,opt,name=max_initiative_stake_per_member,json=maxInitiativeStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_stake_per_member"`
+	MaxInitiativeStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,62,opt,name=max_initiative_stake_per_member,json=maxInitiativeStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_stake_per_member"`
 	// Anti-dust floor on the DREAM one MsgStake may lock (default 0.002 DREAM =
 	// 2,000 micro-DREAM). There was no floor at all, so a member could open the
 	// ten tranches max_stake_tranches_per_target allows at one micro-DREAM each
@@ -326,7 +320,7 @@ type Params struct {
 	// should not occupy a state slot. Move it with the yield. What bounds the
 	// return on a small position is max_completion_bonus_stake_multiple, not
 	// this.
-	MinStakeAmount cosmossdk_io_math.Int `protobuf:"bytes,140,opt,name=min_stake_amount,json=minStakeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"min_stake_amount"`
+	MinStakeAmount cosmossdk_io_math.Int `protobuf:"bytes,133,opt,name=min_stake_amount,json=minStakeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"min_stake_amount"`
 	// Per-season cap on total DREAM minted to pay interim work (default 50,000
 	// DREAM). The initiative cap below has always existed; the interim path had
 	// no season bound at all, which left it as the one DREAM-creating flow whose
@@ -334,70 +328,70 @@ type Params struct {
 	// against a 25,000 DREAM genesis supply. Interims are self-assigned and
 	// self-completed by design, so the per-member active cap alone does not
 	// bound the total: a member can complete and re-create indefinitely.
-	MaxInterimRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,143,opt,name=max_interim_rewards_per_season,json=maxInterimRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_interim_rewards_per_season"`
+	MaxInterimRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,136,opt,name=max_interim_rewards_per_season,json=maxInterimRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_interim_rewards_per_season"`
 	// Per-season cap on total DREAM minted via initiative completion rewards (default 100,000 DREAM).
 	// Bounds total extraction even if colluding members rubber-stamp initiatives.
-	MaxInitiativeRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,70,opt,name=max_initiative_rewards_per_season,json=maxInitiativeRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_rewards_per_season"`
+	MaxInitiativeRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,63,opt,name=max_initiative_rewards_per_season,json=maxInitiativeRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_rewards_per_season"`
 	// Projects with approved budget above this threshold require council proposal approval
 	// instead of single Operations Committee member approval (default 10,000 DREAM).
-	LargeProjectBudgetThreshold cosmossdk_io_math.Int `protobuf:"bytes,71,opt,name=large_project_budget_threshold,json=largeProjectBudgetThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"large_project_budget_threshold"`
+	LargeProjectBudgetThreshold cosmossdk_io_math.Int `protobuf:"bytes,64,opt,name=large_project_budget_threshold,json=largeProjectBudgetThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"large_project_budget_threshold"`
 	// Permissionless creation fees (burned on creation — anti-spam + deflationary)
-	ProjectCreationFee              cosmossdk_io_math.Int `protobuf:"bytes,72,opt,name=project_creation_fee,json=projectCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"project_creation_fee"`
-	InitiativeCreationFeeApprentice cosmossdk_io_math.Int `protobuf:"bytes,73,opt,name=initiative_creation_fee_apprentice,json=initiativeCreationFeeApprentice,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_apprentice"`
-	InitiativeCreationFeeStandard   cosmossdk_io_math.Int `protobuf:"bytes,74,opt,name=initiative_creation_fee_standard,json=initiativeCreationFeeStandard,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_standard"`
+	ProjectCreationFee              cosmossdk_io_math.Int `protobuf:"bytes,65,opt,name=project_creation_fee,json=projectCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"project_creation_fee"`
+	InitiativeCreationFeeApprentice cosmossdk_io_math.Int `protobuf:"bytes,66,opt,name=initiative_creation_fee_apprentice,json=initiativeCreationFeeApprentice,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_apprentice"`
+	InitiativeCreationFeeStandard   cosmossdk_io_math.Int `protobuf:"bytes,67,opt,name=initiative_creation_fee_standard,json=initiativeCreationFeeStandard,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_standard"`
 	// Permissionless access control (governance-only — not in RepOperationalParams)
-	PermissionlessMinTrustLevel uint32                `protobuf:"varint,75,opt,name=permissionless_min_trust_level,json=permissionlessMinTrustLevel,proto3" json:"permissionless_min_trust_level,omitempty"`
-	PermissionlessMaxTier       uint32                `protobuf:"varint,76,opt,name=permissionless_max_tier,json=permissionlessMaxTier,proto3" json:"permissionless_max_tier,omitempty"`
-	TagCreationFee              cosmossdk_io_math.Int `protobuf:"bytes,77,opt,name=tag_creation_fee,json=tagCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"tag_creation_fee"`
+	PermissionlessMinTrustLevel uint32                `protobuf:"varint,68,opt,name=permissionless_min_trust_level,json=permissionlessMinTrustLevel,proto3" json:"permissionless_min_trust_level,omitempty"`
+	PermissionlessMaxTier       uint32                `protobuf:"varint,69,opt,name=permissionless_max_tier,json=permissionlessMaxTier,proto3" json:"permissionless_max_tier,omitempty"`
+	TagCreationFee              cosmossdk_io_math.Int `protobuf:"bytes,70,opt,name=tag_creation_fee,json=tagCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"tag_creation_fee"`
 	// Sentinel SPARK reward pool (x/rep holds SPARK fed by spam taxes;
 	// drained each epoch to sentinels according to accuracy/activity gates).
-	MaxSentinelRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,78,opt,name=max_sentinel_reward_pool,json=maxSentinelRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_sentinel_reward_pool"`
-	SentinelRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,79,opt,name=sentinel_reward_pool_overflow_burn_ratio,json=sentinelRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"sentinel_reward_pool_overflow_burn_ratio"`
-	SentinelRewardEpochBlocks           uint64                      `protobuf:"varint,80,opt,name=sentinel_reward_epoch_blocks,json=sentinelRewardEpochBlocks,proto3" json:"sentinel_reward_epoch_blocks,omitempty"`
-	MinSentinelAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,81,opt,name=min_sentinel_accuracy,json=minSentinelAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_sentinel_accuracy"`
-	MinAppealsForAccuracy               uint64                      `protobuf:"varint,82,opt,name=min_appeals_for_accuracy,json=minAppealsForAccuracy,proto3" json:"min_appeals_for_accuracy,omitempty"`
-	MinEpochActivityForReward           uint64                      `protobuf:"varint,83,opt,name=min_epoch_activity_for_reward,json=minEpochActivityForReward,proto3" json:"min_epoch_activity_for_reward,omitempty"`
-	MinAppealRate                       cosmossdk_io_math.LegacyDec `protobuf:"bytes,84,opt,name=min_appeal_rate,json=minAppealRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_appeal_rate"`
+	MaxSentinelRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,71,opt,name=max_sentinel_reward_pool,json=maxSentinelRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_sentinel_reward_pool"`
+	SentinelRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,72,opt,name=sentinel_reward_pool_overflow_burn_ratio,json=sentinelRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"sentinel_reward_pool_overflow_burn_ratio"`
+	SentinelRewardEpochBlocks           uint64                      `protobuf:"varint,73,opt,name=sentinel_reward_epoch_blocks,json=sentinelRewardEpochBlocks,proto3" json:"sentinel_reward_epoch_blocks,omitempty"`
+	MinSentinelAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,74,opt,name=min_sentinel_accuracy,json=minSentinelAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_sentinel_accuracy"`
+	MinAppealsForAccuracy               uint64                      `protobuf:"varint,75,opt,name=min_appeals_for_accuracy,json=minAppealsForAccuracy,proto3" json:"min_appeals_for_accuracy,omitempty"`
+	MinEpochActivityForReward           uint64                      `protobuf:"varint,76,opt,name=min_epoch_activity_for_reward,json=minEpochActivityForReward,proto3" json:"min_epoch_activity_for_reward,omitempty"`
+	MinAppealRate                       cosmossdk_io_math.LegacyDec `protobuf:"bytes,77,opt,name=min_appeal_rate,json=minAppealRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_appeal_rate"`
 	// Rolling window (in reward epochs) over which sentinel reward accuracy is
 	// measured. Recent overturns move the ratio; inactivity ages a sentinel out.
 	// Bounded 1 <= W <= MaxSentinelAccuracyWindowEpochs (== the forum
 	// SentinelAccuracyRingSize). Default 6.
-	SentinelAccuracyWindowEpochs uint64 `protobuf:"varint,91,opt,name=sentinel_accuracy_window_epochs,json=sentinelAccuracyWindowEpochs,proto3" json:"sentinel_accuracy_window_epochs,omitempty"`
+	SentinelAccuracyWindowEpochs uint64 `protobuf:"varint,84,opt,name=sentinel_accuracy_window_epochs,json=sentinelAccuracyWindowEpochs,proto3" json:"sentinel_accuracy_window_epochs,omitempty"`
 	// Per-member active work caps (anti-monopolization). 0 = unbounded.
-	MaxActiveInitiativesPerMember uint32 `protobuf:"varint,85,opt,name=max_active_initiatives_per_member,json=maxActiveInitiativesPerMember,proto3" json:"max_active_initiatives_per_member,omitempty"`
-	MaxActiveInterimsPerMember    uint32 `protobuf:"varint,86,opt,name=max_active_interims_per_member,json=maxActiveInterimsPerMember,proto3" json:"max_active_interims_per_member,omitempty"`
+	MaxActiveInitiativesPerMember uint32 `protobuf:"varint,78,opt,name=max_active_initiatives_per_member,json=maxActiveInitiativesPerMember,proto3" json:"max_active_initiatives_per_member,omitempty"`
+	MaxActiveInterimsPerMember    uint32 `protobuf:"varint,79,opt,name=max_active_interims_per_member,json=maxActiveInterimsPerMember,proto3" json:"max_active_interims_per_member,omitempty"`
 	// Global per-epoch ceiling on DREAM minted across every path (initiative rewards,
 	// referral rewards, interim compensation, retro PGF, jury rewards, etc.). Counter
 	// resets at the first MintDREAM of each new epoch. 0 = unbounded.
-	MaxDreamMintPerEpoch cosmossdk_io_math.Int `protobuf:"bytes,87,opt,name=max_dream_mint_per_epoch,json=maxDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_dream_mint_per_epoch"`
+	MaxDreamMintPerEpoch cosmossdk_io_math.Int `protobuf:"bytes,80,opt,name=max_dream_mint_per_epoch,json=maxDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_dream_mint_per_epoch"`
 	// Absolute upper bound on requested_budget at proposal time. Distinct from
 	// large_project_budget_threshold (which is an approval-time routing rule):
 	// this is a hard cap that rejects nonsense values (e.g. 10^30 DREAM) and
 	// keeps state clean. Set well above any legitimate project size so council-
 	// gated large proposals are not blocked. Must be positive.
-	MaxProjectRequestedBudget cosmossdk_io_math.Int `protobuf:"bytes,88,opt,name=max_project_requested_budget,json=maxProjectRequestedBudget,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_budget"`
+	MaxProjectRequestedBudget cosmossdk_io_math.Int `protobuf:"bytes,81,opt,name=max_project_requested_budget,json=maxProjectRequestedBudget,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_budget"`
 	// Absolute upper bound on requested_spark at proposal time. Same role as
 	// max_project_requested_budget but for SPARK (uspark). Must be positive.
-	MaxProjectRequestedSpark cosmossdk_io_math.Int `protobuf:"bytes,89,opt,name=max_project_requested_spark,json=maxProjectRequestedSpark,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_spark"`
+	MaxProjectRequestedSpark cosmossdk_io_math.Int `protobuf:"bytes,82,opt,name=max_project_requested_spark,json=maxProjectRequestedSpark,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_spark"`
 	// Number of blocks a PROPOSED (non-permissionless) project stays open before
 	// the EndBlocker transitions it to PROJECT_STATUS_EXPIRED. Prevents state
 	// pollution by stale unapproved proposals. Must be positive.
-	ProposedProjectExpiryBlocks int64 `protobuf:"varint,90,opt,name=proposed_project_expiry_blocks,json=proposedProjectExpiryBlocks,proto3" json:"proposed_project_expiry_blocks,omitempty"`
+	ProposedProjectExpiryBlocks int64 `protobuf:"varint,83,opt,name=proposed_project_expiry_blocks,json=proposedProjectExpiryBlocks,proto3" json:"proposed_project_expiry_blocks,omitempty"`
 	// Fraction of the initiative budget locked as a DREAM bond when an
 	// initiative is self-assigned on a budget-backed project. Bond is returned
 	// on completion or abandonment and burned when a challenge is upheld.
 	// Range [0, 1]; 0 disables.
-	SelfAssignedBondRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,92,opt,name=self_assigned_bond_rate,json=selfAssignedBondRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"self_assigned_bond_rate"`
+	SelfAssignedBondRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,85,opt,name=self_assigned_bond_rate,json=selfAssignedBondRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"self_assigned_bond_rate"`
 	// External-conviction ratio applied instead of external_conviction_ratio when
 	// the initiative is self-assigned. Must be >= external_conviction_ratio and
 	// <= 1. Default 0.75 — a distinct-staker floor as much as a magnitude one,
 	// since max_conviction_share_per_member caps any one member's contribution:
 	// ceil(0.75 / 0.33) = 3 independent stakers, against 2 for externally
 	// assigned work.
-	SelfAssignedExternalConvictionRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,93,opt,name=self_assigned_external_conviction_ratio,json=selfAssignedExternalConvictionRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"self_assigned_external_conviction_ratio"`
+	SelfAssignedExternalConvictionRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,86,opt,name=self_assigned_external_conviction_ratio,json=selfAssignedExternalConvictionRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"self_assigned_external_conviction_ratio"`
 	// Multiplier applied to the challenge window for self-assigned initiatives.
 	// Must be >= 1. Default 2.
-	SelfAssignedChallengeMultiplier int64 `protobuf:"varint,94,opt,name=self_assigned_challenge_multiplier,json=selfAssignedChallengeMultiplier,proto3" json:"self_assigned_challenge_multiplier,omitempty"`
+	SelfAssignedChallengeMultiplier int64 `protobuf:"varint,87,opt,name=self_assigned_challenge_multiplier,json=selfAssignedChallengeMultiplier,proto3" json:"self_assigned_challenge_multiplier,omitempty"`
 	// Bond rate applied instead of self_assigned_bond_rate when the initiative
 	// is self-assigned under a permissionless project. Higher because the two
 	// cases expose the commons differently: a budget-backed initiative MOVES
@@ -406,7 +400,7 @@ type Params struct {
 	// self-assignment used to be exempt from the bond entirely, which disabled
 	// the main economic deterrent exactly where no counterparty exists.
 	// Range [0, 1]; 0 disables. Default 0.25.
-	PermissionlessSelfAssignedBondRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,95,opt,name=permissionless_self_assigned_bond_rate,json=permissionlessSelfAssignedBondRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"permissionless_self_assigned_bond_rate"`
+	PermissionlessSelfAssignedBondRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,88,opt,name=permissionless_self_assigned_bond_rate,json=permissionlessSelfAssignedBondRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"permissionless_self_assigned_bond_rate"`
 	// Reputation deducted, per tag of the disputed initiative, from a juror who
 	// accepted a summons and then let it lapse. Accepting is voluntary and
 	// declining is free and immediate, so an abandoned seat is a broken
@@ -415,13 +409,13 @@ type Params struct {
 	// Charged in reputation because that is what qualifies a juror: enough
 	// abandoned seats and they fall below min_juror_reputation and stop being
 	// drawn for that tag at all. Must be non-negative; 0 disables. Default 10.
-	AbandonedJurySeatPenalty cosmossdk_io_math.LegacyDec `protobuf:"bytes,96,opt,name=abandoned_jury_seat_penalty,json=abandonedJurySeatPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"abandoned_jury_seat_penalty"`
+	AbandonedJurySeatPenalty cosmossdk_io_math.LegacyDec `protobuf:"bytes,89,opt,name=abandoned_jury_seat_penalty,json=abandonedJurySeatPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"abandoned_jury_seat_penalty"`
 	// Fraction of the disputed initiative's budget paid out to its jury, split
 	// evenly across the seats. Juror pay was a flat StandardComplexityBudget
 	// regardless of what was in dispute, so a challenge over a 100 DREAM
 	// APPRENTICE initiative minted 750 DREAM in juror fees to settle it — more
 	// than the work was worth. Range [0, 1]. Default 0.25.
-	JurorRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,97,opt,name=juror_reward_rate,json=jurorRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"juror_reward_rate"`
+	JurorRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,90,opt,name=juror_reward_rate,json=jurorRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"juror_reward_rate"`
 	// Fraction of an initiative's review period a juror has to answer a summons
 	// before the seat is swept and redrawn.
 	//
@@ -440,14 +434,14 @@ type Params struct {
 	// Operational alongside the other juror knobs: leaving juror *pay* committee
 	// tunable while juror *timing* needed a governance vote was an artifact of
 	// build order, not a decision.
-	JuryAcceptanceWindowRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,98,opt,name=jury_acceptance_window_ratio,json=juryAcceptanceWindowRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_acceptance_window_ratio"`
+	JuryAcceptanceWindowRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,91,opt,name=jury_acceptance_window_ratio,json=juryAcceptanceWindowRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_acceptance_window_ratio"`
 	// Floor on a single juror's pay, in micro-DREAM.
 	//
 	// juror_reward_rate scales pay against the disputed initiative's budget, but
 	// content challenges and moderation appeals have no initiative budget to
 	// scale against — for those this floor *is* the whole rate, which is why it
 	// cannot stay a compile-time constant. Default 5 DREAM.
-	MinJurorReward cosmossdk_io_math.Int `protobuf:"bytes,99,opt,name=min_juror_reward,json=minJurorReward,proto3,customtype=cosmossdk.io/math.Int" json:"min_juror_reward"`
+	MinJurorReward cosmossdk_io_math.Int `protobuf:"bytes,92,opt,name=min_juror_reward,json=minJurorReward,proto3,customtype=cosmossdk.io/math.Int" json:"min_juror_reward"`
 	// Floor on the responsiveness multiplier applied to a juror's selection
 	// weight. A juror who never answers is drawn less often, never not at all —
 	// a zero-weight address could never earn its way back, since it would stop
@@ -455,11 +449,11 @@ type Params struct {
 	//
 	// Chosen for shape rather than fitted to anything, and meant to be revisited
 	// against observed response rates. Range (0,1]. Default 0.1.
-	MinJurorSelectionWeight cosmossdk_io_math.LegacyDec `protobuf:"bytes,100,opt,name=min_juror_selection_weight,json=minJurorSelectionWeight,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_selection_weight"`
+	MinJurorSelectionWeight cosmossdk_io_math.LegacyDec `protobuf:"bytes,93,opt,name=min_juror_selection_weight,json=minJurorSelectionWeight,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_selection_weight"`
 	// Seatings a juror must have before the responsiveness weight applies at all.
 	// Below this there is no meaningful record and they are drawn at full weight.
 	// Like the floor above, a guess awaiting real data. Default 3.
-	MinJurySeatingsForWeighting uint64 `protobuf:"varint,101,opt,name=min_jury_seatings_for_weighting,json=minJurySeatingsForWeighting,proto3" json:"min_jury_seatings_for_weighting,omitempty"`
+	MinJurySeatingsForWeighting uint64 `protobuf:"varint,94,opt,name=min_jury_seatings_for_weighting,json=minJurySeatingsForWeighting,proto3" json:"min_jury_seatings_for_weighting,omitempty"`
 	// Conviction-weighted completion bonus, as a fraction of the initiative
 	// budget, paid to external stakers on completion.
 	//
@@ -467,7 +461,7 @@ type Params struct {
 	// (project_completion_bonus_rate) was already a param — the same economic
 	// knob, tunable on one side and fixed on the other. Range [0,1].
 	// Default 0.1.
-	InitiativeCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,102,opt,name=initiative_completion_bonus_rate,json=initiativeCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_completion_bonus_rate"`
+	InitiativeCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,95,opt,name=initiative_completion_bonus_rate,json=initiativeCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_completion_bonus_rate"`
 	// Ceiling on the initiative completion bonus, as a multiple of the external
 	// DREAM actually staked behind the initiative (default 3.0):
 	//
@@ -486,7 +480,7 @@ type Params struct {
 	// restores the stake-to-budget ratio the conviction formula was designed
 	// around (~4%) without touching the sqrt weighting that deliberately rewards
 	// breadth. Range: 0 disables the bonus entirely.
-	MaxCompletionBonusStakeMultiple cosmossdk_io_math.LegacyDec `protobuf:"bytes,141,opt,name=max_completion_bonus_stake_multiple,json=maxCompletionBonusStakeMultiple,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_completion_bonus_stake_multiple"`
+	MaxCompletionBonusStakeMultiple cosmossdk_io_math.LegacyDec `protobuf:"bytes,134,opt,name=max_completion_bonus_stake_multiple,json=maxCompletionBonusStakeMultiple,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_completion_bonus_stake_multiple"`
 	// Ceiling on the TOTAL DREAM one member may hold across all content
 	// conviction stakes (blog, forum, collection — every item combined), on top
 	// of the per-item max_content_stake_per_member.
@@ -500,7 +494,7 @@ type Params struct {
 	// Must be >= max_content_stake_per_member. Default 20,000 DREAM (2x the
 	// per-item cap). Author bonds are not counted; they are slashable escrow
 	// with their own per-item cap.
-	MaxTotalContentStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,142,opt,name=max_total_content_stake_per_member,json=maxTotalContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_total_content_stake_per_member"`
+	MaxTotalContentStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,135,opt,name=max_total_content_stake_per_member,json=maxTotalContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_total_content_stake_per_member"`
 	// Replacement rounds the acceptance sweep may run per jury review.
 	//
 	// Coupled to jury_acceptance_window_ratio and validated against it: each round
@@ -508,7 +502,7 @@ type Params struct {
 	// without lowering this leaves replacement jurors no time to read the work.
 	// Both live in the same scope so the pair always moves under one authority.
 	// Default 1.
-	MaxJuryRedraws uint32 `protobuf:"varint,103,opt,name=max_jury_redraws,json=maxJuryRedraws,proto3" json:"max_jury_redraws,omitempty"`
+	MaxJuryRedraws uint32 `protobuf:"varint,96,opt,name=max_jury_redraws,json=maxJuryRedraws,proto3" json:"max_jury_redraws,omitempty"`
 	// Fraction of an initiative's budget a reviewer commits as bond when filing a
 	// verdict on it, and the amount slashed if a jury overturns that verdict.
 	//
@@ -517,7 +511,7 @@ type Params struct {
 	// same risk should not attach to a 100 DREAM one. It is also self-limiting:
 	// a reviewer can only hold as many open verdicts as their free bond covers.
 	// Range (0,1]. Default 0.1.
-	ReviewerBondReserveRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,104,opt,name=reviewer_bond_reserve_rate,json=reviewerBondReserveRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_bond_reserve_rate"`
+	ReviewerBondReserveRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,97,opt,name=reviewer_bond_reserve_rate,json=reviewerBondReserveRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_bond_reserve_rate"`
 	// Fraction of an initiative's budget paid to the reviewers who filed a
 	// verdict on the round that resolved it, scaled by the tier's
 	// reward_multiplier and split evenly across those reviewers.
@@ -527,12 +521,12 @@ type Params struct {
 	// Paid when the initiative resolves, so an unacted-on review costs nothing and
 	// filing verdicts earns nothing until something turns on them. Range [0,1].
 	// Default 0.05.
-	ReviewFeeRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,105,opt,name=review_fee_rate,json=reviewFeeRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"review_fee_rate"`
+	ReviewFeeRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,98,opt,name=review_fee_rate,json=reviewFeeRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"review_fee_rate"`
 	// Review rounds an initiative may go through before a rejection becomes
 	// terminal. A rejection returns the work to ASSIGNED so the assignee can fix
 	// and resubmit, which is the right remedy for "not done" — but unbounded it
 	// lets a bad-faith assignee burn reviewer effort indefinitely. Default 3.
-	MaxReviewRounds uint32 `protobuf:"varint,106,opt,name=max_review_rounds,json=maxReviewRounds,proto3" json:"max_review_rounds,omitempty"`
+	MaxReviewRounds uint32 `protobuf:"varint,99,opt,name=max_review_rounds,json=maxReviewRounds,proto3" json:"max_review_rounds,omitempty"`
 	// SPARK reward pool for initiative reviewers, mirroring the sentinel pool but
 	// held and tuned separately.
 	//
@@ -544,11 +538,11 @@ type Params struct {
 	//
 	// The pool is an ordinary bank sub-address, so a council policy funds it with
 	// a plain send.
-	MaxReviewerRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,107,opt,name=max_reviewer_reward_pool,json=maxReviewerRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_reviewer_reward_pool"`
-	ReviewerRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,108,opt,name=reviewer_reward_pool_overflow_burn_ratio,json=reviewerRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_reward_pool_overflow_burn_ratio"`
-	ReviewerRewardEpochBlocks           uint64                      `protobuf:"varint,109,opt,name=reviewer_reward_epoch_blocks,json=reviewerRewardEpochBlocks,proto3" json:"reviewer_reward_epoch_blocks,omitempty"`
-	MinReviewerAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,110,opt,name=min_reviewer_accuracy,json=minReviewerAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_reviewer_accuracy"`
-	ReviewerAccuracyWindowEpochs        uint64                      `protobuf:"varint,111,opt,name=reviewer_accuracy_window_epochs,json=reviewerAccuracyWindowEpochs,proto3" json:"reviewer_accuracy_window_epochs,omitempty"`
+	MaxReviewerRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,100,opt,name=max_reviewer_reward_pool,json=maxReviewerRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_reviewer_reward_pool"`
+	ReviewerRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,101,opt,name=reviewer_reward_pool_overflow_burn_ratio,json=reviewerRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_reward_pool_overflow_burn_ratio"`
+	ReviewerRewardEpochBlocks           uint64                      `protobuf:"varint,102,opt,name=reviewer_reward_epoch_blocks,json=reviewerRewardEpochBlocks,proto3" json:"reviewer_reward_epoch_blocks,omitempty"`
+	MinReviewerAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,103,opt,name=min_reviewer_accuracy,json=minReviewerAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_reviewer_accuracy"`
+	ReviewerAccuracyWindowEpochs        uint64                      `protobuf:"varint,104,opt,name=reviewer_accuracy_window_epochs,json=reviewerAccuracyWindowEpochs,proto3" json:"reviewer_accuracy_window_epochs,omitempty"`
 	// Reviewer bonded-role policy: the eligibility and exit terms for
 	// ROLE_TYPE_INITIATIVE_REVIEWER.
 	//
@@ -579,10 +573,10 @@ type Params struct {
 	// low is the point: reviewing should be something an ordinary member can start
 	// doing and then grow into, rather than something gated on holding a large
 	// balance up front.
-	MinReviewerBond cosmossdk_io_math.Int `protobuf:"bytes,129,opt,name=min_reviewer_bond,json=minReviewerBond,proto3,customtype=cosmossdk.io/math.Int" json:"min_reviewer_bond"`
+	MinReviewerBond cosmossdk_io_math.Int `protobuf:"bytes,122,opt,name=min_reviewer_bond,json=minReviewerBond,proto3,customtype=cosmossdk.io/math.Int" json:"min_reviewer_bond"`
 	// Free bond below which a reviewer is demoted out of the role. Conventionally
 	// half of min_reviewer_bond.
-	ReviewerDemotionThreshold cosmossdk_io_math.Int `protobuf:"bytes,130,opt,name=reviewer_demotion_threshold,json=reviewerDemotionThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"reviewer_demotion_threshold"`
+	ReviewerDemotionThreshold cosmossdk_io_math.Int `protobuf:"bytes,123,opt,name=reviewer_demotion_threshold,json=reviewerDemotionThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"reviewer_demotion_threshold"`
 	// Trust level a member must hold to bond as a reviewer. The trust ladder
 	// already encodes reputation, so this is the whole eligibility gate and
 	// min_reviewer_rep_tier stays 0 (see BondedRoleConfig seeding notes).
@@ -591,13 +585,13 @@ type Params struct {
 	// check entirely on an empty string, so an omitted level would silently open
 	// the one role whose approvals mint DREAM. An ungated roster is still
 	// expressible as TRUST_LEVEL_NEW.
-	MinReviewerTrustLevel    string `protobuf:"bytes,131,opt,name=min_reviewer_trust_level,json=minReviewerTrustLevel,proto3" json:"min_reviewer_trust_level,omitempty"`
-	MinReviewerRepTier       uint64 `protobuf:"varint,132,opt,name=min_reviewer_rep_tier,json=minReviewerRepTier,proto3" json:"min_reviewer_rep_tier,omitempty"`
-	MinReviewerAgeBlocks     int64  `protobuf:"varint,133,opt,name=min_reviewer_age_blocks,json=minReviewerAgeBlocks,proto3" json:"min_reviewer_age_blocks,omitempty"`
-	ReviewerDemotionCooldown int64  `protobuf:"varint,134,opt,name=reviewer_demotion_cooldown,json=reviewerDemotionCooldown,proto3" json:"reviewer_demotion_cooldown,omitempty"`
+	MinReviewerTrustLevel    string `protobuf:"bytes,124,opt,name=min_reviewer_trust_level,json=minReviewerTrustLevel,proto3" json:"min_reviewer_trust_level,omitempty"`
+	MinReviewerRepTier       uint64 `protobuf:"varint,125,opt,name=min_reviewer_rep_tier,json=minReviewerRepTier,proto3" json:"min_reviewer_rep_tier,omitempty"`
+	MinReviewerAgeBlocks     int64  `protobuf:"varint,126,opt,name=min_reviewer_age_blocks,json=minReviewerAgeBlocks,proto3" json:"min_reviewer_age_blocks,omitempty"`
+	ReviewerDemotionCooldown int64  `protobuf:"varint,127,opt,name=reviewer_demotion_cooldown,json=reviewerDemotionCooldown,proto3" json:"reviewer_demotion_cooldown,omitempty"`
 	// Bond stays slashable through this window after an unbond request, so open
 	// verdicts can age out and still be charged if a jury overturns them.
-	ReviewerUnbondCooldown int64 `protobuf:"varint,135,opt,name=reviewer_unbond_cooldown,json=reviewerUnbondCooldown,proto3" json:"reviewer_unbond_cooldown,omitempty"`
+	ReviewerUnbondCooldown int64 `protobuf:"varint,128,opt,name=reviewer_unbond_cooldown,json=reviewerUnbondCooldown,proto3" json:"reviewer_unbond_cooldown,omitempty"`
 	// Ceiling on the uspark x/rep may draw from the community pool per UTC day to
 	// fund its bonded-role reward pools.
 	//
@@ -631,17 +625,17 @@ type Params struct {
 	//
 	// Default 0.5 (half the community pool's inflation income); zero disables the
 	// skim, leaving the pools to forfeited bonds and direct sends.
-	RoleRewardInflationShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,112,opt,name=role_reward_inflation_share,json=roleRewardInflationShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"role_reward_inflation_share"`
+	RoleRewardInflationShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,105,opt,name=role_reward_inflation_share,json=roleRewardInflationShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"role_reward_inflation_share"`
 	// Curator SPARK pool. Same shape and cadence as the sentinel pool above and
 	// sized to match it: curating a collection rating and hiding a post are
 	// comparable judgment calls with comparable liability. Kept as separate
 	// params (and a separate pool) anyway, so neither role can draw on the
 	// other's funds or be retuned by the other's bar.
-	MaxCuratorRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,113,opt,name=max_curator_reward_pool,json=maxCuratorRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_curator_reward_pool"`
-	CuratorRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,114,opt,name=curator_reward_pool_overflow_burn_ratio,json=curatorRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"curator_reward_pool_overflow_burn_ratio"`
-	CuratorRewardEpochBlocks           uint64                      `protobuf:"varint,115,opt,name=curator_reward_epoch_blocks,json=curatorRewardEpochBlocks,proto3" json:"curator_reward_epoch_blocks,omitempty"`
-	MinCuratorAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,116,opt,name=min_curator_accuracy,json=minCuratorAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_curator_accuracy"`
-	CuratorAccuracyWindowEpochs        uint64                      `protobuf:"varint,117,opt,name=curator_accuracy_window_epochs,json=curatorAccuracyWindowEpochs,proto3" json:"curator_accuracy_window_epochs,omitempty"`
+	MaxCuratorRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,106,opt,name=max_curator_reward_pool,json=maxCuratorRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_curator_reward_pool"`
+	CuratorRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,107,opt,name=curator_reward_pool_overflow_burn_ratio,json=curatorRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"curator_reward_pool_overflow_burn_ratio"`
+	CuratorRewardEpochBlocks           uint64                      `protobuf:"varint,108,opt,name=curator_reward_epoch_blocks,json=curatorRewardEpochBlocks,proto3" json:"curator_reward_epoch_blocks,omitempty"`
+	MinCuratorAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,109,opt,name=min_curator_accuracy,json=minCuratorAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_curator_accuracy"`
+	CuratorAccuracyWindowEpochs        uint64                      `protobuf:"varint,110,opt,name=curator_accuracy_window_epochs,json=curatorAccuracyWindowEpochs,proto3" json:"curator_accuracy_window_epochs,omitempty"`
 	// Budget above which an initiative cannot complete without at least one
 	// reviewer verdict, regardless of the parent project's verification policy.
 	//
@@ -659,12 +653,12 @@ type Params struct {
 	// Composes with the per-project policy as a MAXIMUM, never a replacement: a
 	// project may demand more verifiers than this, never fewer. Zero disables the
 	// chain-wide gate and leaves review entirely to project policy.
-	ReviewRequiredAboveBudget cosmossdk_io_math.Int `protobuf:"bytes,118,opt,name=review_required_above_budget,json=reviewRequiredAboveBudget,proto3,customtype=cosmossdk.io/math.Int" json:"review_required_above_budget"`
+	ReviewRequiredAboveBudget cosmossdk_io_math.Int `protobuf:"bytes,111,opt,name=review_required_above_budget,json=reviewRequiredAboveBudget,proto3,customtype=cosmossdk.io/math.Int" json:"review_required_above_budget"`
 	// Blocks a review bounty must sit before its funder may reclaim it. Stops a
 	// funder advertising a bounty and withdrawing it in the same breath, which
 	// would let anyone grief the reviewer roster at zero cost. Reclaim is barred
 	// outright once any verdict is filed, regardless of this delay.
-	ReviewBountyReclaimDelay uint64 `protobuf:"varint,119,opt,name=review_bounty_reclaim_delay,json=reviewBountyReclaimDelay,proto3" json:"review_bounty_reclaim_delay,omitempty"`
+	ReviewBountyReclaimDelay uint64 `protobuf:"varint,112,opt,name=review_bounty_reclaim_delay,json=reviewBountyReclaimDelay,proto3" json:"review_bounty_reclaim_delay,omitempty"`
 	// Minimum review bounty a PERMISSIONLESS initiative must escrow at creation,
 	// as a fraction of its budget, paid in existing DREAM.
 	//
@@ -681,7 +675,7 @@ type Params struct {
 	// service that is never delivered. That keeps apprentice work — the on-ramp,
 	// where members arrive holding zero DREAM — free of it. Zero disables the
 	// requirement entirely.
-	PermissionlessMinReviewBountyRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,120,opt,name=permissionless_min_review_bounty_rate,json=permissionlessMinReviewBountyRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"permissionless_min_review_bounty_rate"`
+	PermissionlessMinReviewBountyRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,113,opt,name=permissionless_min_review_bounty_rate,json=permissionlessMinReviewBountyRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"permissionless_min_review_bounty_rate"`
 	// --- Federation verifier pay (SPARK pool + DREAM stipend) ---
 	//
 	// The verifier's whole reward distribution lives here rather than in
@@ -697,22 +691,22 @@ type Params struct {
 	// fetching the peer's content and hashing it, then paying SPARK gas to
 	// submit. Paying only in DREAM made it the single role where doing the job
 	// drains the holder's SPARK and returns a token they cannot spend on gas.
-	MaxVerifierRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,121,opt,name=max_verifier_reward_pool,json=maxVerifierRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_reward_pool"`
-	VerifierRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,122,opt,name=verifier_reward_pool_overflow_burn_ratio,json=verifierRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"verifier_reward_pool_overflow_burn_ratio"`
-	VerifierRewardEpochBlocks           uint64                      `protobuf:"varint,123,opt,name=verifier_reward_epoch_blocks,json=verifierRewardEpochBlocks,proto3" json:"verifier_reward_epoch_blocks,omitempty"`
-	MinVerifierAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,124,opt,name=min_verifier_accuracy,json=minVerifierAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_verifier_accuracy"`
-	VerifierAccuracyWindowEpochs        uint64                      `protobuf:"varint,125,opt,name=verifier_accuracy_window_epochs,json=verifierAccuracyWindowEpochs,proto3" json:"verifier_accuracy_window_epochs,omitempty"`
+	MaxVerifierRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,114,opt,name=max_verifier_reward_pool,json=maxVerifierRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_reward_pool"`
+	VerifierRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,115,opt,name=verifier_reward_pool_overflow_burn_ratio,json=verifierRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"verifier_reward_pool_overflow_burn_ratio"`
+	VerifierRewardEpochBlocks           uint64                      `protobuf:"varint,116,opt,name=verifier_reward_epoch_blocks,json=verifierRewardEpochBlocks,proto3" json:"verifier_reward_epoch_blocks,omitempty"`
+	MinVerifierAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,117,opt,name=min_verifier_accuracy,json=minVerifierAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_verifier_accuracy"`
+	VerifierAccuracyWindowEpochs        uint64                      `protobuf:"varint,118,opt,name=verifier_accuracy_window_epochs,json=verifierAccuracyWindowEpochs,proto3" json:"verifier_accuracy_window_epochs,omitempty"`
 	// Verified items required in an epoch to earn anything that epoch. This is
 	// the ONLY place volume enters verifier pay -- as a floor, never as a
 	// weight. See the score formula in x/rep/keeper/verifier_reward_distribution.go
 	// for why weighting by verified_count is the wrong curve for this role.
-	MinEpochVerifications uint32 `protobuf:"varint,126,opt,name=min_epoch_verifications,json=minEpochVerifications,proto3" json:"min_epoch_verifications,omitempty"`
+	MinEpochVerifications uint32 `protobuf:"varint,119,opt,name=min_epoch_verifications,json=minEpochVerifications,proto3" json:"min_epoch_verifications,omitempty"`
 	// Flat DREAM minted per eligible verifier per epoch, scaled down pro-rata
 	// when the roster would push the epoch's total past the mint cap. Auto-bonds
 	// while the verifier is in RECOVERY so a slashed verifier can rebuild their
 	// bond by working rather than by fronting DREAM.
-	VerifierDreamReward          cosmossdk_io_math.Int `protobuf:"bytes,127,opt,name=verifier_dream_reward,json=verifierDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"verifier_dream_reward"`
-	MaxVerifierDreamMintPerEpoch cosmossdk_io_math.Int `protobuf:"bytes,128,opt,name=max_verifier_dream_mint_per_epoch,json=maxVerifierDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_dream_mint_per_epoch"`
+	VerifierDreamReward          cosmossdk_io_math.Int `protobuf:"bytes,120,opt,name=verifier_dream_reward,json=verifierDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"verifier_dream_reward"`
+	MaxVerifierDreamMintPerEpoch cosmossdk_io_math.Int `protobuf:"bytes,121,opt,name=max_verifier_dream_mint_per_epoch,json=maxVerifierDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_dream_mint_per_epoch"`
 	// Initiative bounties: DREAM escrowed against an initiative, paid to the
 	// assignee on completion. Total bounty is capped at
 	// initiative_bounty_max_budget_ratio x budget (zero disables funding), each
@@ -721,81 +715,93 @@ type Params struct {
 	// max_initiative_bounty_contributions are refused. A funder may reclaim a
 	// contribution older than initiative_bounty_reclaim_delay blocks while the
 	// initiative is unassigned.
-	InitiativeBountyMaxBudgetRatio    cosmossdk_io_math.LegacyDec `protobuf:"bytes,144,opt,name=initiative_bounty_max_budget_ratio,json=initiativeBountyMaxBudgetRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_bounty_max_budget_ratio"`
-	MaxInitiativeBountyPerFunderEpoch cosmossdk_io_math.Int       `protobuf:"bytes,145,opt,name=max_initiative_bounty_per_funder_epoch,json=maxInitiativeBountyPerFunderEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_bounty_per_funder_epoch"`
-	MinInitiativeBountyContribution   cosmossdk_io_math.Int       `protobuf:"bytes,146,opt,name=min_initiative_bounty_contribution,json=minInitiativeBountyContribution,proto3,customtype=cosmossdk.io/math.Int" json:"min_initiative_bounty_contribution"`
-	MaxInitiativeBountyContributions  uint32                      `protobuf:"varint,147,opt,name=max_initiative_bounty_contributions,json=maxInitiativeBountyContributions,proto3" json:"max_initiative_bounty_contributions,omitempty"`
-	InitiativeBountyReclaimDelay      uint64                      `protobuf:"varint,148,opt,name=initiative_bounty_reclaim_delay,json=initiativeBountyReclaimDelay,proto3" json:"initiative_bounty_reclaim_delay,omitempty"`
+	InitiativeBountyMaxBudgetRatio    cosmossdk_io_math.LegacyDec `protobuf:"bytes,137,opt,name=initiative_bounty_max_budget_ratio,json=initiativeBountyMaxBudgetRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_bounty_max_budget_ratio"`
+	MaxInitiativeBountyPerFunderEpoch cosmossdk_io_math.Int       `protobuf:"bytes,138,opt,name=max_initiative_bounty_per_funder_epoch,json=maxInitiativeBountyPerFunderEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_bounty_per_funder_epoch"`
+	MinInitiativeBountyContribution   cosmossdk_io_math.Int       `protobuf:"bytes,139,opt,name=min_initiative_bounty_contribution,json=minInitiativeBountyContribution,proto3,customtype=cosmossdk.io/math.Int" json:"min_initiative_bounty_contribution"`
+	MaxInitiativeBountyContributions  uint32                      `protobuf:"varint,140,opt,name=max_initiative_bounty_contributions,json=maxInitiativeBountyContributions,proto3" json:"max_initiative_bounty_contributions,omitempty"`
+	InitiativeBountyReclaimDelay      uint64                      `protobuf:"varint,141,opt,name=initiative_bounty_reclaim_delay,json=initiativeBountyReclaimDelay,proto3" json:"initiative_bounty_reclaim_delay,omitempty"`
 	// invitation_acceptance_epochs is how many epochs a PENDING invitation
 	// stays open. Once it passes, the epoch-end sweep marks it EXPIRED,
 	// unlocks the inviter's staked DREAM, restores the spent invitation
 	// credit and frees the invitee address for a new invitation. 0 disables
 	// expiry.
-	InvitationAcceptanceEpochs int64 `protobuf:"varint,149,opt,name=invitation_acceptance_epochs,json=invitationAcceptanceEpochs,proto3" json:"invitation_acceptance_epochs,omitempty"`
+	InvitationAcceptanceEpochs int64 `protobuf:"varint,142,opt,name=invitation_acceptance_epochs,json=invitationAcceptanceEpochs,proto3" json:"invitation_acceptance_epochs,omitempty"`
 	// migration_enabled is the master switch for every migration path.
-	MigrationEnabled bool `protobuf:"varint,150,opt,name=migration_enabled,json=migrationEnabled,proto3" json:"migration_enabled,omitempty"`
+	MigrationEnabled bool `protobuf:"varint,143,opt,name=migration_enabled,json=migrationEnabled,proto3" json:"migration_enabled,omitempty"`
 	// key_path_enabled is the "Q-day switch": governance flips it off if the
 	// account signature scheme is considered broken. Recovery and council
 	// migrations keep working.
-	KeyPathEnabled bool `protobuf:"varint,151,opt,name=key_path_enabled,json=keyPathEnabled,proto3" json:"key_path_enabled,omitempty"`
+	KeyPathEnabled bool `protobuf:"varint,144,opt,name=key_path_enabled,json=keyPathEnabled,proto3" json:"key_path_enabled,omitempty"`
 	// key_migration_delay is the seconds between the new address accepting a
 	// KEY migration and finalization (default 7 days).
-	KeyMigrationDelay int64 `protobuf:"varint,152,opt,name=key_migration_delay,json=keyMigrationDelay,proto3" json:"key_migration_delay,omitempty"`
+	KeyMigrationDelay int64 `protobuf:"varint,145,opt,name=key_migration_delay,json=keyMigrationDelay,proto3" json:"key_migration_delay,omitempty"`
 	// recovery_migration_delay is the same for RECOVERY migrations (default
 	// 2 days).
-	RecoveryMigrationDelay int64 `protobuf:"varint,153,opt,name=recovery_migration_delay,json=recoveryMigrationDelay,proto3" json:"recovery_migration_delay,omitempty"`
+	RecoveryMigrationDelay int64 `protobuf:"varint,146,opt,name=recovery_migration_delay,json=recoveryMigrationDelay,proto3" json:"recovery_migration_delay,omitempty"`
 	// council_migration_delay is the same for COUNCIL migrations (default 21
 	// days); the window in which the old address may object.
-	CouncilMigrationDelay int64 `protobuf:"varint,154,opt,name=council_migration_delay,json=councilMigrationDelay,proto3" json:"council_migration_delay,omitempty"`
+	CouncilMigrationDelay int64 `protobuf:"varint,147,opt,name=council_migration_delay,json=councilMigrationDelay,proto3" json:"council_migration_delay,omitempty"`
 	// migration_accept_window is the seconds the new address has to accept a
 	// requested migration before it expires (default 7 days, so a multisig
 	// can collect signatures).
-	MigrationAcceptWindow int64 `protobuf:"varint,155,opt,name=migration_accept_window,json=migrationAcceptWindow,proto3" json:"migration_accept_window,omitempty"`
+	MigrationAcceptWindow int64 `protobuf:"varint,148,opt,name=migration_accept_window,json=migrationAcceptWindow,proto3" json:"migration_accept_window,omitempty"`
 	// migration_cooldown is the seconds after a migration before the member
 	// may request another KEY migration (default 30 days). Recovery and
 	// council migrations are exempt.
-	MigrationCooldown int64 `protobuf:"varint,156,opt,name=migration_cooldown,json=migrationCooldown,proto3" json:"migration_cooldown,omitempty"`
+	MigrationCooldown int64 `protobuf:"varint,149,opt,name=migration_cooldown,json=migrationCooldown,proto3" json:"migration_cooldown,omitempty"`
 	// max_key_migrations_per_window caps KEY migrations finalized within
 	// key_migration_window (default 2): a rolling window, not a lifetime cap.
-	MaxKeyMigrationsPerWindow uint32 `protobuf:"varint,157,opt,name=max_key_migrations_per_window,json=maxKeyMigrationsPerWindow,proto3" json:"max_key_migrations_per_window,omitempty"`
+	MaxKeyMigrationsPerWindow uint32 `protobuf:"varint,150,opt,name=max_key_migrations_per_window,json=maxKeyMigrationsPerWindow,proto3" json:"max_key_migrations_per_window,omitempty"`
 	// key_migration_window is the rolling window in seconds (default 365
 	// days). Validated >= 2 * migration_cooldown.
-	KeyMigrationWindow int64 `protobuf:"varint,158,opt,name=key_migration_window,json=keyMigrationWindow,proto3" json:"key_migration_window,omitempty"`
+	KeyMigrationWindow int64 `protobuf:"varint,151,opt,name=key_migration_window,json=keyMigrationWindow,proto3" json:"key_migration_window,omitempty"`
 	// recovery_change_delay is the seconds a commitment set, replaced or
 	// removed by an existing member waits before it takes effect (default
 	// 30 days). Longer than the KEY-path delay, so the recovery path can not
 	// be used as a faster key path by whoever holds the key.
-	RecoveryChangeDelay int64 `protobuf:"varint,159,opt,name=recovery_change_delay,json=recoveryChangeDelay,proto3" json:"recovery_change_delay,omitempty"`
+	RecoveryChangeDelay int64 `protobuf:"varint,152,opt,name=recovery_change_delay,json=recoveryChangeDelay,proto3" json:"recovery_change_delay,omitempty"`
 	// recovery_reveal_min_blocks is the minimum age of the sealed commit at
 	// reveal (default 20 blocks): the front-running guard.
-	RecoveryRevealMinBlocks int64 `protobuf:"varint,160,opt,name=recovery_reveal_min_blocks,json=recoveryRevealMinBlocks,proto3" json:"recovery_reveal_min_blocks,omitempty"`
+	RecoveryRevealMinBlocks int64 `protobuf:"varint,153,opt,name=recovery_reveal_min_blocks,json=recoveryRevealMinBlocks,proto3" json:"recovery_reveal_min_blocks,omitempty"`
 	// recovery_commit_ttl is the seconds a sealed commit lives before it
 	// expires and its deposit is burned (default 7 days).
-	RecoveryCommitTtl int64 `protobuf:"varint,161,opt,name=recovery_commit_ttl,json=recoveryCommitTtl,proto3" json:"recovery_commit_ttl,omitempty"`
+	RecoveryCommitTtl int64 `protobuf:"varint,154,opt,name=recovery_commit_ttl,json=recoveryCommitTtl,proto3" json:"recovery_commit_ttl,omitempty"`
 	// recovery_commit_deposit is the SPARK (micro-denom) locked with a sealed
 	// commit; refunded on a successful reveal, burned on expiry (default 1
 	// SPARK). MsgCommitRecovery is the only permissionless write on the
 	// path, so spam has to lock capital.
-	RecoveryCommitDeposit cosmossdk_io_math.Int `protobuf:"bytes,162,opt,name=recovery_commit_deposit,json=recoveryCommitDeposit,proto3,customtype=cosmossdk.io/math.Int" json:"recovery_commit_deposit"`
+	RecoveryCommitDeposit cosmossdk_io_math.Int `protobuf:"bytes,155,opt,name=recovery_commit_deposit,json=recoveryCommitDeposit,proto3,customtype=cosmossdk.io/math.Int" json:"recovery_commit_deposit"`
 	// migration_objection_bond is the SPARK (micro-denom) the old address
 	// posts with MsgObjectMigration (default 10 SPARK, the appeal bond). Paid
 	// to the new address if the jury upholds the migration, refunded if the
 	// objector wins; never burned, because on the stolen-key path it is the
 	// victim's SPARK.
-	MigrationObjectionBond cosmossdk_io_math.Int `protobuf:"bytes,163,opt,name=migration_objection_bond,json=migrationObjectionBond,proto3,customtype=cosmossdk.io/math.Int" json:"migration_objection_bond"`
+	MigrationObjectionBond cosmossdk_io_math.Int `protobuf:"bytes,156,opt,name=migration_objection_bond,json=migrationObjectionBond,proto3,customtype=cosmossdk.io/math.Int" json:"migration_objection_bond"`
 	// zk_key_activation_delay is the epochs a changed ZK public key waits
 	// before its leaf enters the trust tree (default 14). It must exceed every
 	// MESSAGE_FIELD action window (council voting periods, challenge and
 	// arbiter windows) so one member cannot act twice on one target with two
 	// keys. x/commons refuses voting periods longer than it.
-	ZkKeyActivationDelay int64 `protobuf:"varint,164,opt,name=zk_key_activation_delay,json=zkKeyActivationDelay,proto3" json:"zk_key_activation_delay,omitempty"`
+	ZkKeyActivationDelay int64 `protobuf:"varint,157,opt,name=zk_key_activation_delay,json=zkKeyActivationDelay,proto3" json:"zk_key_activation_delay,omitempty"`
 	// tag_budget_awarder_epoch_cap_bps caps what one group member may award
 	// from one tag budget per epoch, in basis points of the pool as it stood
 	// before that member's awards this epoch (default 2500 = 25%; 0 = the
 	// default; at most 10000). Applies on top of the 25% single-award cap and
 	// the self-award ban, so one member acting alone cannot drain the pool
 	// through many posts by other authors.
-	TagBudgetAwarderEpochCapBps uint64 `protobuf:"varint,165,opt,name=tag_budget_awarder_epoch_cap_bps,json=tagBudgetAwarderEpochCapBps,proto3" json:"tag_budget_awarder_epoch_cap_bps,omitempty"`
+	TagBudgetAwarderEpochCapBps uint64 `protobuf:"varint,158,opt,name=tag_budget_awarder_epoch_cap_bps,json=tagBudgetAwarderEpochCapBps,proto3" json:"tag_budget_awarder_epoch_cap_bps,omitempty"`
+	// budget_review_threshold is the requested DREAM budget (micro-DREAM) at or
+	// above which a budget-backed project proposal opens a BUDGET_REVIEW interim
+	// (COMPLEX budget) for the Commons Operations Committee instead of a
+	// PROJECT_APPROVAL one (STANDARD budget). Default 5,000 DREAM. Governance
+	// only: it prices committee work, so a committee must not set it.
+	BudgetReviewThreshold cosmossdk_io_math.Int `protobuf:"bytes,159,opt,name=budget_review_threshold,json=budgetReviewThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"budget_review_threshold"`
+	// max_proposed_projects_per_creator caps how many budget-backed project
+	// proposals one member (across their aliases) may hold in PROPOSED at
+	// once (default 3). Each proposal opens a paid review interim for the
+	// picked council's Operations Committee, so an uncapped proposer could
+	// fill the committee's pending work for the price of gas. Governance only.
+	MaxProposedProjectsPerCreator uint32 `protobuf:"varint,160,opt,name=max_proposed_projects_per_creator,json=maxProposedProjectsPerCreator,proto3" json:"max_proposed_projects_per_creator,omitempty"`
 }
 
 func (m *Params) Reset()         { *m = Params{} }
@@ -925,27 +931,6 @@ func (m *Params) GetJurySize() uint32 {
 func (m *Params) GetInterimDeadlineEpochs() int64 {
 	if m != nil {
 		return m.InterimDeadlineEpochs
-	}
-	return 0
-}
-
-func (m *Params) GetMaxActiveChallengesPerCommittee() uint32 {
-	if m != nil {
-		return m.MaxActiveChallengesPerCommittee
-	}
-	return 0
-}
-
-func (m *Params) GetMaxNewChallengesPerEpoch() uint32 {
-	if m != nil {
-		return m.MaxNewChallengesPerEpoch
-	}
-	return 0
-}
-
-func (m *Params) GetChallengeQueueMaxSize() uint32 {
-	if m != nil {
-		return m.ChallengeQueueMaxSize
 	}
 	return 0
 }
@@ -1314,6 +1299,13 @@ func (m *Params) GetTagBudgetAwarderEpochCapBps() uint64 {
 	return 0
 }
 
+func (m *Params) GetMaxProposedProjectsPerCreator() uint32 {
+	if m != nil {
+		return m.MaxProposedProjectsPerCreator
+	}
+	return 0
+}
+
 // RepOperationalParams defines the operational parameters that can be updated
 // by committee/council authority without full governance. These are day-to-day
 // tuning knobs that do not affect core economic incentives or tier structures.
@@ -1332,182 +1324,178 @@ type RepOperationalParams struct {
 	// one-time seed to help an invitee get started.
 	MaxGiftPerInvitee  cosmossdk_io_math.Int `protobuf:"bytes,7,opt,name=max_gift_per_invitee,json=maxGiftPerInvitee,proto3,customtype=cosmossdk.io/math.Int" json:"max_gift_per_invitee"`
 	GiftOnlyToInvitees bool                  `protobuf:"varint,8,opt,name=gift_only_to_invitees,json=giftOnlyToInvitees,proto3" json:"gift_only_to_invitees,omitempty"`
-	// Reputation
-	MinReputationMultiplier cosmossdk_io_math.LegacyDec `protobuf:"bytes,9,opt,name=min_reputation_multiplier,json=minReputationMultiplier,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_reputation_multiplier"`
 	// Review periods
-	DefaultReviewPeriodEpochs    int64 `protobuf:"varint,10,opt,name=default_review_period_epochs,json=defaultReviewPeriodEpochs,proto3" json:"default_review_period_epochs,omitempty"`
-	DefaultChallengePeriodEpochs int64 `protobuf:"varint,11,opt,name=default_challenge_period_epochs,json=defaultChallengePeriodEpochs,proto3" json:"default_challenge_period_epochs,omitempty"`
+	DefaultReviewPeriodEpochs    int64 `protobuf:"varint,9,opt,name=default_review_period_epochs,json=defaultReviewPeriodEpochs,proto3" json:"default_review_period_epochs,omitempty"`
+	DefaultChallengePeriodEpochs int64 `protobuf:"varint,10,opt,name=default_challenge_period_epochs,json=defaultChallengePeriodEpochs,proto3" json:"default_challenge_period_epochs,omitempty"`
 	// Invitations
-	MinInvitationStake             cosmossdk_io_math.Int       `protobuf:"bytes,12,opt,name=min_invitation_stake,json=minInvitationStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_invitation_stake"`
-	InvitationAccountabilityEpochs int64                       `protobuf:"varint,13,opt,name=invitation_accountability_epochs,json=invitationAccountabilityEpochs,proto3" json:"invitation_accountability_epochs,omitempty"`
-	ReferralRewardRate             cosmossdk_io_math.LegacyDec `protobuf:"bytes,14,opt,name=referral_reward_rate,json=referralRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"referral_reward_rate"`
-	InvitationCostMultiplier       cosmossdk_io_math.LegacyDec `protobuf:"bytes,15,opt,name=invitation_cost_multiplier,json=invitationCostMultiplier,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_cost_multiplier"`
+	MinInvitationStake             cosmossdk_io_math.Int       `protobuf:"bytes,11,opt,name=min_invitation_stake,json=minInvitationStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_invitation_stake"`
+	InvitationAccountabilityEpochs int64                       `protobuf:"varint,12,opt,name=invitation_accountability_epochs,json=invitationAccountabilityEpochs,proto3" json:"invitation_accountability_epochs,omitempty"`
+	ReferralRewardRate             cosmossdk_io_math.LegacyDec `protobuf:"bytes,13,opt,name=referral_reward_rate,json=referralRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"referral_reward_rate"`
+	InvitationCostMultiplier       cosmossdk_io_math.LegacyDec `protobuf:"bytes,14,opt,name=invitation_cost_multiplier,json=invitationCostMultiplier,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_cost_multiplier"`
 	// Challenges
-	MinChallengeStake    cosmossdk_io_math.Int       `protobuf:"bytes,16,opt,name=min_challenge_stake,json=minChallengeStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_challenge_stake"`
-	ChallengerRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,17,opt,name=challenger_reward_rate,json=challengerRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"challenger_reward_rate"`
-	JurySize             uint32                      `protobuf:"varint,18,opt,name=jury_size,json=jurySize,proto3" json:"jury_size,omitempty"`
-	JurySuperMajority    cosmossdk_io_math.LegacyDec `protobuf:"bytes,19,opt,name=jury_super_majority,json=jurySuperMajority,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_super_majority"`
-	MinJurorReputation   cosmossdk_io_math.LegacyDec `protobuf:"bytes,20,opt,name=min_juror_reputation,json=minJurorReputation,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_reputation"`
+	MinChallengeStake    cosmossdk_io_math.Int       `protobuf:"bytes,15,opt,name=min_challenge_stake,json=minChallengeStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_challenge_stake"`
+	ChallengerRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,16,opt,name=challenger_reward_rate,json=challengerRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"challenger_reward_rate"`
+	JurySize             uint32                      `protobuf:"varint,17,opt,name=jury_size,json=jurySize,proto3" json:"jury_size,omitempty"`
+	JurySuperMajority    cosmossdk_io_math.LegacyDec `protobuf:"bytes,18,opt,name=jury_super_majority,json=jurySuperMajority,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_super_majority"`
+	MinJurorReputation   cosmossdk_io_math.LegacyDec `protobuf:"bytes,19,opt,name=min_juror_reputation,json=minJurorReputation,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_reputation"`
 	// Interim compensation
-	SimpleComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,21,opt,name=simple_complexity_budget,json=simpleComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"simple_complexity_budget"`
-	StandardComplexityBudget cosmossdk_io_math.Int       `protobuf:"bytes,22,opt,name=standard_complexity_budget,json=standardComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"standard_complexity_budget"`
-	ComplexComplexityBudget  cosmossdk_io_math.Int       `protobuf:"bytes,23,opt,name=complex_complexity_budget,json=complexComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"complex_complexity_budget"`
-	ExpertComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,24,opt,name=expert_complexity_budget,json=expertComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"expert_complexity_budget"`
-	SoloExpertBonusRate      cosmossdk_io_math.LegacyDec `protobuf:"bytes,25,opt,name=solo_expert_bonus_rate,json=soloExpertBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"solo_expert_bonus_rate"`
-	InterimDeadlineEpochs    int64                       `protobuf:"varint,26,opt,name=interim_deadline_epochs,json=interimDeadlineEpochs,proto3" json:"interim_deadline_epochs,omitempty"`
-	// Rate limits
-	MaxActiveChallengesPerCommittee uint32 `protobuf:"varint,27,opt,name=max_active_challenges_per_committee,json=maxActiveChallengesPerCommittee,proto3" json:"max_active_challenges_per_committee,omitempty"`
-	MaxNewChallengesPerEpoch        uint32 `protobuf:"varint,28,opt,name=max_new_challenges_per_epoch,json=maxNewChallengesPerEpoch,proto3" json:"max_new_challenges_per_epoch,omitempty"`
-	ChallengeQueueMaxSize           uint32 `protobuf:"varint,29,opt,name=challenge_queue_max_size,json=challengeQueueMaxSize,proto3" json:"challenge_queue_max_size,omitempty"`
+	SimpleComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,20,opt,name=simple_complexity_budget,json=simpleComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"simple_complexity_budget"`
+	StandardComplexityBudget cosmossdk_io_math.Int       `protobuf:"bytes,21,opt,name=standard_complexity_budget,json=standardComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"standard_complexity_budget"`
+	ComplexComplexityBudget  cosmossdk_io_math.Int       `protobuf:"bytes,22,opt,name=complex_complexity_budget,json=complexComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"complex_complexity_budget"`
+	ExpertComplexityBudget   cosmossdk_io_math.Int       `protobuf:"bytes,23,opt,name=expert_complexity_budget,json=expertComplexityBudget,proto3,customtype=cosmossdk.io/math.Int" json:"expert_complexity_budget"`
+	SoloExpertBonusRate      cosmossdk_io_math.LegacyDec `protobuf:"bytes,24,opt,name=solo_expert_bonus_rate,json=soloExpertBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"solo_expert_bonus_rate"`
+	// Default lifetime of a member-created interim, in epochs: MsgCreateInterim
+	// with deadline 0 is due interim_deadline_epochs * epoch_blocks from now.
+	InterimDeadlineEpochs int64 `protobuf:"varint,25,opt,name=interim_deadline_epochs,json=interimDeadlineEpochs,proto3" json:"interim_deadline_epochs,omitempty"`
 	// Extended staking
-	ProjectCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,30,opt,name=project_completion_bonus_rate,json=projectCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"project_completion_bonus_rate"`
-	MemberStakeRevenueShare    cosmossdk_io_math.LegacyDec `protobuf:"bytes,31,opt,name=member_stake_revenue_share,json=memberStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"member_stake_revenue_share"`
-	TagStakeRevenueShare       cosmossdk_io_math.LegacyDec `protobuf:"bytes,32,opt,name=tag_stake_revenue_share,json=tagStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"tag_stake_revenue_share"`
-	MinStakeDurationSeconds    int64                       `protobuf:"varint,33,opt,name=min_stake_duration_seconds,json=minStakeDurationSeconds,proto3" json:"min_stake_duration_seconds,omitempty"`
-	AllowSelfMemberStake       bool                        `protobuf:"varint,34,opt,name=allow_self_member_stake,json=allowSelfMemberStake,proto3" json:"allow_self_member_stake,omitempty"`
+	ProjectCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,26,opt,name=project_completion_bonus_rate,json=projectCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"project_completion_bonus_rate"`
+	MemberStakeRevenueShare    cosmossdk_io_math.LegacyDec `protobuf:"bytes,27,opt,name=member_stake_revenue_share,json=memberStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"member_stake_revenue_share"`
+	TagStakeRevenueShare       cosmossdk_io_math.LegacyDec `protobuf:"bytes,28,opt,name=tag_stake_revenue_share,json=tagStakeRevenueShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"tag_stake_revenue_share"`
+	MinStakeDurationSeconds    int64                       `protobuf:"varint,29,opt,name=min_stake_duration_seconds,json=minStakeDurationSeconds,proto3" json:"min_stake_duration_seconds,omitempty"`
+	AllowSelfMemberStake       bool                        `protobuf:"varint,30,opt,name=allow_self_member_stake,json=allowSelfMemberStake,proto3" json:"allow_self_member_stake,omitempty"`
 	// Challenge response deadline (epochs)
-	ChallengeResponseDeadlineEpochs int64 `protobuf:"varint,35,opt,name=challenge_response_deadline_epochs,json=challengeResponseDeadlineEpochs,proto3" json:"challenge_response_deadline_epochs,omitempty"`
+	ChallengeResponseDeadlineEpochs int64 `protobuf:"varint,31,opt,name=challenge_response_deadline_epochs,json=challengeResponseDeadlineEpochs,proto3" json:"challenge_response_deadline_epochs,omitempty"`
 	// Recipient-side transfer limits. DREAM an account may take in through tips
 	// and initiative bounty payouts per epoch and per season. Sender caps alone
 	// cannot bound a buyer, who can collect from any number of senders; these
 	// bound how fast any one position can be bought. Gifts are excluded: each
 	// member has one inviter, so max_gift_per_invitee already bounds them.
-	MaxTransferReceivedPerEpoch  cosmossdk_io_math.Int `protobuf:"bytes,36,opt,name=max_transfer_received_per_epoch,json=maxTransferReceivedPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_epoch"`
-	MaxTransferReceivedPerSeason cosmossdk_io_math.Int `protobuf:"bytes,37,opt,name=max_transfer_received_per_season,json=maxTransferReceivedPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_season"`
+	MaxTransferReceivedPerEpoch  cosmossdk_io_math.Int `protobuf:"bytes,32,opt,name=max_transfer_received_per_epoch,json=maxTransferReceivedPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_epoch"`
+	MaxTransferReceivedPerSeason cosmossdk_io_math.Int `protobuf:"bytes,33,opt,name=max_transfer_received_per_season,json=maxTransferReceivedPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_transfer_received_per_season"`
 	// Content conviction staking
-	ContentConvictionHalfLifeEpochs int64                       `protobuf:"varint,38,opt,name=content_conviction_half_life_epochs,json=contentConvictionHalfLifeEpochs,proto3" json:"content_conviction_half_life_epochs,omitempty"`
-	MaxContentStakePerMember        cosmossdk_io_math.Int       `protobuf:"bytes,39,opt,name=max_content_stake_per_member,json=maxContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_content_stake_per_member"`
-	MaxAuthorBondPerContent         cosmossdk_io_math.Int       `protobuf:"bytes,40,opt,name=max_author_bond_per_content,json=maxAuthorBondPerContent,proto3,customtype=cosmossdk.io/math.Int" json:"max_author_bond_per_content"`
-	AuthorBondSlashOnModeration     bool                        `protobuf:"varint,41,opt,name=author_bond_slash_on_moderation,json=authorBondSlashOnModeration,proto3" json:"author_bond_slash_on_moderation,omitempty"`
-	ContentChallengeRewardShare     cosmossdk_io_math.LegacyDec `protobuf:"bytes,42,opt,name=content_challenge_reward_share,json=contentChallengeRewardShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"content_challenge_reward_share"`
-	ConvictionPropagationRatio      cosmossdk_io_math.LegacyDec `protobuf:"bytes,43,opt,name=conviction_propagation_ratio,json=convictionPropagationRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_propagation_ratio"`
+	ContentConvictionHalfLifeEpochs int64                       `protobuf:"varint,34,opt,name=content_conviction_half_life_epochs,json=contentConvictionHalfLifeEpochs,proto3" json:"content_conviction_half_life_epochs,omitempty"`
+	MaxContentStakePerMember        cosmossdk_io_math.Int       `protobuf:"bytes,35,opt,name=max_content_stake_per_member,json=maxContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_content_stake_per_member"`
+	MaxAuthorBondPerContent         cosmossdk_io_math.Int       `protobuf:"bytes,36,opt,name=max_author_bond_per_content,json=maxAuthorBondPerContent,proto3,customtype=cosmossdk.io/math.Int" json:"max_author_bond_per_content"`
+	AuthorBondSlashOnModeration     bool                        `protobuf:"varint,37,opt,name=author_bond_slash_on_moderation,json=authorBondSlashOnModeration,proto3" json:"author_bond_slash_on_moderation,omitempty"`
+	ContentChallengeRewardShare     cosmossdk_io_math.LegacyDec `protobuf:"bytes,38,opt,name=content_challenge_reward_share,json=contentChallengeRewardShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"content_challenge_reward_share"`
+	ConvictionPropagationRatio      cosmossdk_io_math.LegacyDec `protobuf:"bytes,39,opt,name=conviction_propagation_ratio,json=convictionPropagationRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_propagation_ratio"`
 	// Tag anti-gaming
-	MaxTagsPerInitiative uint32 `protobuf:"varint,44,opt,name=max_tags_per_initiative,json=maxTagsPerInitiative,proto3" json:"max_tags_per_initiative,omitempty"`
+	MaxTagsPerInitiative uint32 `protobuf:"varint,40,opt,name=max_tags_per_initiative,json=maxTagsPerInitiative,proto3" json:"max_tags_per_initiative,omitempty"`
 	// Anti-gaming parameters
-	ReputationDecayRate         cosmossdk_io_math.LegacyDec `protobuf:"bytes,45,opt,name=reputation_decay_rate,json=reputationDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reputation_decay_rate"`
-	MaxConvictionSharePerMember cosmossdk_io_math.LegacyDec `protobuf:"bytes,46,opt,name=max_conviction_share_per_member,json=maxConvictionSharePerMember,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_conviction_share_per_member"`
-	InvitationStakeBurnRate     cosmossdk_io_math.LegacyDec `protobuf:"bytes,47,opt,name=invitation_stake_burn_rate,json=invitationStakeBurnRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_stake_burn_rate"`
-	MaxReputationGainPerEpoch   cosmossdk_io_math.LegacyDec `protobuf:"bytes,48,opt,name=max_reputation_gain_per_epoch,json=maxReputationGainPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_reputation_gain_per_epoch"`
+	ReputationDecayRate         cosmossdk_io_math.LegacyDec `protobuf:"bytes,41,opt,name=reputation_decay_rate,json=reputationDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reputation_decay_rate"`
+	MaxConvictionSharePerMember cosmossdk_io_math.LegacyDec `protobuf:"bytes,42,opt,name=max_conviction_share_per_member,json=maxConvictionSharePerMember,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_conviction_share_per_member"`
+	InvitationStakeBurnRate     cosmossdk_io_math.LegacyDec `protobuf:"bytes,43,opt,name=invitation_stake_burn_rate,json=invitationStakeBurnRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"invitation_stake_burn_rate"`
+	MaxReputationGainPerEpoch   cosmossdk_io_math.LegacyDec `protobuf:"bytes,44,opt,name=max_reputation_gain_per_epoch,json=maxReputationGainPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_reputation_gain_per_epoch"`
 	// Seasonal staking reward pool
-	MaxStakingRewardsPerSeason cosmossdk_io_math.Int       `protobuf:"bytes,49,opt,name=max_staking_rewards_per_season,json=maxStakingRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_staking_rewards_per_season"`
-	StakedDecayRate            cosmossdk_io_math.LegacyDec `protobuf:"bytes,50,opt,name=staked_decay_rate,json=stakedDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staked_decay_rate"`
-	NewMemberDecayGraceEpochs  int64                       `protobuf:"varint,51,opt,name=new_member_decay_grace_epochs,json=newMemberDecayGraceEpochs,proto3" json:"new_member_decay_grace_epochs,omitempty"`
+	MaxStakingRewardsPerSeason cosmossdk_io_math.Int       `protobuf:"bytes,45,opt,name=max_staking_rewards_per_season,json=maxStakingRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_staking_rewards_per_season"`
+	StakedDecayRate            cosmossdk_io_math.LegacyDec `protobuf:"bytes,46,opt,name=staked_decay_rate,json=stakedDecayRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staked_decay_rate"`
+	NewMemberDecayGraceEpochs  int64                       `protobuf:"varint,47,opt,name=new_member_decay_grace_epochs,json=newMemberDecayGraceEpochs,proto3" json:"new_member_decay_grace_epochs,omitempty"`
 	// Treasury management
-	MaxTreasuryBalance    cosmossdk_io_math.Int `protobuf:"bytes,52,opt,name=max_treasury_balance,json=maxTreasuryBalance,proto3,customtype=cosmossdk.io/math.Int" json:"max_treasury_balance"`
-	TreasuryFundsInterims bool                  `protobuf:"varint,53,opt,name=treasury_funds_interims,json=treasuryFundsInterims,proto3" json:"treasury_funds_interims,omitempty"`
-	TreasuryFundsRetroPgf bool                  `protobuf:"varint,54,opt,name=treasury_funds_retro_pgf,json=treasuryFundsRetroPgf,proto3" json:"treasury_funds_retro_pgf,omitempty"`
+	MaxTreasuryBalance    cosmossdk_io_math.Int `protobuf:"bytes,48,opt,name=max_treasury_balance,json=maxTreasuryBalance,proto3,customtype=cosmossdk.io/math.Int" json:"max_treasury_balance"`
+	TreasuryFundsInterims bool                  `protobuf:"varint,49,opt,name=treasury_funds_interims,json=treasuryFundsInterims,proto3" json:"treasury_funds_interims,omitempty"`
+	TreasuryFundsRetroPgf bool                  `protobuf:"varint,50,opt,name=treasury_funds_retro_pgf,json=treasuryFundsRetroPgf,proto3" json:"treasury_funds_retro_pgf,omitempty"`
 	// Anti-whale staking cap (mirrors Params.max_initiative_stake_per_member)
-	MaxInitiativeStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,55,opt,name=max_initiative_stake_per_member,json=maxInitiativeStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_stake_per_member"`
+	MaxInitiativeStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,51,opt,name=max_initiative_stake_per_member,json=maxInitiativeStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_stake_per_member"`
 	// Mirrors min_stake_amount in Params.
-	MinStakeAmount cosmossdk_io_math.Int `protobuf:"bytes,120,opt,name=min_stake_amount,json=minStakeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"min_stake_amount"`
+	MinStakeAmount cosmossdk_io_math.Int `protobuf:"bytes,116,opt,name=min_stake_amount,json=minStakeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"min_stake_amount"`
 	// Mirrors max_interim_rewards_per_season in Params.
-	MaxInterimRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,123,opt,name=max_interim_rewards_per_season,json=maxInterimRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_interim_rewards_per_season"`
+	MaxInterimRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,119,opt,name=max_interim_rewards_per_season,json=maxInterimRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_interim_rewards_per_season"`
 	// Per-season initiative reward minting cap (mirrors Params.max_initiative_rewards_per_season)
-	MaxInitiativeRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,56,opt,name=max_initiative_rewards_per_season,json=maxInitiativeRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_rewards_per_season"`
+	MaxInitiativeRewardsPerSeason cosmossdk_io_math.Int `protobuf:"bytes,52,opt,name=max_initiative_rewards_per_season,json=maxInitiativeRewardsPerSeason,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_rewards_per_season"`
 	// Large project budget threshold for council approval (mirrors Params.large_project_budget_threshold)
-	LargeProjectBudgetThreshold cosmossdk_io_math.Int `protobuf:"bytes,57,opt,name=large_project_budget_threshold,json=largeProjectBudgetThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"large_project_budget_threshold"`
+	LargeProjectBudgetThreshold cosmossdk_io_math.Int `protobuf:"bytes,53,opt,name=large_project_budget_threshold,json=largeProjectBudgetThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"large_project_budget_threshold"`
 	// Permissionless creation fees (council-tunable)
-	ProjectCreationFee              cosmossdk_io_math.Int `protobuf:"bytes,58,opt,name=project_creation_fee,json=projectCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"project_creation_fee"`
-	InitiativeCreationFeeApprentice cosmossdk_io_math.Int `protobuf:"bytes,59,opt,name=initiative_creation_fee_apprentice,json=initiativeCreationFeeApprentice,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_apprentice"`
-	InitiativeCreationFeeStandard   cosmossdk_io_math.Int `protobuf:"bytes,60,opt,name=initiative_creation_fee_standard,json=initiativeCreationFeeStandard,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_standard"`
-	TagCreationFee                  cosmossdk_io_math.Int `protobuf:"bytes,61,opt,name=tag_creation_fee,json=tagCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"tag_creation_fee"`
+	ProjectCreationFee              cosmossdk_io_math.Int `protobuf:"bytes,54,opt,name=project_creation_fee,json=projectCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"project_creation_fee"`
+	InitiativeCreationFeeApprentice cosmossdk_io_math.Int `protobuf:"bytes,55,opt,name=initiative_creation_fee_apprentice,json=initiativeCreationFeeApprentice,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_apprentice"`
+	InitiativeCreationFeeStandard   cosmossdk_io_math.Int `protobuf:"bytes,56,opt,name=initiative_creation_fee_standard,json=initiativeCreationFeeStandard,proto3,customtype=cosmossdk.io/math.Int" json:"initiative_creation_fee_standard"`
+	TagCreationFee                  cosmossdk_io_math.Int `protobuf:"bytes,57,opt,name=tag_creation_fee,json=tagCreationFee,proto3,customtype=cosmossdk.io/math.Int" json:"tag_creation_fee"`
 	// Sentinel SPARK reward pool (x/rep holds SPARK fed by spam taxes;
 	// drained each epoch to sentinels according to accuracy/activity gates).
-	MaxSentinelRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,62,opt,name=max_sentinel_reward_pool,json=maxSentinelRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_sentinel_reward_pool"`
-	SentinelRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,63,opt,name=sentinel_reward_pool_overflow_burn_ratio,json=sentinelRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"sentinel_reward_pool_overflow_burn_ratio"`
-	SentinelRewardEpochBlocks           uint64                      `protobuf:"varint,64,opt,name=sentinel_reward_epoch_blocks,json=sentinelRewardEpochBlocks,proto3" json:"sentinel_reward_epoch_blocks,omitempty"`
-	MinSentinelAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,65,opt,name=min_sentinel_accuracy,json=minSentinelAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_sentinel_accuracy"`
-	MinAppealsForAccuracy               uint64                      `protobuf:"varint,66,opt,name=min_appeals_for_accuracy,json=minAppealsForAccuracy,proto3" json:"min_appeals_for_accuracy,omitempty"`
-	MinEpochActivityForReward           uint64                      `protobuf:"varint,67,opt,name=min_epoch_activity_for_reward,json=minEpochActivityForReward,proto3" json:"min_epoch_activity_for_reward,omitempty"`
-	MinAppealRate                       cosmossdk_io_math.LegacyDec `protobuf:"bytes,68,opt,name=min_appeal_rate,json=minAppealRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_appeal_rate"`
+	MaxSentinelRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,58,opt,name=max_sentinel_reward_pool,json=maxSentinelRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_sentinel_reward_pool"`
+	SentinelRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,59,opt,name=sentinel_reward_pool_overflow_burn_ratio,json=sentinelRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"sentinel_reward_pool_overflow_burn_ratio"`
+	SentinelRewardEpochBlocks           uint64                      `protobuf:"varint,60,opt,name=sentinel_reward_epoch_blocks,json=sentinelRewardEpochBlocks,proto3" json:"sentinel_reward_epoch_blocks,omitempty"`
+	MinSentinelAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,61,opt,name=min_sentinel_accuracy,json=minSentinelAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_sentinel_accuracy"`
+	MinAppealsForAccuracy               uint64                      `protobuf:"varint,62,opt,name=min_appeals_for_accuracy,json=minAppealsForAccuracy,proto3" json:"min_appeals_for_accuracy,omitempty"`
+	MinEpochActivityForReward           uint64                      `protobuf:"varint,63,opt,name=min_epoch_activity_for_reward,json=minEpochActivityForReward,proto3" json:"min_epoch_activity_for_reward,omitempty"`
+	MinAppealRate                       cosmossdk_io_math.LegacyDec `protobuf:"bytes,64,opt,name=min_appeal_rate,json=minAppealRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_appeal_rate"`
 	// Rolling window (in reward epochs) for sentinel reward accuracy (mirrors
 	// Params.sentinel_accuracy_window_epochs). Default 6.
-	SentinelAccuracyWindowEpochs uint64 `protobuf:"varint,75,opt,name=sentinel_accuracy_window_epochs,json=sentinelAccuracyWindowEpochs,proto3" json:"sentinel_accuracy_window_epochs,omitempty"`
+	SentinelAccuracyWindowEpochs uint64 `protobuf:"varint,71,opt,name=sentinel_accuracy_window_epochs,json=sentinelAccuracyWindowEpochs,proto3" json:"sentinel_accuracy_window_epochs,omitempty"`
 	// Per-member active work caps (mirrors Params.max_active_{initiatives,interims}_per_member). 0 = unbounded.
-	MaxActiveInitiativesPerMember uint32 `protobuf:"varint,69,opt,name=max_active_initiatives_per_member,json=maxActiveInitiativesPerMember,proto3" json:"max_active_initiatives_per_member,omitempty"`
-	MaxActiveInterimsPerMember    uint32 `protobuf:"varint,70,opt,name=max_active_interims_per_member,json=maxActiveInterimsPerMember,proto3" json:"max_active_interims_per_member,omitempty"`
+	MaxActiveInitiativesPerMember uint32 `protobuf:"varint,65,opt,name=max_active_initiatives_per_member,json=maxActiveInitiativesPerMember,proto3" json:"max_active_initiatives_per_member,omitempty"`
+	MaxActiveInterimsPerMember    uint32 `protobuf:"varint,66,opt,name=max_active_interims_per_member,json=maxActiveInterimsPerMember,proto3" json:"max_active_interims_per_member,omitempty"`
 	// Global per-epoch DREAM minting cap (mirrors Params.max_dream_mint_per_epoch). 0 = unbounded.
-	MaxDreamMintPerEpoch cosmossdk_io_math.Int `protobuf:"bytes,71,opt,name=max_dream_mint_per_epoch,json=maxDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_dream_mint_per_epoch"`
+	MaxDreamMintPerEpoch cosmossdk_io_math.Int `protobuf:"bytes,67,opt,name=max_dream_mint_per_epoch,json=maxDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_dream_mint_per_epoch"`
 	// Proposal-time hard caps and expiry (mirror Params.max_project_requested_*
 	// and Params.proposed_project_expiry_blocks).
-	MaxProjectRequestedBudget   cosmossdk_io_math.Int `protobuf:"bytes,72,opt,name=max_project_requested_budget,json=maxProjectRequestedBudget,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_budget"`
-	MaxProjectRequestedSpark    cosmossdk_io_math.Int `protobuf:"bytes,73,opt,name=max_project_requested_spark,json=maxProjectRequestedSpark,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_spark"`
-	ProposedProjectExpiryBlocks int64                 `protobuf:"varint,74,opt,name=proposed_project_expiry_blocks,json=proposedProjectExpiryBlocks,proto3" json:"proposed_project_expiry_blocks,omitempty"`
+	MaxProjectRequestedBudget   cosmossdk_io_math.Int `protobuf:"bytes,68,opt,name=max_project_requested_budget,json=maxProjectRequestedBudget,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_budget"`
+	MaxProjectRequestedSpark    cosmossdk_io_math.Int `protobuf:"bytes,69,opt,name=max_project_requested_spark,json=maxProjectRequestedSpark,proto3,customtype=cosmossdk.io/math.Int" json:"max_project_requested_spark"`
+	ProposedProjectExpiryBlocks int64                 `protobuf:"varint,70,opt,name=proposed_project_expiry_blocks,json=proposedProjectExpiryBlocks,proto3" json:"proposed_project_expiry_blocks,omitempty"`
 	// Reputation deducted from a juror who accepted a summons and abandoned it.
 	// Mirrors abandoned_jury_seat_penalty in Params.
-	AbandonedJurySeatPenalty cosmossdk_io_math.LegacyDec `protobuf:"bytes,76,opt,name=abandoned_jury_seat_penalty,json=abandonedJurySeatPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"abandoned_jury_seat_penalty"`
+	AbandonedJurySeatPenalty cosmossdk_io_math.LegacyDec `protobuf:"bytes,72,opt,name=abandoned_jury_seat_penalty,json=abandonedJurySeatPenalty,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"abandoned_jury_seat_penalty"`
 	// Fraction of the disputed initiative's budget paid out to its jury, split
 	// evenly across the seats. Juror pay was a flat StandardComplexityBudget
 	// regardless of what was in dispute, so a challenge over a 100 DREAM
 	// APPRENTICE initiative minted 750 DREAM in juror fees to settle it — more
 	// than the work was worth. Range [0, 1]. Default 0.25.
-	JurorRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,77,opt,name=juror_reward_rate,json=jurorRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"juror_reward_rate"`
+	JurorRewardRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,73,opt,name=juror_reward_rate,json=jurorRewardRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"juror_reward_rate"`
 	// Mirrors min_juror_reward in Params.
-	MinJurorReward cosmossdk_io_math.Int `protobuf:"bytes,78,opt,name=min_juror_reward,json=minJurorReward,proto3,customtype=cosmossdk.io/math.Int" json:"min_juror_reward"`
+	MinJurorReward cosmossdk_io_math.Int `protobuf:"bytes,74,opt,name=min_juror_reward,json=minJurorReward,proto3,customtype=cosmossdk.io/math.Int" json:"min_juror_reward"`
 	// Mirrors min_juror_selection_weight in Params.
-	MinJurorSelectionWeight cosmossdk_io_math.LegacyDec `protobuf:"bytes,79,opt,name=min_juror_selection_weight,json=minJurorSelectionWeight,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_selection_weight"`
+	MinJurorSelectionWeight cosmossdk_io_math.LegacyDec `protobuf:"bytes,75,opt,name=min_juror_selection_weight,json=minJurorSelectionWeight,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_juror_selection_weight"`
 	// Mirrors min_jury_seatings_for_weighting in Params.
-	MinJurySeatingsForWeighting uint64 `protobuf:"varint,80,opt,name=min_jury_seatings_for_weighting,json=minJurySeatingsForWeighting,proto3" json:"min_jury_seatings_for_weighting,omitempty"`
+	MinJurySeatingsForWeighting uint64 `protobuf:"varint,76,opt,name=min_jury_seatings_for_weighting,json=minJurySeatingsForWeighting,proto3" json:"min_jury_seatings_for_weighting,omitempty"`
 	// Mirrors initiative_completion_bonus_rate in Params.
-	InitiativeCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,81,opt,name=initiative_completion_bonus_rate,json=initiativeCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_completion_bonus_rate"`
+	InitiativeCompletionBonusRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,77,opt,name=initiative_completion_bonus_rate,json=initiativeCompletionBonusRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_completion_bonus_rate"`
 	// Mirrors max_completion_bonus_stake_multiple in Params.
-	MaxCompletionBonusStakeMultiple cosmossdk_io_math.LegacyDec `protobuf:"bytes,121,opt,name=max_completion_bonus_stake_multiple,json=maxCompletionBonusStakeMultiple,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_completion_bonus_stake_multiple"`
+	MaxCompletionBonusStakeMultiple cosmossdk_io_math.LegacyDec `protobuf:"bytes,117,opt,name=max_completion_bonus_stake_multiple,json=maxCompletionBonusStakeMultiple,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_completion_bonus_stake_multiple"`
 	// Mirrors max_total_content_stake_per_member in Params: the aggregate
 	// per-member ceiling across all content conviction stakes.
-	MaxTotalContentStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,122,opt,name=max_total_content_stake_per_member,json=maxTotalContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_total_content_stake_per_member"`
+	MaxTotalContentStakePerMember cosmossdk_io_math.Int `protobuf:"bytes,118,opt,name=max_total_content_stake_per_member,json=maxTotalContentStakePerMember,proto3,customtype=cosmossdk.io/math.Int" json:"max_total_content_stake_per_member"`
 	// Mirrors jury_acceptance_window_ratio in Params. Validated against
 	// max_jury_redraws below — the pair must fit inside the review period.
-	JuryAcceptanceWindowRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,82,opt,name=jury_acceptance_window_ratio,json=juryAcceptanceWindowRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_acceptance_window_ratio"`
+	JuryAcceptanceWindowRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,78,opt,name=jury_acceptance_window_ratio,json=juryAcceptanceWindowRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"jury_acceptance_window_ratio"`
 	// Mirrors max_jury_redraws in Params.
-	MaxJuryRedraws uint32 `protobuf:"varint,83,opt,name=max_jury_redraws,json=maxJuryRedraws,proto3" json:"max_jury_redraws,omitempty"`
+	MaxJuryRedraws uint32 `protobuf:"varint,79,opt,name=max_jury_redraws,json=maxJuryRedraws,proto3" json:"max_jury_redraws,omitempty"`
 	// Mirrors reviewer_bond_reserve_rate in Params.
-	ReviewerBondReserveRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,84,opt,name=reviewer_bond_reserve_rate,json=reviewerBondReserveRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_bond_reserve_rate"`
+	ReviewerBondReserveRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,80,opt,name=reviewer_bond_reserve_rate,json=reviewerBondReserveRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_bond_reserve_rate"`
 	// Mirrors review_fee_rate in Params.
-	ReviewFeeRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,85,opt,name=review_fee_rate,json=reviewFeeRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"review_fee_rate"`
+	ReviewFeeRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,81,opt,name=review_fee_rate,json=reviewFeeRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"review_fee_rate"`
 	// Mirrors max_review_rounds in Params.
-	MaxReviewRounds uint32 `protobuf:"varint,86,opt,name=max_review_rounds,json=maxReviewRounds,proto3" json:"max_review_rounds,omitempty"`
+	MaxReviewRounds uint32 `protobuf:"varint,82,opt,name=max_review_rounds,json=maxReviewRounds,proto3" json:"max_review_rounds,omitempty"`
 	// Mirrors the reviewer reward pool knobs in Params.
-	MaxReviewerRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,87,opt,name=max_reviewer_reward_pool,json=maxReviewerRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_reviewer_reward_pool"`
-	ReviewerRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,88,opt,name=reviewer_reward_pool_overflow_burn_ratio,json=reviewerRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_reward_pool_overflow_burn_ratio"`
-	ReviewerRewardEpochBlocks           uint64                      `protobuf:"varint,89,opt,name=reviewer_reward_epoch_blocks,json=reviewerRewardEpochBlocks,proto3" json:"reviewer_reward_epoch_blocks,omitempty"`
-	MinReviewerAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,90,opt,name=min_reviewer_accuracy,json=minReviewerAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_reviewer_accuracy"`
-	ReviewerAccuracyWindowEpochs        uint64                      `protobuf:"varint,91,opt,name=reviewer_accuracy_window_epochs,json=reviewerAccuracyWindowEpochs,proto3" json:"reviewer_accuracy_window_epochs,omitempty"`
+	MaxReviewerRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,83,opt,name=max_reviewer_reward_pool,json=maxReviewerRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_reviewer_reward_pool"`
+	ReviewerRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,84,opt,name=reviewer_reward_pool_overflow_burn_ratio,json=reviewerRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"reviewer_reward_pool_overflow_burn_ratio"`
+	ReviewerRewardEpochBlocks           uint64                      `protobuf:"varint,85,opt,name=reviewer_reward_epoch_blocks,json=reviewerRewardEpochBlocks,proto3" json:"reviewer_reward_epoch_blocks,omitempty"`
+	MinReviewerAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,86,opt,name=min_reviewer_accuracy,json=minReviewerAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_reviewer_accuracy"`
+	ReviewerAccuracyWindowEpochs        uint64                      `protobuf:"varint,87,opt,name=reviewer_accuracy_window_epochs,json=reviewerAccuracyWindowEpochs,proto3" json:"reviewer_accuracy_window_epochs,omitempty"`
 	// Mirrors role_reward_inflation_share in Params.
-	RoleRewardInflationShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,92,opt,name=role_reward_inflation_share,json=roleRewardInflationShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"role_reward_inflation_share"`
+	RoleRewardInflationShare cosmossdk_io_math.LegacyDec `protobuf:"bytes,88,opt,name=role_reward_inflation_share,json=roleRewardInflationShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"role_reward_inflation_share"`
 	// Mirrors the curator SPARK pool params in Params.
-	MaxCuratorRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,93,opt,name=max_curator_reward_pool,json=maxCuratorRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_curator_reward_pool"`
-	CuratorRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,94,opt,name=curator_reward_pool_overflow_burn_ratio,json=curatorRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"curator_reward_pool_overflow_burn_ratio"`
-	CuratorRewardEpochBlocks           uint64                      `protobuf:"varint,95,opt,name=curator_reward_epoch_blocks,json=curatorRewardEpochBlocks,proto3" json:"curator_reward_epoch_blocks,omitempty"`
-	MinCuratorAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,96,opt,name=min_curator_accuracy,json=minCuratorAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_curator_accuracy"`
-	CuratorAccuracyWindowEpochs        uint64                      `protobuf:"varint,97,opt,name=curator_accuracy_window_epochs,json=curatorAccuracyWindowEpochs,proto3" json:"curator_accuracy_window_epochs,omitempty"`
+	MaxCuratorRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,89,opt,name=max_curator_reward_pool,json=maxCuratorRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_curator_reward_pool"`
+	CuratorRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,90,opt,name=curator_reward_pool_overflow_burn_ratio,json=curatorRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"curator_reward_pool_overflow_burn_ratio"`
+	CuratorRewardEpochBlocks           uint64                      `protobuf:"varint,91,opt,name=curator_reward_epoch_blocks,json=curatorRewardEpochBlocks,proto3" json:"curator_reward_epoch_blocks,omitempty"`
+	MinCuratorAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,92,opt,name=min_curator_accuracy,json=minCuratorAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_curator_accuracy"`
+	CuratorAccuracyWindowEpochs        uint64                      `protobuf:"varint,93,opt,name=curator_accuracy_window_epochs,json=curatorAccuracyWindowEpochs,proto3" json:"curator_accuracy_window_epochs,omitempty"`
 	// Mirrors review_required_above_budget in Params.
-	ReviewRequiredAboveBudget         cosmossdk_io_math.Int       `protobuf:"bytes,98,opt,name=review_required_above_budget,json=reviewRequiredAboveBudget,proto3,customtype=cosmossdk.io/math.Int" json:"review_required_above_budget"`
-	ReviewBountyReclaimDelay          uint64                      `protobuf:"varint,99,opt,name=review_bounty_reclaim_delay,json=reviewBountyReclaimDelay,proto3" json:"review_bounty_reclaim_delay,omitempty"`
-	PermissionlessMinReviewBountyRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,100,opt,name=permissionless_min_review_bounty_rate,json=permissionlessMinReviewBountyRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"permissionless_min_review_bounty_rate"`
+	ReviewRequiredAboveBudget         cosmossdk_io_math.Int       `protobuf:"bytes,94,opt,name=review_required_above_budget,json=reviewRequiredAboveBudget,proto3,customtype=cosmossdk.io/math.Int" json:"review_required_above_budget"`
+	ReviewBountyReclaimDelay          uint64                      `protobuf:"varint,95,opt,name=review_bounty_reclaim_delay,json=reviewBountyReclaimDelay,proto3" json:"review_bounty_reclaim_delay,omitempty"`
+	PermissionlessMinReviewBountyRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,96,opt,name=permissionless_min_review_bounty_rate,json=permissionlessMinReviewBountyRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"permissionless_min_review_bounty_rate"`
 	// Mirrors the federation-verifier pay params in Params.
-	MaxVerifierRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,101,opt,name=max_verifier_reward_pool,json=maxVerifierRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_reward_pool"`
-	VerifierRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,102,opt,name=verifier_reward_pool_overflow_burn_ratio,json=verifierRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"verifier_reward_pool_overflow_burn_ratio"`
-	VerifierRewardEpochBlocks           uint64                      `protobuf:"varint,103,opt,name=verifier_reward_epoch_blocks,json=verifierRewardEpochBlocks,proto3" json:"verifier_reward_epoch_blocks,omitempty"`
-	MinVerifierAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,104,opt,name=min_verifier_accuracy,json=minVerifierAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_verifier_accuracy"`
-	VerifierAccuracyWindowEpochs        uint64                      `protobuf:"varint,105,opt,name=verifier_accuracy_window_epochs,json=verifierAccuracyWindowEpochs,proto3" json:"verifier_accuracy_window_epochs,omitempty"`
-	MinEpochVerifications               uint32                      `protobuf:"varint,106,opt,name=min_epoch_verifications,json=minEpochVerifications,proto3" json:"min_epoch_verifications,omitempty"`
-	VerifierDreamReward                 cosmossdk_io_math.Int       `protobuf:"bytes,107,opt,name=verifier_dream_reward,json=verifierDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"verifier_dream_reward"`
-	MaxVerifierDreamMintPerEpoch        cosmossdk_io_math.Int       `protobuf:"bytes,108,opt,name=max_verifier_dream_mint_per_epoch,json=maxVerifierDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_dream_mint_per_epoch"`
+	MaxVerifierRewardPool               cosmossdk_io_math.Int       `protobuf:"bytes,97,opt,name=max_verifier_reward_pool,json=maxVerifierRewardPool,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_reward_pool"`
+	VerifierRewardPoolOverflowBurnRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,98,opt,name=verifier_reward_pool_overflow_burn_ratio,json=verifierRewardPoolOverflowBurnRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"verifier_reward_pool_overflow_burn_ratio"`
+	VerifierRewardEpochBlocks           uint64                      `protobuf:"varint,99,opt,name=verifier_reward_epoch_blocks,json=verifierRewardEpochBlocks,proto3" json:"verifier_reward_epoch_blocks,omitempty"`
+	MinVerifierAccuracy                 cosmossdk_io_math.LegacyDec `protobuf:"bytes,100,opt,name=min_verifier_accuracy,json=minVerifierAccuracy,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"min_verifier_accuracy"`
+	VerifierAccuracyWindowEpochs        uint64                      `protobuf:"varint,101,opt,name=verifier_accuracy_window_epochs,json=verifierAccuracyWindowEpochs,proto3" json:"verifier_accuracy_window_epochs,omitempty"`
+	MinEpochVerifications               uint32                      `protobuf:"varint,102,opt,name=min_epoch_verifications,json=minEpochVerifications,proto3" json:"min_epoch_verifications,omitempty"`
+	VerifierDreamReward                 cosmossdk_io_math.Int       `protobuf:"bytes,103,opt,name=verifier_dream_reward,json=verifierDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"verifier_dream_reward"`
+	MaxVerifierDreamMintPerEpoch        cosmossdk_io_math.Int       `protobuf:"bytes,104,opt,name=max_verifier_dream_mint_per_epoch,json=maxVerifierDreamMintPerEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_verifier_dream_mint_per_epoch"`
 	// Mirrors the reviewer bonded-role policy in Params. Updating these writes
 	// through to the BondedRoleConfig for ROLE_TYPE_INITIATIVE_REVIEWER, so the
 	// reviewer bond floor is tunable by council vote like every other role's.
-	MinReviewerBond           cosmossdk_io_math.Int `protobuf:"bytes,109,opt,name=min_reviewer_bond,json=minReviewerBond,proto3,customtype=cosmossdk.io/math.Int" json:"min_reviewer_bond"`
-	ReviewerDemotionThreshold cosmossdk_io_math.Int `protobuf:"bytes,110,opt,name=reviewer_demotion_threshold,json=reviewerDemotionThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"reviewer_demotion_threshold"`
-	MinReviewerTrustLevel     string                `protobuf:"bytes,111,opt,name=min_reviewer_trust_level,json=minReviewerTrustLevel,proto3" json:"min_reviewer_trust_level,omitempty"`
-	MinReviewerRepTier        uint64                `protobuf:"varint,112,opt,name=min_reviewer_rep_tier,json=minReviewerRepTier,proto3" json:"min_reviewer_rep_tier,omitempty"`
-	MinReviewerAgeBlocks      int64                 `protobuf:"varint,113,opt,name=min_reviewer_age_blocks,json=minReviewerAgeBlocks,proto3" json:"min_reviewer_age_blocks,omitempty"`
-	ReviewerDemotionCooldown  int64                 `protobuf:"varint,114,opt,name=reviewer_demotion_cooldown,json=reviewerDemotionCooldown,proto3" json:"reviewer_demotion_cooldown,omitempty"`
-	ReviewerUnbondCooldown    int64                 `protobuf:"varint,115,opt,name=reviewer_unbond_cooldown,json=reviewerUnbondCooldown,proto3" json:"reviewer_unbond_cooldown,omitempty"`
+	MinReviewerBond           cosmossdk_io_math.Int `protobuf:"bytes,105,opt,name=min_reviewer_bond,json=minReviewerBond,proto3,customtype=cosmossdk.io/math.Int" json:"min_reviewer_bond"`
+	ReviewerDemotionThreshold cosmossdk_io_math.Int `protobuf:"bytes,106,opt,name=reviewer_demotion_threshold,json=reviewerDemotionThreshold,proto3,customtype=cosmossdk.io/math.Int" json:"reviewer_demotion_threshold"`
+	MinReviewerTrustLevel     string                `protobuf:"bytes,107,opt,name=min_reviewer_trust_level,json=minReviewerTrustLevel,proto3" json:"min_reviewer_trust_level,omitempty"`
+	MinReviewerRepTier        uint64                `protobuf:"varint,108,opt,name=min_reviewer_rep_tier,json=minReviewerRepTier,proto3" json:"min_reviewer_rep_tier,omitempty"`
+	MinReviewerAgeBlocks      int64                 `protobuf:"varint,109,opt,name=min_reviewer_age_blocks,json=minReviewerAgeBlocks,proto3" json:"min_reviewer_age_blocks,omitempty"`
+	ReviewerDemotionCooldown  int64                 `protobuf:"varint,110,opt,name=reviewer_demotion_cooldown,json=reviewerDemotionCooldown,proto3" json:"reviewer_demotion_cooldown,omitempty"`
+	ReviewerUnbondCooldown    int64                 `protobuf:"varint,111,opt,name=reviewer_unbond_cooldown,json=reviewerUnbondCooldown,proto3" json:"reviewer_unbond_cooldown,omitempty"`
 	// Seasonal staking pool shape; see the same fields on Params.
-	StakingRewardYieldPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,116,opt,name=staking_reward_yield_per_epoch,json=stakingRewardYieldPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_reward_yield_per_epoch"`
-	StakingPoolMintShare       cosmossdk_io_math.LegacyDec `protobuf:"bytes,117,opt,name=staking_pool_mint_share,json=stakingPoolMintShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_mint_share"`
-	StakingPoolCapBase         cosmossdk_io_math.Int       `protobuf:"bytes,118,opt,name=staking_pool_cap_base,json=stakingPoolCapBase,proto3,customtype=cosmossdk.io/math.Int" json:"staking_pool_cap_base"`
-	StakingPoolCapRate         cosmossdk_io_math.LegacyDec `protobuf:"bytes,119,opt,name=staking_pool_cap_rate,json=stakingPoolCapRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_cap_rate"`
+	StakingRewardYieldPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,112,opt,name=staking_reward_yield_per_epoch,json=stakingRewardYieldPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_reward_yield_per_epoch"`
+	StakingPoolMintShare       cosmossdk_io_math.LegacyDec `protobuf:"bytes,113,opt,name=staking_pool_mint_share,json=stakingPoolMintShare,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_mint_share"`
+	StakingPoolCapBase         cosmossdk_io_math.Int       `protobuf:"bytes,114,opt,name=staking_pool_cap_base,json=stakingPoolCapBase,proto3,customtype=cosmossdk.io/math.Int" json:"staking_pool_cap_base"`
+	StakingPoolCapRate         cosmossdk_io_math.LegacyDec `protobuf:"bytes,115,opt,name=staking_pool_cap_rate,json=stakingPoolCapRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"staking_pool_cap_rate"`
 	// Initiative bounties: DREAM escrowed against an initiative, paid to the
 	// assignee on completion. Total bounty is capped at
 	// initiative_bounty_max_budget_ratio x budget (zero disables funding), each
@@ -1516,11 +1504,11 @@ type RepOperationalParams struct {
 	// max_initiative_bounty_contributions are refused. A funder may reclaim a
 	// contribution older than initiative_bounty_reclaim_delay blocks while the
 	// initiative is unassigned.
-	InitiativeBountyMaxBudgetRatio    cosmossdk_io_math.LegacyDec `protobuf:"bytes,124,opt,name=initiative_bounty_max_budget_ratio,json=initiativeBountyMaxBudgetRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_bounty_max_budget_ratio"`
-	MaxInitiativeBountyPerFunderEpoch cosmossdk_io_math.Int       `protobuf:"bytes,125,opt,name=max_initiative_bounty_per_funder_epoch,json=maxInitiativeBountyPerFunderEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_bounty_per_funder_epoch"`
-	MinInitiativeBountyContribution   cosmossdk_io_math.Int       `protobuf:"bytes,126,opt,name=min_initiative_bounty_contribution,json=minInitiativeBountyContribution,proto3,customtype=cosmossdk.io/math.Int" json:"min_initiative_bounty_contribution"`
-	MaxInitiativeBountyContributions  uint32                      `protobuf:"varint,127,opt,name=max_initiative_bounty_contributions,json=maxInitiativeBountyContributions,proto3" json:"max_initiative_bounty_contributions,omitempty"`
-	InitiativeBountyReclaimDelay      uint64                      `protobuf:"varint,128,opt,name=initiative_bounty_reclaim_delay,json=initiativeBountyReclaimDelay,proto3" json:"initiative_bounty_reclaim_delay,omitempty"`
+	InitiativeBountyMaxBudgetRatio    cosmossdk_io_math.LegacyDec `protobuf:"bytes,120,opt,name=initiative_bounty_max_budget_ratio,json=initiativeBountyMaxBudgetRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"initiative_bounty_max_budget_ratio"`
+	MaxInitiativeBountyPerFunderEpoch cosmossdk_io_math.Int       `protobuf:"bytes,121,opt,name=max_initiative_bounty_per_funder_epoch,json=maxInitiativeBountyPerFunderEpoch,proto3,customtype=cosmossdk.io/math.Int" json:"max_initiative_bounty_per_funder_epoch"`
+	MinInitiativeBountyContribution   cosmossdk_io_math.Int       `protobuf:"bytes,122,opt,name=min_initiative_bounty_contribution,json=minInitiativeBountyContribution,proto3,customtype=cosmossdk.io/math.Int" json:"min_initiative_bounty_contribution"`
+	MaxInitiativeBountyContributions  uint32                      `protobuf:"varint,123,opt,name=max_initiative_bounty_contributions,json=maxInitiativeBountyContributions,proto3" json:"max_initiative_bounty_contributions,omitempty"`
+	InitiativeBountyReclaimDelay      uint64                      `protobuf:"varint,124,opt,name=initiative_bounty_reclaim_delay,json=initiativeBountyReclaimDelay,proto3" json:"initiative_bounty_reclaim_delay,omitempty"`
 }
 
 func (m *RepOperationalParams) Reset()         { *m = RepOperationalParams{} }
@@ -1608,27 +1596,6 @@ func (m *RepOperationalParams) GetJurySize() uint32 {
 func (m *RepOperationalParams) GetInterimDeadlineEpochs() int64 {
 	if m != nil {
 		return m.InterimDeadlineEpochs
-	}
-	return 0
-}
-
-func (m *RepOperationalParams) GetMaxActiveChallengesPerCommittee() uint32 {
-	if m != nil {
-		return m.MaxActiveChallengesPerCommittee
-	}
-	return 0
-}
-
-func (m *RepOperationalParams) GetMaxNewChallengesPerEpoch() uint32 {
-	if m != nil {
-		return m.MaxNewChallengesPerEpoch
-	}
-	return 0
-}
-
-func (m *RepOperationalParams) GetChallengeQueueMaxSize() uint32 {
-	if m != nil {
-		return m.ChallengeQueueMaxSize
 	}
 	return 0
 }
@@ -1881,322 +1848,313 @@ func init() {
 func init() { proto.RegisterFile("sparkdream/rep/v1/params.proto", fileDescriptor_dcb2e79f643944bc) }
 
 var fileDescriptor_dcb2e79f643944bc = []byte{
-	// 5034 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x5d, 0x59, 0x77, 0x1b, 0x47,
-	0x76, 0x36, 0x67, 0x1c, 0xc7, 0x2a, 0x2d, 0x24, 0x9b, 0x5b, 0x73, 0xa7, 0xa8, 0xb1, 0x2d, 0x6f,
-	0xa4, 0x65, 0x5b, 0x8b, 0x65, 0xc9, 0x16, 0x09, 0x92, 0x5a, 0x69, 0xd1, 0x20, 0xb5, 0x7a, 0x69,
-	0x17, 0x1a, 0x05, 0xb0, 0xc5, 0x46, 0x77, 0xab, 0xba, 0x01, 0x02, 0x9a, 0xb1, 0x3d, 0xd9, 0x27,
-	0x93, 0x6d, 0xb2, 0xef, 0x89, 0xb3, 0xbd, 0xe7, 0x21, 0x27, 0xbf, 0x20, 0x0f, 0x7e, 0x9c, 0x93,
-	0xa7, 0x9c, 0x9c, 0x9c, 0x39, 0x39, 0xf6, 0x43, 0xe6, 0x67, 0xe4, 0xd4, 0xbd, 0xd5, 0x2b, 0x40,
-	0x0a, 0xdd, 0x04, 0xc0, 0x97, 0x79, 0x99, 0x33, 0x62, 0xd5, 0xfd, 0x6e, 0xd7, 0x72, 0xd7, 0xba,
-	0x17, 0x26, 0x33, 0xae, 0x43, 0xf9, 0x4e, 0x91, 0x33, 0x5a, 0x59, 0xe4, 0xcc, 0x59, 0xac, 0x9d,
-	0x59, 0x74, 0x28, 0xa7, 0x15, 0x77, 0xc1, 0xe1, 0xb6, 0x67, 0x2b, 0x83, 0xe1, 0xf8, 0x02, 0x67,
-	0xce, 0x42, 0xed, 0xcc, 0xc4, 0x20, 0xad, 0x18, 0x96, 0xbd, 0x08, 0xff, 0x8b, 0xb3, 0x26, 0xc6,
-	0x75, 0xdb, 0xad, 0xd8, 0xae, 0x06, 0xff, 0x5a, 0xc4, 0x7f, 0xc8, 0xa1, 0xe1, 0xb2, 0x5d, 0xb6,
-	0xf1, 0xef, 0xe2, 0xff, 0xe1, 0x5f, 0xe7, 0xbf, 0xfe, 0x0e, 0x21, 0x5b, 0x06, 0xe3, 0x39, 0xdb,
-	0x2a, 0x19, 0x65, 0xe5, 0x06, 0x21, 0x15, 0x5a, 0xd7, 0x0a, 0xd5, 0x62, 0x99, 0x79, 0x6a, 0xdf,
-	0x5c, 0xdf, 0xe9, 0x23, 0xcb, 0xaf, 0x7e, 0xfd, 0xb3, 0xd9, 0x67, 0xfe, 0xfb, 0x67, 0xb3, 0x23,
-	0x08, 0xe7, 0x16, 0x77, 0x16, 0x0c, 0x7b, 0xb1, 0x42, 0xbd, 0xed, 0x85, 0xeb, 0x96, 0xf7, 0x9f,
-	0xff, 0xf6, 0x3a, 0x91, 0x7c, 0xae, 0x5b, 0x5e, 0xfe, 0x48, 0x85, 0xd6, 0x97, 0x81, 0x5a, 0xb9,
-	0x41, 0x4e, 0x54, 0x0c, 0x4b, 0xe3, 0xcc, 0xa9, 0x7a, 0xd4, 0x33, 0x6c, 0x4b, 0xfd, 0x0e, 0xe0,
-	0x9d, 0x92, 0x78, 0x93, 0xcd, 0x78, 0xb7, 0x58, 0x99, 0xea, 0x8d, 0x15, 0xa6, 0xe7, 0x8f, 0x57,
-	0x0c, 0x2b, 0x1f, 0x50, 0x0a, 0xac, 0x10, 0x47, 0xd3, 0xa9, 0xa3, 0x7e, 0x37, 0x05, 0x56, 0x48,
-	0x9a, 0xa3, 0x8e, 0xb2, 0x41, 0x06, 0x39, 0xdb, 0xa5, 0xbc, 0xa8, 0x55, 0xaa, 0xa6, 0x67, 0x38,
-	0xa6, 0xc1, 0xb8, 0xfa, 0x6c, 0xfb, 0x70, 0x03, 0x48, 0xbd, 0x1e, 0x10, 0x5f, 0x7c, 0xf6, 0xe7,
-	0x5f, 0xcd, 0xf6, 0xcd, 0xff, 0xcf, 0x73, 0x64, 0x60, 0x8b, 0x57, 0x5d, 0xef, 0x16, 0xab, 0x31,
-	0x53, 0x6e, 0xe8, 0x26, 0x19, 0x72, 0xb8, 0x5d, 0x33, 0x5c, 0xc3, 0xb6, 0xa8, 0xa9, 0xc9, 0x0d,
-	0x91, 0x3b, 0xdb, 0x16, 0xbb, 0xc1, 0x08, 0xfd, 0x3a, 0x6c, 0x8a, 0x72, 0x81, 0xa8, 0x49, 0x50,
-	0xc3, 0xf2, 0x18, 0x37, 0x2a, 0x2e, 0xec, 0xf1, 0xf1, 0xfc, 0x68, 0x9c, 0xe8, 0xba, 0x1c, 0x15,
-	0x9f, 0xc3, 0x5c, 0x8f, 0x16, 0x4c, 0xc3, 0xdd, 0x66, 0xc5, 0xe0, 0x73, 0x52, 0x6c, 0xe6, 0x60,
-	0x84, 0x3e, 0xfc, 0x9c, 0x24, 0x68, 0xf0, 0x39, 0xcf, 0xe2, 0xe7, 0xc4, 0x89, 0x82, 0xcf, 0xb9,
-	0x49, 0xfa, 0x3d, 0xb1, 0x63, 0x91, 0x4f, 0xf9, 0xa5, 0x14, 0xe7, 0x2a, 0x69, 0xe5, 0x67, 0x2c,
-	0x90, 0xa1, 0x28, 0x98, 0xcb, 0xa8, 0x6b, 0x5b, 0xae, 0xfa, 0x1c, 0x7c, 0xc1, 0x60, 0x38, 0x77,
-	0x13, 0x07, 0x94, 0x55, 0x72, 0x4c, 0xb7, 0x39, 0x0b, 0x38, 0xff, 0x72, 0xfb, 0x9c, 0x89, 0x20,
-	0x94, 0x6c, 0x4f, 0x93, 0x81, 0x00, 0xc6, 0xe7, 0xf9, 0x3c, 0xf0, 0x3c, 0x21, 0x67, 0xf9, 0x0c,
-	0xdf, 0x26, 0xa3, 0x16, 0xdb, 0xd5, 0x0c, 0xab, 0x66, 0xf8, 0x17, 0x99, 0xb3, 0xa2, 0xe1, 0xb9,
-	0xea, 0x11, 0x98, 0x3f, 0x6c, 0xb1, 0xdd, 0xeb, 0xc1, 0x60, 0x0e, 0xc7, 0x94, 0x15, 0x32, 0x13,
-	0x3d, 0xec, 0x16, 0xd4, 0x04, 0xa8, 0xa7, 0x22, 0xb3, 0x5a, 0xa2, 0x44, 0xcf, 0xa8, 0x05, 0xca,
-	0x51, 0x44, 0x89, 0xcc, 0x6a, 0x46, 0xb9, 0x44, 0x26, 0xfc, 0x2d, 0x6e, 0x81, 0x70, 0x0c, 0x10,
-	0x54, 0x39, 0xa3, 0x99, 0xfa, 0x1c, 0x19, 0x83, 0x9d, 0x6a, 0x41, 0x7a, 0x1c, 0x48, 0x47, 0xc4,
-	0x70, 0x13, 0x9d, 0x14, 0xaf, 0x7f, 0xb7, 0xc8, 0x73, 0x1b, 0xa0, 0x11, 0x95, 0x93, 0xe4, 0x18,
-	0x73, 0x6c, 0x7d, 0x5b, 0x2b, 0x98, 0xb6, 0xbe, 0xe3, 0x82, 0x34, 0x7d, 0x37, 0x7f, 0x14, 0xfe,
-	0xb6, 0x0c, 0x7f, 0x12, 0x7b, 0x8d, 0x87, 0xa1, 0x15, 0xab, 0x1c, 0x79, 0xc1, 0x30, 0x0a, 0xc8,
-	0x77, 0xf3, 0xc3, 0x38, 0xba, 0x22, 0x07, 0x57, 0x61, 0x4c, 0x88, 0x47, 0xd5, 0x72, 0x3d, 0xba,
-	0xc3, 0x8a, 0x5a, 0x91, 0xe9, 0xb4, 0xa1, 0x71, 0xea, 0xb1, 0x54, 0xe2, 0xe1, 0xd3, 0xaf, 0x08,
-	0xf2, 0x3c, 0xf5, 0x98, 0x72, 0x9b, 0x0c, 0x7a, 0x9c, 0x5a, 0x6e, 0x89, 0x71, 0xcd, 0xa3, 0x75,
-	0x84, 0x4c, 0xa1, 0x6f, 0xfa, 0x7d, 0xea, 0x2d, 0x5a, 0x07, 0xc0, 0x0f, 0xc9, 0x09, 0xa1, 0xa4,
-	0x3d, 0xc3, 0xd1, 0x68, 0xc5, 0xae, 0x5a, 0x9e, 0x14, 0x9a, 0x54, 0x8a, 0xfa, 0x58, 0x85, 0xd6,
-	0xb7, 0x0c, 0x67, 0x09, 0x00, 0x14, 0x4a, 0xc6, 0x24, 0xa4, 0xab, 0xb9, 0xcc, 0xf2, 0x34, 0x87,
-	0x71, 0xdc, 0x30, 0x90, 0x9f, 0x94, 0xd8, 0x43, 0x88, 0xed, 0x6e, 0x32, 0xcb, 0xdb, 0x60, 0x1c,
-	0x36, 0x57, 0xf9, 0x98, 0x0c, 0x0b, 0x16, 0x65, 0xa3, 0x84, 0xe8, 0x70, 0x0b, 0x18, 0x93, 0x62,
-	0x97, 0x0a, 0x7f, 0xb0, 0x42, 0xeb, 0x57, 0x8d, 0x92, 0xc0, 0xbe, 0x8e, 0x28, 0xca, 0x19, 0x32,
-	0x02, 0xc8, 0xb6, 0x65, 0x36, 0x34, 0xcf, 0xf6, 0xd1, 0x51, 0x14, 0x9f, 0xcf, 0x2b, 0x62, 0xf0,
-	0xb6, 0x65, 0x36, 0xb6, 0x6c, 0x49, 0xe1, 0x2a, 0xb7, 0x48, 0xbf, 0x6e, 0x57, 0x1c, 0x93, 0x79,
-	0x8c, 0x6b, 0xee, 0x36, 0xe5, 0x0c, 0xe4, 0xb0, 0xcd, 0x53, 0x39, 0x11, 0xd0, 0x6e, 0x0a, 0x52,
-	0x61, 0xa1, 0x3c, 0xce, 0xa8, 0x5b, 0xe5, 0x0d, 0x09, 0x46, 0x52, 0x69, 0x32, 0x24, 0x45, 0x2c,
-	0x8d, 0x8c, 0xc7, 0x2d, 0x67, 0xd4, 0x52, 0x1d, 0x6d, 0x1f, 0x76, 0x2c, 0x66, 0x44, 0x43, 0x83,
-	0x25, 0x96, 0x4e, 0x1d, 0x87, 0x33, 0xcb, 0x33, 0x74, 0xa6, 0x79, 0x02, 0x56, 0x08, 0xef, 0xd1,
-	0x37, 0xa7, 0x17, 0x9a, 0xdc, 0x8c, 0x85, 0xd0, 0x3d, 0x58, 0x7e, 0x56, 0x70, 0xcd, 0x9f, 0x08,
-	0x69, 0xc5, 0x98, 0x72, 0x8d, 0x1c, 0x77, 0x3d, 0x6a, 0x15, 0x85, 0x49, 0x05, 0xac, 0xe3, 0xed,
-	0x63, 0x1d, 0xf3, 0x29, 0x01, 0x69, 0x85, 0x1c, 0x65, 0x75, 0x87, 0x71, 0x0f, 0x71, 0x4e, 0xb4,
-	0x8f, 0x43, 0x90, 0x0e, 0x50, 0xae, 0x90, 0x23, 0xcc, 0x31, 0x74, 0xc4, 0xe8, 0x6f, 0x1f, 0xe3,
-	0x79, 0x41, 0x05, 0x08, 0x97, 0xc9, 0xa4, 0x6e, 0x5b, 0x35, 0x43, 0x87, 0xcd, 0xdf, 0xa6, 0x66,
-	0x49, 0x33, 0x8d, 0x12, 0xf3, 0x55, 0xc8, 0x00, 0xa8, 0x10, 0x35, 0x9c, 0x72, 0x8d, 0x9a, 0xa5,
-	0x5b, 0x46, 0x89, 0x49, 0x35, 0xa2, 0x91, 0x71, 0x56, 0xf7, 0x18, 0x17, 0xfa, 0x3a, 0x82, 0x03,
-	0xaa, 0x46, 0x1d, 0x4c, 0x71, 0x7e, 0x3e, 0x4a, 0x2e, 0x00, 0xc9, 0x0b, 0x0c, 0xe5, 0x0e, 0x19,
-	0x8e, 0xe0, 0x0a, 0x69, 0x82, 0x95, 0xa9, 0x4a, 0xfb, 0xd8, 0x4a, 0x08, 0xb0, 0xc1, 0xf8, 0x8a,
-	0x20, 0x57, 0xde, 0x27, 0x53, 0x45, 0x56, 0xa2, 0x55, 0xd3, 0xd3, 0x38, 0xab, 0x19, 0x6c, 0x57,
-	0x40, 0x1b, 0x76, 0xd1, 0x5f, 0xf7, 0x10, 0xac, 0x7b, 0x5c, 0xce, 0xc9, 0xc3, 0x94, 0x0d, 0x98,
-	0x21, 0x17, 0xbe, 0x4a, 0x66, 0x7d, 0x00, 0x7d, 0x9b, 0x9a, 0x26, 0xb3, 0xca, 0x2c, 0x81, 0x31,
-	0x0c, 0x18, 0x3e, 0x9f, 0x9c, 0x3f, 0x2b, 0x06, 0xf3, 0x09, 0x19, 0x46, 0x27, 0x22, 0xb0, 0x13,
-	0xa0, 0x53, 0xd5, 0x91, 0xf4, 0xaa, 0x42, 0xa9, 0x08, 0x77, 0xc3, 0xc7, 0xd9, 0x14, 0x30, 0xca,
-	0x35, 0x32, 0x17, 0x81, 0xa6, 0xba, 0x2e, 0x54, 0x20, 0x2d, 0x18, 0xa6, 0xe1, 0x35, 0xfc, 0xcf,
-	0x1c, 0x85, 0xcf, 0x9c, 0x09, 0xe7, 0x2d, 0xc5, 0xa6, 0xc9, 0x0f, 0xbd, 0x43, 0x86, 0x39, 0x2b,
-	0x31, 0xce, 0xa9, 0xa9, 0x49, 0x9f, 0x12, 0xb4, 0xfb, 0x58, 0x8a, 0x73, 0xf0, 0x01, 0xf2, 0x40,
-	0x0f, 0x0a, 0x9e, 0x92, 0x89, 0xa8, 0x8d, 0xb4, 0x5d, 0x2f, 0xaa, 0x00, 0xd4, 0xf6, 0xc1, 0xd5,
-	0x10, 0x26, 0x67, 0xbb, 0x5e, 0x44, 0x03, 0xdc, 0x23, 0x0a, 0xd8, 0x69, 0xcd, 0x14, 0xce, 0xaa,
-	0xb8, 0xa5, 0x25, 0xa3, 0xac, 0x8e, 0x83, 0xb0, 0x9c, 0x6a, 0x25, 0x2c, 0x09, 0xc7, 0x56, 0x8a,
-	0xcc, 0x80, 0x97, 0x74, 0x78, 0x3f, 0x22, 0x43, 0xe2, 0xec, 0xc2, 0xe3, 0xc7, 0xa3, 0x9b, 0xc8,
-	0xa2, 0xe5, 0x0d, 0x2b, 0xb8, 0x1f, 0x78, 0x72, 0x0f, 0xc8, 0x68, 0x00, 0xcc, 0x63, 0x3b, 0x3e,
-	0xd9, 0xfe, 0xa6, 0x0c, 0x87, 0x10, 0x91, 0x3d, 0x9f, 0x24, 0x47, 0x1e, 0x81, 0xee, 0x36, 0x9e,
-	0x30, 0x75, 0x0a, 0xdc, 0x91, 0xe7, 0xc5, 0x1f, 0x36, 0x8d, 0x27, 0x4c, 0xf8, 0x05, 0x38, 0x58,
-	0x15, 0xb2, 0x56, 0xa1, 0x8f, 0x6c, 0x6e, 0x78, 0x0d, 0x75, 0x3a, 0x85, 0x5f, 0x00, 0x58, 0x82,
-	0x7c, 0x5d, 0x52, 0x8b, 0xcb, 0x23, 0x76, 0xea, 0x51, 0x95, 0xdb, 0x3c, 0x1a, 0x25, 0xcd, 0xa4,
-	0xb8, 0x3c, 0x15, 0xc3, 0xba, 0x21, 0xe8, 0x23, 0xa1, 0x12, 0x23, 0xaa, 0x6b, 0x08, 0xd3, 0xa4,
-	0xa1, 0x85, 0xaa, 0x8b, 0x5b, 0x2d, 0x03, 0xba, 0xd9, 0xf4, 0xa7, 0x30, 0x8a, 0x60, 0xb9, 0x00,
-	0x4b, 0x46, 0x77, 0x06, 0x99, 0x08, 0x94, 0x7e, 0x33, 0xa3, 0xb9, 0xf4, 0x8c, 0x54, 0x1f, 0xae,
-	0x89, 0x55, 0x99, 0x8c, 0x4b, 0x0e, 0x2d, 0x38, 0x9d, 0x4c, 0xcf, 0x69, 0x4c, 0xa2, 0x34, 0x31,
-	0x62, 0x44, 0x95, 0xe6, 0xa7, 0x99, 0xcf, 0x7c, 0x86, 0xad, 0x43, 0xb0, 0x26, 0x36, 0xf7, 0xc9,
-	0xa8, 0x6b, 0x9b, 0xb6, 0x26, 0x79, 0x15, 0x6c, 0xab, 0xea, 0xe2, 0x2d, 0x3e, 0xd5, 0xfe, 0xd1,
-	0x0f, 0x09, 0x88, 0x55, 0x40, 0x58, 0x16, 0x00, 0x70, 0x89, 0xcf, 0x91, 0x31, 0x19, 0x79, 0x69,
-	0x45, 0x46, 0x8b, 0xa6, 0x61, 0x05, 0x36, 0xeb, 0x7b, 0xa0, 0xd0, 0x46, 0xe4, 0xf0, 0x8a, 0x1c,
-	0x95, 0x7a, 0xec, 0x16, 0x39, 0x25, 0x7c, 0x33, 0xaa, 0x7b, 0x46, 0x8d, 0x85, 0xb2, 0xeb, 0x82,
-	0x69, 0xd1, 0xed, 0x4a, 0xc5, 0xf0, 0x84, 0xab, 0xf6, 0x02, 0x88, 0xc5, 0x6c, 0x85, 0xd6, 0x97,
-	0x60, 0x66, 0x20, 0x9d, 0xee, 0x86, 0x30, 0xa5, 0x72, 0x9a, 0xf2, 0x1e, 0x99, 0x12, 0x68, 0x22,
-	0xd6, 0x49, 0x40, 0xa1, 0x47, 0xf9, 0x22, 0xc6, 0x09, 0x15, 0x5a, 0xff, 0x80, 0xed, 0xc6, 0x30,
-	0xd0, 0x53, 0x3c, 0x4f, 0xd4, 0x50, 0x7d, 0x3c, 0xae, 0xb2, 0x2a, 0xd3, 0x04, 0x1e, 0x48, 0xe6,
-	0x4b, 0x32, 0x50, 0xf0, 0xc7, 0x3f, 0x14, 0xc3, 0xeb, 0xb4, 0xee, 0x8b, 0x69, 0xc5, 0xb0, 0x6c,
-	0xae, 0xb9, 0x26, 0x75, 0xb7, 0x35, 0x87, 0x59, 0xd4, 0xf4, 0x1a, 0xea, 0xe9, 0x14, 0x62, 0x0a,
-	0xf4, 0x9b, 0x82, 0x7c, 0x03, 0xa9, 0x85, 0xce, 0xa9, 0xd8, 0x45, 0x26, 0xce, 0x27, 0x81, 0xfb,
-	0x72, 0x0a, 0x9d, 0xe3, 0x43, 0xc4, 0xa0, 0xef, 0x90, 0x61, 0x97, 0xd5, 0x18, 0x4f, 0x02, 0xbf,
-	0x92, 0x42, 0x03, 0x20, 0x40, 0x0c, 0xf6, 0x1e, 0x19, 0x79, 0xc2, 0xb8, 0x6d, 0x58, 0xe5, 0x04,
-	0xee, 0xab, 0x29, 0xae, 0x97, 0x44, 0x88, 0x01, 0x97, 0xc8, 0xb4, 0xc3, 0xed, 0x47, 0x4c, 0xf7,
-	0x05, 0x04, 0xec, 0x53, 0xe4, 0xfe, 0xbe, 0xd6, 0x3e, 0x83, 0x09, 0x89, 0x94, 0x0b, 0x80, 0xc2,
-	0x6b, 0xfc, 0x19, 0x99, 0xa8, 0xb0, 0x4a, 0x41, 0xb8, 0xe5, 0x42, 0xed, 0x0b, 0x67, 0x84, 0x59,
-	0x55, 0x26, 0xfd, 0xea, 0xd7, 0xd3, 0x38, 0xc0, 0x00, 0x03, 0xc6, 0x23, 0x8f, 0x20, 0xe8, 0x61,
-	0x3f, 0x24, 0x63, 0x1e, 0x2d, 0xb7, 0x84, 0x5f, 0x48, 0x71, 0xaa, 0x1e, 0x2d, 0x37, 0x63, 0xbf,
-	0x4b, 0x26, 0x20, 0x17, 0x00, 0xd8, 0x41, 0xf4, 0xe9, 0x32, 0xdd, 0xb6, 0x8a, 0xae, 0xba, 0x08,
-	0x72, 0x28, 0x3c, 0x73, 0xa0, 0xf4, 0x03, 0xd0, 0x4d, 0x1c, 0x56, 0xce, 0x92, 0x31, 0x6a, 0x9a,
-	0xf6, 0xae, 0xe6, 0x32, 0xb3, 0xa4, 0x45, 0x77, 0x41, 0x7d, 0x03, 0x22, 0x99, 0x61, 0x18, 0xde,
-	0x64, 0x66, 0x69, 0x3d, 0x5c, 0x9b, 0x72, 0x93, 0xcc, 0x87, 0x22, 0xc3, 0x99, 0xeb, 0xd8, 0x96,
-	0xcb, 0x9a, 0x74, 0xc0, 0x19, 0xe0, 0x3d, 0x1b, 0xcc, 0xcc, 0xcb, 0x89, 0x09, 0x6d, 0xf0, 0x98,
-	0xcc, 0x42, 0x30, 0xe8, 0x07, 0xad, 0x9c, 0xe9, 0xcc, 0xa8, 0xb1, 0x62, 0x44, 0x84, 0xdf, 0x4c,
-	0xaf, 0x0d, 0x27, 0x45, 0x50, 0x28, 0x21, 0xf3, 0x12, 0x31, 0x10, 0x79, 0x97, 0xcc, 0xed, 0xcd,
-	0x12, 0x43, 0x75, 0xf5, 0xad, 0xf4, 0x3c, 0xa7, 0x5a, 0xf3, 0xc4, 0x84, 0x8c, 0xd0, 0x7a, 0xba,
-	0x6d, 0x79, 0x22, 0xdc, 0xdd, 0xcf, 0xdb, 0x7f, 0x5b, 0xee, 0x1a, 0x4e, 0xcd, 0xed, 0xe5, 0xf4,
-	0xef, 0xa0, 0xd6, 0xf3, 0x11, 0xf1, 0xf8, 0xc1, 0x5d, 0x80, 0x73, 0x52, 0xcf, 0x66, 0x30, 0x89,
-	0x15, 0x5a, 0xcf, 0x21, 0x1e, 0x1c, 0xf3, 0x06, 0xe3, 0x78, 0xe8, 0x8a, 0x41, 0x26, 0x41, 0x61,
-	0x57, 0xbd, 0x6d, 0x9b, 0x0b, 0x09, 0x2c, 0x4a, 0x55, 0x0d, 0x93, 0xd5, 0x73, 0x19, 0x8c, 0xa2,
-	0xd0, 0xea, 0x00, 0xb7, 0x6c, 0x5b, 0x45, 0xd0, 0xe7, 0x80, 0xa5, 0xac, 0x90, 0xd9, 0x28, 0x1b,
-	0xd4, 0x28, 0x22, 0x24, 0x45, 0x8d, 0x26, 0x3c, 0x96, 0xf3, 0x70, 0x33, 0x27, 0x69, 0x40, 0x0e,
-	0x5a, 0xe3, 0xb6, 0xb5, 0x1e, 0x4c, 0x51, 0x6a, 0x64, 0x26, 0xd8, 0xeb, 0xc8, 0x45, 0x05, 0x07,
-	0x0e, 0xe5, 0xee, 0x02, 0x7c, 0xf3, 0x99, 0x36, 0xe4, 0x2e, 0xf2, 0xe5, 0x42, 0x0a, 0x27, 0xfd,
-	0x93, 0x09, 0xaf, 0xb5, 0x80, 0x45, 0x61, 0x74, 0xc9, 0x54, 0x34, 0x52, 0xe2, 0xb6, 0x43, 0xcb,
-	0x34, 0x12, 0x8d, 0xbd, 0x93, 0x95, 0xeb, 0x44, 0x24, 0x7e, 0x0a, 0x51, 0x31, 0x3c, 0x3b, 0x2b,
-	0xb3, 0x29, 0xb4, 0xec, 0xca, 0x54, 0x87, 0xe1, 0x19, 0x54, 0x58, 0x4c, 0xf5, 0x22, 0x66, 0xfa,
-	0xc4, 0xbd, 0xa4, 0x65, 0x17, 0x12, 0x18, 0xfe, 0x98, 0xc2, 0xc8, 0x48, 0x24, 0xe4, 0x8f, 0xe4,
-	0x9f, 0xde, 0xcd, 0xfa, 0x91, 0x43, 0x21, 0x5e, 0x98, 0x8f, 0xda, 0x45, 0xf1, 0x8e, 0x6c, 0x0b,
-	0x1c, 0x40, 0xf4, 0xae, 0x5e, 0xca, 0x7c, 0x16, 0x78, 0x63, 0x25, 0x30, 0x1c, 0x41, 0x78, 0x69,
-	0xad, 0x58, 0x58, 0x83, 0x02, 0x52, 0xa8, 0x72, 0x0b, 0x17, 0x79, 0x39, 0x2b, 0xcf, 0x31, 0x23,
-	0x1e, 0xdf, 0x2d, 0x57, 0xb9, 0x05, 0x0b, 0x75, 0xc9, 0xb4, 0x58, 0x68, 0x64, 0x4f, 0xcb, 0xd4,
-	0xb0, 0x22, 0x5a, 0xec, 0xbd, 0xac, 0x2c, 0xc7, 0x2b, 0xb4, 0x1e, 0xba, 0xdc, 0x57, 0xa9, 0x61,
-	0x05, 0x9a, 0xcc, 0x26, 0x33, 0xe0, 0xac, 0x78, 0x74, 0x47, 0x18, 0x60, 0xbc, 0xe2, 0x6e, 0x54,
-	0x8f, 0xbd, 0x9f, 0x5e, 0x38, 0x27, 0x2a, 0xb4, 0xbe, 0x89, 0x88, 0x78, 0xb9, 0xdd, 0x50, 0x8b,
-	0xd5, 0xc8, 0x4c, 0x9c, 0x99, 0xd6, 0x30, 0x98, 0x19, 0x55, 0xd6, 0x3f, 0xea, 0xcb, 0x7c, 0xc9,
-	0xdd, 0x28, 0xd3, 0x07, 0x02, 0x37, 0x58, 0xa8, 0x41, 0xc6, 0x7c, 0xbe, 0x8e, 0x6d, 0xc3, 0x2b,
-	0x84, 0x27, 0x45, 0xf9, 0xb7, 0x33, 0x33, 0x1c, 0x96, 0x90, 0x1b, 0xb6, 0x6d, 0xae, 0x1b, 0x96,
-	0xe7, 0xe7, 0xc3, 0x46, 0x62, 0xac, 0x74, 0xea, 0x68, 0x05, 0xea, 0x32, 0xf5, 0xc7, 0x19, 0x5e,
-	0xa8, 0x94, 0x08, 0x8b, 0x1c, 0x75, 0x96, 0xa9, 0x0b, 0x92, 0xd7, 0xc4, 0x00, 0x2e, 0xe5, 0xef,
-	0x64, 0x5e, 0x49, 0x82, 0x0d, 0x5c, 0xc8, 0x4f, 0xc8, 0x60, 0x73, 0x72, 0xf9, 0x4a, 0x56, 0x0e,
-	0xfd, 0xc9, 0x44, 0xf3, 0x15, 0x32, 0x2d, 0x7c, 0x6e, 0xe9, 0x34, 0x20, 0x8b, 0x32, 0xa7, 0x7a,
-	0x60, 0xc9, 0x96, 0x30, 0x7f, 0x63, 0xb1, 0x5d, 0x94, 0x48, 0x20, 0xbd, 0x2a, 0x66, 0x44, 0x12,
-	0x2f, 0x60, 0x86, 0x65, 0x22, 0xb3, 0x40, 0x4d, 0x6a, 0xe9, 0x4c, 0x5d, 0xce, 0x92, 0x78, 0x11,
-	0xa6, 0x17, 0x71, 0x96, 0x11, 0x46, 0x84, 0x27, 0x01, 0x74, 0xa9, 0x6a, 0x15, 0xdd, 0xf0, 0x9d,
-	0x28, 0x07, 0x26, 0x64, 0xc4, 0x1f, 0x5e, 0x13, 0xa3, 0xc1, 0x33, 0xd1, 0x79, 0xa2, 0x26, 0xe8,
-	0x38, 0xf3, 0xb8, 0xad, 0x39, 0xe5, 0x92, 0xba, 0xd2, 0x82, 0x30, 0x2f, 0x46, 0x37, 0xca, 0x25,
-	0xdf, 0x93, 0x09, 0xf5, 0x6f, 0xb3, 0x59, 0x5e, 0xcd, 0xe6, 0xc9, 0x84, 0x6a, 0x3b, 0x61, 0x99,
-	0xef, 0x92, 0x81, 0xd0, 0xfb, 0x93, 0xe9, 0xf9, 0xdf, 0xcd, 0x70, 0x4d, 0x4f, 0xf8, 0x1e, 0xa2,
-	0xcc, 0xd0, 0x3b, 0xa8, 0x57, 0xfc, 0xf0, 0xae, 0x85, 0x5e, 0xf9, 0x83, 0xbe, 0x6c, 0x8a, 0x45,
-	0x6e, 0x73, 0x93, 0x62, 0xa9, 0x92, 0x93, 0x89, 0xcd, 0x6b, 0xc1, 0x74, 0x2d, 0x3d, 0xcf, 0xe9,
-	0xd8, 0xf6, 0x35, 0xb1, 0x75, 0xc8, 0x8c, 0x49, 0x79, 0x99, 0x69, 0x7e, 0xa8, 0x81, 0x01, 0xb8,
-	0xe6, 0x6d, 0x73, 0xe6, 0x6e, 0xdb, 0x66, 0x51, 0xbd, 0x9a, 0xe1, 0xc8, 0x00, 0x72, 0x03, 0x11,
-	0x31, 0x0c, 0xdf, 0xf2, 0xf1, 0xc4, 0xad, 0x0f, 0xc2, 0x1a, 0xce, 0xd0, 0x52, 0x94, 0x18, 0x53,
-	0xaf, 0x65, 0xb8, 0xf5, 0x7e, 0x54, 0x23, 0x71, 0xd6, 0x18, 0x53, 0xea, 0x64, 0x3e, 0xb2, 0x87,
-	0x51, 0x0e, 0x5a, 0x98, 0x48, 0x57, 0xaf, 0xa7, 0x67, 0x36, 0x1b, 0xc2, 0x46, 0xf8, 0x2d, 0x05,
-	0x98, 0x8a, 0x47, 0xe6, 0xf6, 0xe2, 0xec, 0x27, 0x5b, 0xd4, 0x1b, 0x19, 0x0e, 0xb0, 0x25, 0xdf,
-	0x4d, 0x89, 0xa8, 0xe4, 0xc8, 0x8c, 0xc3, 0x78, 0xc5, 0x70, 0x5d, 0xc3, 0xb6, 0x4c, 0xe6, 0xba,
-	0xf0, 0x34, 0x1a, 0xc9, 0x36, 0xaa, 0x37, 0xc1, 0x09, 0x9a, 0x8c, 0xcf, 0x5a, 0x37, 0xac, 0x30,
-	0xc9, 0x28, 0x54, 0x45, 0x12, 0x04, 0xde, 0xa7, 0x18, 0x57, 0x6f, 0x61, 0x0a, 0x20, 0x41, 0x4d,
-	0xeb, 0x90, 0xb9, 0xbf, 0x43, 0x06, 0x44, 0x60, 0x17, 0x3b, 0xc7, 0xf5, 0x0c, 0xd2, 0xe7, 0xd1,
-	0x72, 0xf4, 0x0c, 0x8b, 0x44, 0x05, 0xab, 0x2e, 0x36, 0xd6, 0x62, 0x41, 0xb2, 0x57, 0x18, 0x0b,
-	0xf5, 0x83, 0xf4, 0xf0, 0x23, 0xc2, 0x9e, 0x4b, 0x2c, 0x14, 0x00, 0x61, 0x26, 0x94, 0x1f, 0xf5,
-	0x91, 0xd3, 0xad, 0x58, 0x68, 0x76, 0x8d, 0xf1, 0x92, 0x88, 0x0a, 0x7d, 0x77, 0xc9, 0xb0, 0xd5,
-	0xdb, 0x59, 0xed, 0xc6, 0x29, 0xb7, 0x89, 0xf3, 0x6d, 0x89, 0x2f, 0x5d, 0x27, 0xc3, 0x56, 0xde,
-	0x27, 0x53, 0xc9, 0x2f, 0x89, 0x3d, 0xb9, 0x6e, 0xcc, 0xf5, 0x9d, 0x7e, 0x36, 0x3f, 0x1e, 0x87,
-	0x5a, 0x8d, 0x3c, 0xc0, 0x32, 0x32, 0x82, 0x2f, 0xe2, 0x12, 0x84, 0xea, 0x7a, 0x95, 0x53, 0xbd,
-	0xa1, 0x7e, 0x98, 0xd9, 0x99, 0x15, 0x1a, 0x51, 0xc2, 0x2d, 0x49, 0x34, 0x61, 0x1a, 0x04, 0x1b,
-	0xea, 0x38, 0x8c, 0x9a, 0xae, 0x56, 0xb2, 0x79, 0xc8, 0x29, 0x0f, 0xdf, 0x28, 0x3e, 0x63, 0x09,
-	0x87, 0xd7, 0x6c, 0x1e, 0x10, 0x5e, 0x21, 0xd3, 0x82, 0x10, 0x17, 0x05, 0x89, 0x2f, 0xc3, 0x6b,
-	0x00, 0x3d, 0x2e, 0x57, 0xdd, 0xc4, 0x15, 0x56, 0x0c, 0x7c, 0x1c, 0x5e, 0x92, 0x53, 0xd6, 0x6c,
-	0x99, 0x35, 0x56, 0x1e, 0x90, 0xfe, 0x90, 0x35, 0xda, 0xf2, 0xad, 0xac, 0x6b, 0x3b, 0x1e, 0x7c,
-	0x24, 0x58, 0xf2, 0x55, 0x32, 0xdb, 0xb4, 0x71, 0xda, 0xae, 0x61, 0x15, 0xed, 0x5d, 0xdf, 0x96,
-	0x7f, 0x04, 0x9f, 0x17, 0x1c, 0x92, 0xbf, 0xae, 0x7b, 0x30, 0x49, 0x9a, 0xf3, 0x6b, 0xa8, 0xc1,
-	0x65, 0x5a, 0x2f, 0x94, 0x5a, 0x37, 0x6a, 0x00, 0xef, 0x80, 0x38, 0x4d, 0x07, 0x49, 0xbd, 0x50,
-	0x35, 0xbb, 0xa1, 0x55, 0x5b, 0x46, 0xeb, 0x13, 0x20, 0xa1, 0x61, 0x8e, 0xc2, 0xdc, 0x05, 0x98,
-	0x89, 0x08, 0x0c, 0xce, 0x09, 0x31, 0x74, 0x94, 0x21, 0x78, 0x56, 0x40, 0x6f, 0x31, 0x74, 0x51,
-	0xef, 0xa5, 0x97, 0x21, 0xe1, 0xa9, 0xc0, 0xb3, 0x95, 0xf0, 0x13, 0x03, 0xaf, 0xd4, 0xc4, 0x28,
-	0xdc, 0xd7, 0xe7, 0x9c, 0x3d, 0xae, 0x32, 0xa8, 0x57, 0x90, 0x69, 0xdc, 0xfb, 0xe9, 0x19, 0x09,
-	0x67, 0x5f, 0x5a, 0x8e, 0xbc, 0x0f, 0x27, 0x33, 0xb9, 0x8f, 0x30, 0x0c, 0x6f, 0xe6, 0x06, 0x0f,
-	0x28, 0xea, 0x83, 0x6c, 0x21, 0x7f, 0x92, 0xd9, 0xa6, 0x00, 0x03, 0xb5, 0xca, 0x6d, 0xc7, 0x76,
-	0x59, 0x31, 0x60, 0xc8, 0xea, 0x8e, 0x21, 0xdc, 0x34, 0x94, 0xc9, 0x87, 0xe0, 0xde, 0x4d, 0xfa,
-	0xb3, 0x24, 0xcc, 0x2a, 0xcc, 0x91, 0x52, 0xf9, 0x90, 0x8c, 0x41, 0x62, 0x89, 0xba, 0xae, 0x51,
-	0xb6, 0xc4, 0xb6, 0x88, 0x98, 0x1e, 0xee, 0xee, 0xc7, 0x29, 0xf2, 0x5e, 0x02, 0x63, 0x49, 0x42,
-	0x88, 0x78, 0x1f, 0x2e, 0x6d, 0x83, 0xbc, 0x14, 0xc7, 0xde, 0xfb, 0x0d, 0xf4, 0x93, 0xf6, 0x79,
-	0x9d, 0x8a, 0xf2, 0x5a, 0xdd, 0xe3, 0x3d, 0xf4, 0x26, 0x99, 0x8f, 0xb3, 0x0e, 0x73, 0x0c, 0x91,
-	0x87, 0xb3, 0x4f, 0x31, 0x91, 0x13, 0x05, 0x0c, 0x72, 0x06, 0x91, 0xa7, 0xb1, 0x5d, 0xf2, 0x62,
-	0xc2, 0xf4, 0xec, 0xb5, 0x65, 0x5a, 0xfb, 0xcb, 0x98, 0x8f, 0x43, 0x6e, 0xb6, 0xda, 0xc0, 0x02,
-	0x99, 0xa4, 0x05, 0x6a, 0x15, 0x6d, 0xc1, 0x05, 0xdf, 0x9b, 0x18, 0xf5, 0x82, 0xec, 0xed, 0x67,
-	0x29, 0xde, 0xfd, 0x02, 0x9c, 0x1b, 0x55, 0xde, 0xd8, 0x64, 0xd4, 0xf3, 0x53, 0xb8, 0xb7, 0xc9,
-	0xa0, 0xff, 0xe0, 0x14, 0x3e, 0x9e, 0xd1, 0x14, 0xc5, 0x28, 0x8f, 0xf0, 0xb9, 0x29, 0x78, 0x37,
-	0x2b, 0x92, 0x29, 0xf8, 0x54, 0xaa, 0xeb, 0xcc, 0xf1, 0x84, 0x9b, 0xef, 0x2b, 0x2a, 0x3c, 0xea,
-	0x42, 0xfb, 0xd8, 0xe3, 0x02, 0x68, 0x29, 0xc0, 0x41, 0x55, 0xe6, 0x3f, 0x78, 0x0f, 0x44, 0xdf,
-	0xca, 0x40, 0x41, 0xeb, 0xd9, 0x9c, 0xea, 0x1b, 0xe1, 0x02, 0x20, 0xd1, 0x1c, 0xc0, 0xba, 0xcc,
-	0x64, 0x78, 0x49, 0x77, 0x99, 0x51, 0xde, 0xf6, 0xd4, 0x62, 0xba, 0x4a, 0x0b, 0x00, 0xde, 0xf4,
-	0x41, 0xee, 0x01, 0x86, 0xb2, 0x42, 0x66, 0x25, 0x07, 0x3c, 0x4d, 0xc3, 0x2a, 0xa3, 0x95, 0x42,
-	0x1e, 0x86, 0x55, 0x56, 0x19, 0x68, 0xf2, 0x49, 0x44, 0x80, 0xc3, 0x12, 0x93, 0xd6, 0x6c, 0x7e,
-	0xcf, 0x9f, 0xa2, 0x98, 0x71, 0x47, 0xae, 0x65, 0xee, 0xbd, 0xd4, 0xfe, 0xd7, 0x46, 0x1d, 0xb8,
-	0x16, 0xe9, 0x77, 0x8e, 0xaf, 0x41, 0x4d, 0x6c, 0x30, 0xa6, 0x91, 0x02, 0xc5, 0xd4, 0xdf, 0x4b,
-	0x51, 0xc4, 0x38, 0x0b, 0x79, 0xa1, 0x18, 0x2b, 0x08, 0x6e, 0xa4, 0xd8, 0x31, 0x65, 0x97, 0xcc,
-	0x83, 0x83, 0x67, 0x7b, 0xa8, 0x2f, 0x5a, 0xe7, 0x50, 0x7f, 0xbf, 0x2f, 0x5b, 0xb8, 0xb1, 0x25,
-	0x60, 0x5b, 0x67, 0x52, 0x4f, 0x93, 0x01, 0xc1, 0x18, 0x0e, 0x88, 0xb3, 0x22, 0xa7, 0xbb, 0xae,
-	0x5a, 0xc6, 0xf2, 0xbd, 0x0a, 0xad, 0x8b, 0x13, 0xc9, 0xe3, 0x5f, 0xc5, 0x65, 0xc1, 0xaa, 0x08,
-	0x26, 0x53, 0xa1, 0x9c, 0xb9, 0x8c, 0x8b, 0xb0, 0x48, 0x6c, 0xff, 0x76, 0x8a, 0xcb, 0xe2, 0xc3,
-	0x80, 0xe4, 0x23, 0x08, 0x6c, 0xfc, 0x4d, 0xd2, 0x2f, 0xeb, 0x2e, 0x84, 0x8b, 0x0e, 0xb0, 0x46,
-	0xaa, 0x32, 0x57, 0x41, 0xbb, 0xc6, 0x10, 0xec, 0x15, 0x32, 0x88, 0xd9, 0x2f, 0x00, 0xe4, 0xb6,
-	0x08, 0x8c, 0xd5, 0x47, 0xb0, 0xb2, 0x7e, 0x48, 0x5f, 0x89, 0xbf, 0xe7, 0xe1, 0xcf, 0xbe, 0x7b,
-	0x1b, 0x2c, 0x2f, 0xea, 0xde, 0xee, 0x64, 0x73, 0x6f, 0xf3, 0x12, 0x2b, 0xe2, 0xde, 0x3e, 0x21,
-	0xa7, 0x5b, 0x71, 0x68, 0xe9, 0xdd, 0x9a, 0x29, 0x2c, 0x04, 0x6f, 0x62, 0xd5, 0xd2, 0x9f, 0x4d,
-	0xf2, 0x8e, 0xf9, 0xb3, 0x15, 0xf4, 0xf6, 0xe2, 0x50, 0x51, 0x7f, 0xf6, 0x1e, 0xfa, 0xb3, 0x01,
-	0x48, 0xe0, 0x65, 0x5a, 0x29, 0x1e, 0xd5, 0xa0, 0x1e, 0x0b, 0x01, 0x02, 0x47, 0x74, 0x95, 0xcc,
-	0x36, 0x81, 0x26, 0x7c, 0x3d, 0x1b, 0x7d, 0x3d, 0x9e, 0x20, 0x8d, 0xf9, 0x7a, 0xf7, 0xc9, 0x60,
-	0xec, 0xfb, 0xc4, 0x0d, 0x55, 0x7f, 0x25, 0x83, 0xbc, 0xf4, 0x47, 0x3e, 0x52, 0x5c, 0x50, 0xc5,
-	0x24, 0x93, 0x01, 0x6a, 0x91, 0x55, 0x6c, 0xd0, 0x08, 0x61, 0x34, 0xfe, 0xab, 0x19, 0x78, 0x04,
-	0xfb, 0xbc, 0x22, 0xf1, 0xc2, 0x60, 0xfc, 0x02, 0x3a, 0xf4, 0x01, 0xc7, 0x68, 0xdc, 0xf8, 0x6b,
-	0xc0, 0x0a, 0x3c, 0x7a, 0xff, 0x0b, 0x23, 0x21, 0xe3, 0x9b, 0x89, 0x13, 0xe2, 0xcc, 0xc1, 0x80,
-	0xf1, 0xd7, 0xfb, 0x60, 0xff, 0x94, 0x08, 0x59, 0x9e, 0x39, 0x10, 0x2e, 0x9e, 0x23, 0x63, 0xf1,
-	0x53, 0x2d, 0x33, 0xff, 0x46, 0xfc, 0x06, 0x56, 0x95, 0x0e, 0x47, 0xcf, 0xac, 0xcc, 0xe4, 0x6d,
-	0xb8, 0x1c, 0xd1, 0x05, 0xc1, 0x9e, 0xe8, 0xb6, 0x6d, 0x16, 0xed, 0x5d, 0x4b, 0xfd, 0x4d, 0x24,
-	0x55, 0x93, 0xab, 0xcc, 0xc9, 0x09, 0xca, 0x3b, 0x24, 0x18, 0xd3, 0xaa, 0x16, 0x28, 0x93, 0x80,
-	0xf8, 0xb7, 0x90, 0x78, 0xd4, 0x9f, 0x70, 0x07, 0xc6, 0x03, 0xd2, 0x02, 0x99, 0xe4, 0xb6, 0x19,
-	0xbc, 0x9d, 0x18, 0x56, 0xc9, 0xa4, 0x61, 0x12, 0x5f, 0x75, 0x52, 0x38, 0x09, 0x02, 0x07, 0x2f,
-	0xfa, 0x75, 0x1f, 0x05, 0xf3, 0xad, 0x5b, 0xf8, 0x7e, 0x21, 0x6e, 0x99, 0x67, 0xc7, 0xb5, 0xc1,
-	0x63, 0xc0, 0x9f, 0xde, 0xf7, 0xb0, 0xc1, 0x35, 0xcf, 0x21, 0x71, 0x44, 0xfc, 0xeb, 0xe4, 0xa5,
-	0x16, 0x88, 0x2d, 0xa5, 0x9f, 0xa7, 0x70, 0xac, 0xf4, 0x24, 0xa3, 0x66, 0xe1, 0xbf, 0x4c, 0x26,
-	0x13, 0x9c, 0x63, 0xb2, 0xef, 0xc2, 0xf5, 0x50, 0x63, 0x40, 0x51, 0xd1, 0x97, 0x85, 0x3a, 0x3e,
-	0x44, 0x20, 0xf9, 0x5e, 0xba, 0x42, 0x1d, 0xb9, 0x23, 0x81, 0xe0, 0xe7, 0xc8, 0x4c, 0x12, 0x32,
-	0x21, 0xf7, 0x55, 0xf4, 0x0c, 0xf4, 0x38, 0x61, 0x4c, 0xec, 0x4d, 0x5f, 0xaf, 0x41, 0xf0, 0x61,
-	0x70, 0x56, 0xd4, 0x68, 0xc1, 0xae, 0x31, 0x3f, 0xde, 0xa9, 0x65, 0x16, 0xce, 0xbc, 0xc4, 0x5b,
-	0x12, 0x70, 0x32, 0xde, 0xb9, 0xec, 0xab, 0x02, 0xad, 0x60, 0x57, 0x2d, 0x4f, 0x58, 0x4c, 0xdd,
-	0xa4, 0x50, 0x6d, 0x62, 0xd2, 0x86, 0xba, 0x8b, 0x1b, 0x89, 0x53, 0x96, 0x61, 0x46, 0x1e, 0x27,
-	0xac, 0x88, 0x71, 0xa5, 0x4a, 0x5e, 0x68, 0x91, 0x19, 0x4a, 0x20, 0x0a, 0xab, 0x57, 0x6f, 0x7f,
-	0x67, 0x4f, 0x36, 0x65, 0x91, 0xf2, 0x51, 0xf6, 0xe8, 0xa2, 0x82, 0x75, 0xab, 0x31, 0x6e, 0x94,
-	0x8c, 0x84, 0x75, 0x6b, 0x64, 0xb3, 0x6e, 0x77, 0x25, 0x56, 0xdc, 0xba, 0xb5, 0xe2, 0xd0, 0xf2,
-	0x7e, 0x3f, 0x49, 0x61, 0xdd, 0x6a, 0x4d, 0xac, 0x5a, 0x5a, 0xb7, 0x24, 0xef, 0xd8, 0x0d, 0xff,
-	0x3e, 0x5a, 0xb7, 0x38, 0x54, 0x0b, 0xeb, 0x16, 0x80, 0x04, 0x77, 0xfc, 0x07, 0xe9, 0xac, 0x9b,
-	0xbf, 0x2f, 0x51, 0xeb, 0xd6, 0x04, 0x9a, 0xb8, 0xe5, 0x9f, 0xa3, 0x75, 0xab, 0x25, 0x48, 0x63,
-	0xd7, 0x5c, 0xea, 0x69, 0x5c, 0x14, 0xce, 0xd4, 0x41, 0x61, 0xb9, 0xea, 0x17, 0x98, 0x0e, 0xf4,
-	0xf3, 0x34, 0x77, 0xa3, 0x83, 0x8a, 0x46, 0x46, 0x02, 0xf6, 0x98, 0x78, 0x90, 0xc1, 0xc3, 0x97,
-	0x19, 0xaa, 0xda, 0x7d, 0x24, 0xc8, 0x3a, 0xc8, 0x08, 0x42, 0x26, 0xc9, 0x13, 0x4c, 0x12, 0xd9,
-	0x8d, 0x1f, 0xf6, 0x65, 0x2b, 0x5d, 0xb8, 0x1b, 0x65, 0x18, 0x4b, 0x73, 0x7c, 0x11, 0xcb, 0x29,
-	0x4b, 0xd1, 0x09, 0x3b, 0xb7, 0xe4, 0x35, 0xfb, 0x49, 0xe6, 0xd7, 0xab, 0x99, 0x10, 0x1d, 0x05,
-	0x69, 0xdd, 0x6f, 0xeb, 0xc2, 0x0b, 0xf7, 0x25, 0x79, 0x31, 0xf1, 0x36, 0x20, 0xbf, 0x41, 0x2c,
-	0xba, 0x54, 0xb5, 0x8a, 0xc1, 0xda, 0xff, 0x30, 0xc3, 0xda, 0x4f, 0xc6, 0x5e, 0x08, 0xf0, 0x03,
-	0x36, 0x18, 0x5f, 0x03, 0x5c, 0xdc, 0x80, 0x06, 0x99, 0xc7, 0x12, 0xe1, 0xe4, 0x07, 0x88, 0xd8,
-	0x81, 0x1b, 0x85, 0x2a, 0x14, 0x26, 0xfc, 0x51, 0x06, 0xe6, 0xb3, 0x50, 0x31, 0x1c, 0x67, 0x9e,
-	0x8b, 0x80, 0x2a, 0x1f, 0x60, 0x78, 0xb4, 0x3f, 0x6b, 0x57, 0xfd, 0xe3, 0x3e, 0xb8, 0x98, 0x73,
-	0x2d, 0xd6, 0x12, 0x85, 0x73, 0x95, 0x35, 0x32, 0xdb, 0x8c, 0x15, 0x57, 0xac, 0x7f, 0x82, 0x1e,
-	0xcc, 0x54, 0xf2, 0x54, 0x62, 0xda, 0x75, 0x89, 0x4c, 0xc5, 0xcb, 0x9a, 0xfd, 0x78, 0x5c, 0xca,
-	0xd9, 0x9f, 0xa2, 0x63, 0x31, 0x11, 0xab, 0x69, 0x96, 0x73, 0xa4, 0x98, 0xbd, 0x26, 0x9c, 0xc8,
-	0xb2, 0xdf, 0x2f, 0x63, 0xd1, 0x82, 0xc9, 0x8a, 0xea, 0x9f, 0xf5, 0xc1, 0x13, 0xdb, 0x40, 0x30,
-	0xb2, 0x8a, 0x03, 0xca, 0xcb, 0x64, 0x60, 0x87, 0x35, 0x34, 0x87, 0x7a, 0xdb, 0xc1, 0xe4, 0x3f,
-	0xc7, 0xc9, 0x27, 0x76, 0x58, 0x63, 0x83, 0x7a, 0xdb, 0xfe, 0xd4, 0x45, 0x32, 0x24, 0xa6, 0x86,
-	0xe0, 0xb8, 0xae, 0xbf, 0xc0, 0x4f, 0x1a, 0xdc, 0x61, 0x8d, 0x75, 0x7f, 0x08, 0x17, 0x03, 0x1e,
-	0x92, 0x2e, 0x74, 0x67, 0x33, 0xd5, 0x5f, 0x06, 0x1e, 0x12, 0x4e, 0x48, 0x90, 0x9e, 0x27, 0x63,
-	0xba, 0x5d, 0xb5, 0x74, 0xc3, 0x6c, 0xa2, 0xfc, 0x2b, 0xa4, 0x1c, 0x91, 0xe3, 0xcd, 0x84, 0x21,
-	0x01, 0xee, 0x9f, 0x54, 0x55, 0xea, 0x5f, 0x4b, 0xc2, 0x60, 0x1c, 0xb7, 0x0e, 0x75, 0x94, 0xb2,
-	0x40, 0x94, 0x90, 0x30, 0x70, 0xe4, 0xfe, 0x46, 0x2e, 0x2e, 0x18, 0x0a, 0x7c, 0xb8, 0x25, 0x2c,
-	0x4c, 0x88, 0xed, 0x08, 0x26, 0x53, 0x25, 0xbb, 0xbf, 0xc5, 0xbb, 0x33, 0x5e, 0xa1, 0xf5, 0x9b,
-	0x91, 0xad, 0x71, 0x37, 0x18, 0x97, 0x2c, 0xcf, 0x90, 0xe1, 0xf8, 0x86, 0x4a, 0xca, 0xbf, 0x43,
-	0xa6, 0x4a, 0x74, 0x47, 0x25, 0xc9, 0x5b, 0x64, 0x24, 0xd8, 0x52, 0x7d, 0x9b, 0x5a, 0x65, 0x26,
-	0x77, 0xe5, 0xef, 0x91, 0x66, 0xc8, 0x1f, 0xcd, 0xc1, 0x20, 0xee, 0xc9, 0x25, 0xe1, 0xe8, 0x4a,
-	0x22, 0xce, 0x6a, 0x4c, 0xb6, 0x1b, 0x4a, 0xbb, 0xf2, 0x15, 0x52, 0x8e, 0xf9, 0x53, 0xf2, 0x30,
-	0x63, 0xdd, 0xb0, 0xa4, 0x59, 0x59, 0x24, 0x43, 0x21, 0x4b, 0xa8, 0x0f, 0xd5, 0x3c, 0xcf, 0x54,
-	0xff, 0x41, 0xee, 0x4c, 0xc0, 0x10, 0x86, 0xb6, 0x3c, 0x53, 0xb9, 0x4b, 0xc6, 0x92, 0x04, 0x45,
-	0xe6, 0xd8, 0xae, 0xe1, 0xa9, 0xff, 0xd8, 0xd7, 0x8e, 0xeb, 0x39, 0x12, 0xc7, 0x5c, 0x41, 0x62,
-	0xe5, 0xbe, 0x88, 0x2a, 0xfc, 0xad, 0xb2, 0x0b, 0x8f, 0x64, 0xa2, 0x07, 0x82, 0xa4, 0x7f, 0x6a,
-	0x0b, 0x78, 0x34, 0xa0, 0xbf, 0xed, 0x93, 0x43, 0x74, 0x74, 0x8e, 0x8c, 0x3d, 0xd9, 0x81, 0xa3,
-	0x84, 0xe4, 0x78, 0xf4, 0xb6, 0xfd, 0xb3, 0x8c, 0x20, 0x9e, 0xec, 0xdc, 0x64, 0x8d, 0xa5, 0x60,
-	0x14, 0x37, 0x76, 0x8d, 0xcc, 0x79, 0xb4, 0xec, 0xeb, 0x6b, 0x2a, 0x8c, 0x89, 0xaf, 0x33, 0xb1,
-	0xbe, 0xc1, 0x71, 0xd5, 0x7f, 0x41, 0xb1, 0x9f, 0xf4, 0x68, 0x19, 0x95, 0xef, 0x12, 0x4e, 0x03,
-	0x69, 0xcd, 0x51, 0x67, 0xd9, 0x71, 0x2f, 0xce, 0xfd, 0xfc, 0xab, 0xd9, 0xbe, 0x1f, 0xff, 0xdf,
-	0xbf, 0xbe, 0x32, 0x16, 0x69, 0x20, 0xae, 0x43, 0x0b, 0x31, 0x76, 0xcb, 0xcd, 0xff, 0xc7, 0x03,
-	0x32, 0x9c, 0x67, 0xce, 0x6d, 0x47, 0xd6, 0x62, 0x51, 0xf3, 0x17, 0x6d, 0x74, 0xbf, 0x68, 0xa3,
-	0xeb, 0x58, 0x1b, 0xdd, 0xbe, 0xcd, 0x6a, 0x47, 0x3a, 0xd0, 0xac, 0xf6, 0xb4, 0xae, 0x24, 0xd2,
-	0x81, 0xae, 0xa4, 0xa3, 0x07, 0xe8, 0x4a, 0x3a, 0xd6, 0xbb, 0xae, 0xa4, 0xe3, 0x07, 0xea, 0x4a,
-	0x3a, 0xd1, 0xcd, 0xae, 0xa4, 0xfe, 0x4e, 0x74, 0x25, 0xed, 0xd1, 0x3c, 0x34, 0xd0, 0xe5, 0xe6,
-	0xa1, 0xc1, 0x8e, 0x36, 0x0f, 0x29, 0xed, 0x35, 0x0f, 0x0d, 0x75, 0xa5, 0x79, 0x68, 0xb8, 0x7b,
-	0xcd, 0x43, 0x23, 0xbd, 0x6a, 0x1e, 0x1a, 0xed, 0x59, 0xf3, 0xd0, 0x58, 0x8f, 0x9a, 0x87, 0xd4,
-	0x5e, 0x34, 0x0f, 0x8d, 0x77, 0xaf, 0x79, 0x68, 0xa2, 0x03, 0xcd, 0x43, 0x93, 0x9d, 0x69, 0x1e,
-	0x9a, 0x3a, 0x40, 0xf3, 0xd0, 0xf4, 0x7e, 0xcd, 0x43, 0x4f, 0x6d, 0x6e, 0x99, 0xe9, 0x45, 0x73,
-	0xcb, 0x6c, 0x77, 0x9b, 0x5b, 0xe6, 0xba, 0xdb, 0xdc, 0x72, 0x32, 0x73, 0x73, 0xcb, 0xfc, 0x81,
-	0x9b, 0x5b, 0x4e, 0x75, 0xac, 0xb9, 0xe5, 0x7b, 0x87, 0xd0, 0xdc, 0xf2, 0xc2, 0x21, 0x35, 0xb7,
-	0xbc, 0xd8, 0x99, 0xe6, 0x96, 0x97, 0x7a, 0xd8, 0xdc, 0x72, 0xba, 0xb7, 0xcd, 0x2d, 0x2f, 0x77,
-	0xa2, 0xb9, 0xe5, 0x95, 0x43, 0x69, 0x6e, 0x79, 0xb5, 0xc7, 0xcd, 0x2d, 0xaf, 0x65, 0x69, 0x6e,
-	0x79, 0xbd, 0xd7, 0xcd, 0x2d, 0x0b, 0x87, 0xd0, 0xdc, 0xb2, 0xd8, 0xfb, 0xe6, 0x96, 0x37, 0x0e,
-	0xa5, 0xb9, 0xe5, 0x4c, 0x67, 0x9b, 0x5b, 0x5a, 0x76, 0x4c, 0xbc, 0xd9, 0xbb, 0x8e, 0x89, 0xb7,
-	0xb2, 0x76, 0x4c, 0xbc, 0xdd, 0xf5, 0x8e, 0x89, 0xb3, 0x59, 0x3b, 0x26, 0xce, 0x1d, 0xb0, 0x63,
-	0xe2, 0x7c, 0x87, 0x3b, 0x26, 0xee, 0xb4, 0xe8, 0x98, 0xa8, 0x1f, 0xbc, 0x61, 0xc2, 0x7e, 0x6a,
-	0xc3, 0xc4, 0xf7, 0x0f, 0xa1, 0x5f, 0xe2, 0xc2, 0x21, 0xf4, 0x4b, 0xbc, 0xd3, 0xa3, 0x7e, 0x89,
-	0x8b, 0xbd, 0xec, 0x97, 0x78, 0xf7, 0x90, 0xfa, 0x25, 0x2e, 0x75, 0xbc, 0x5f, 0xa2, 0x55, 0xcb,
-	0xc2, 0xe5, 0xee, 0xb6, 0x2c, 0xbc, 0x77, 0x38, 0x2d, 0x0b, 0xef, 0x1f, 0x6a, 0xcb, 0xc2, 0x95,
-	0xcc, 0x2d, 0x0b, 0x4b, 0x3d, 0x6b, 0x59, 0x58, 0x3e, 0x50, 0xcb, 0x42, 0x2e, 0x43, 0xcb, 0xc2,
-	0x4a, 0xef, 0x5a, 0x16, 0x6e, 0x76, 0xaa, 0x65, 0x61, 0xb5, 0x33, 0x2d, 0x0b, 0x6b, 0x07, 0x6a,
-	0x59, 0xb8, 0xda, 0xab, 0x96, 0x85, 0x6b, 0xbd, 0x6c, 0x59, 0xb8, 0xde, 0xdb, 0x96, 0x85, 0x1b,
-	0x4f, 0x6f, 0x59, 0x78, 0x4a, 0x55, 0xfc, 0xad, 0xae, 0x55, 0xc5, 0xaf, 0x1f, 0xa0, 0x2a, 0xbe,
-	0x55, 0xbd, 0xfa, 0x07, 0xdd, 0xae, 0x57, 0xbf, 0xdd, 0x9b, 0x7a, 0xf5, 0x8d, 0xce, 0xd4, 0xab,
-	0x7f, 0xd8, 0xb1, 0x7a, 0xf5, 0xc7, 0xed, 0xd5, 0xab, 0x37, 0x3a, 0x58, 0xae, 0x5e, 0x6b, 0xab,
-	0x5c, 0xfd, 0x49, 0xc7, 0xab, 0xd5, 0x9f, 0xd6, 0x6d, 0x91, 0xef, 0x48, 0xb7, 0x45, 0xab, 0x9a,
-	0xf8, 0xcd, 0x0c, 0x35, 0xf1, 0x5b, 0xdd, 0xa9, 0x89, 0xbf, 0xd3, 0xd9, 0x9a, 0xf8, 0xbb, 0xe9,
-	0x6b, 0xe2, 0xef, 0x1d, 0x4a, 0x4d, 0xfc, 0xfd, 0x1e, 0xd7, 0xc4, 0x3f, 0xc8, 0x5c, 0x13, 0xff,
-	0xb0, 0xfb, 0x35, 0xf1, 0x1f, 0xb5, 0x51, 0x13, 0xff, 0x94, 0x5a, 0xe9, 0x8f, 0xbb, 0x5c, 0x2b,
-	0xfd, 0x49, 0x4f, 0x6a, 0xa5, 0x3f, 0xed, 0x69, 0xad, 0xb4, 0x96, 0xb1, 0x56, 0xfa, 0xb3, 0x6e,
-	0xd7, 0x4a, 0xd3, 0x83, 0xd7, 0x4a, 0x17, 0x7a, 0x59, 0x2b, 0xad, 0x77, 0xaa, 0x56, 0xba, 0xd8,
-	0xb3, 0x5a, 0x69, 0x76, 0x28, 0xb5, 0xd2, 0xa5, 0x1e, 0xd7, 0x4a, 0x97, 0x33, 0xd7, 0x4a, 0x6f,
-	0x77, 0xbf, 0x56, 0xda, 0x38, 0x58, 0xad, 0xf4, 0xa3, 0x4c, 0xb5, 0xd2, 0x3b, 0x1d, 0xaa, 0x95,
-	0xf6, 0xda, 0xa9, 0x95, 0x36, 0x3b, 0x5d, 0x2a, 0x7d, 0xaf, 0x55, 0x63, 0x54, 0xa5, 0x03, 0x7d,
-	0x51, 0x3b, 0xfb, 0xf7, 0x45, 0x59, 0x1d, 0x6d, 0x8b, 0x3a, 0xbf, 0x4f, 0x5b, 0x94, 0xbd, 0x5f,
-	0x57, 0xd4, 0x99, 0xbd, 0xba, 0xa2, 0x9c, 0x3d, 0x9b, 0xa2, 0xce, 0xee, 0xdd, 0x14, 0xf5, 0x78,
-	0x9f, 0x9e, 0xa8, 0x4b, 0xfb, 0xf6, 0x44, 0xf1, 0xa7, 0xb4, 0x44, 0x5d, 0xd8, 0xa7, 0x25, 0xca,
-	0xdd, 0xb7, 0x23, 0xaa, 0xfa, 0xd4, 0x1f, 0xc0, 0xf2, 0xba, 0xf1, 0xfb, 0x57, 0xdb, 0x7b, 0xff,
-	0xfe, 0x55, 0xb5, 0xb3, 0x3f, 0x7f, 0xf5, 0xe9, 0x5e, 0x3f, 0x7f, 0x55, 0xeb, 0xcc, 0xaf, 0x5f,
-	0x15, 0xf7, 0xfa, 0xf5, 0xab, 0xdd, 0x4e, 0xfe, 0xf8, 0xd5, 0xe7, 0x6d, 0xb5, 0x2c, 0xfc, 0xa0,
-	0x5b, 0x1d, 0x0b, 0x5f, 0xb4, 0xdd, 0xb1, 0xf0, 0x79, 0x57, 0x1a, 0x16, 0xea, 0x6d, 0x35, 0x2c,
-	0x7c, 0xd1, 0x85, 0x7e, 0x85, 0xf5, 0xf6, 0xfa, 0x15, 0xbe, 0xec, 0x5c, 0xbb, 0xc2, 0x0f, 0xdb,
-	0x68, 0x57, 0xb8, 0xb8, 0xe0, 0x17, 0x2e, 0xbf, 0xd0, 0x54, 0xb8, 0xdc, 0xaa, 0x5a, 0x79, 0xf9,
-	0x8d, 0xaf, 0xbf, 0x99, 0xe9, 0xfb, 0xe9, 0x37, 0x33, 0x7d, 0xff, 0xfb, 0xcd, 0x4c, 0xdf, 0x4f,
-	0xbe, 0x9d, 0x79, 0xe6, 0xa7, 0xdf, 0xce, 0x3c, 0xf3, 0x5f, 0xdf, 0xce, 0x3c, 0xf3, 0x70, 0xb4,
-	0x09, 0xc0, 0x6b, 0x38, 0xcc, 0x2d, 0x3c, 0x07, 0xff, 0x89, 0xa3, 0xb7, 0xfe, 0x3f, 0x00, 0x00,
-	0xff, 0xff, 0xbb, 0xca, 0x27, 0x1b, 0x5b, 0x69, 0x00, 0x00,
+	// 4889 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x5d, 0x59, 0x77, 0x1c, 0xc7,
+	0x75, 0x16, 0x6c, 0x45, 0x11, 0x4b, 0x24, 0x01, 0x34, 0xb6, 0x06, 0x40, 0x02, 0x20, 0x68, 0x49,
+	0xd4, 0x06, 0x88, 0x5a, 0xa8, 0xdd, 0x12, 0x30, 0x00, 0xb8, 0x42, 0x84, 0x06, 0x20, 0x29, 0x52,
+	0x4b, 0xab, 0xa6, 0xa7, 0x66, 0xd0, 0x44, 0x4f, 0x57, 0xb3, 0xba, 0x67, 0x30, 0x43, 0xdb, 0x72,
+	0xf6, 0x38, 0xce, 0xe6, 0xec, 0x8b, 0xb3, 0x28, 0xff, 0x20, 0x0f, 0xf9, 0x11, 0x7a, 0xf4, 0xc9,
+	0x53, 0x4e, 0x4e, 0x8e, 0x4f, 0x8e, 0xf4, 0x10, 0xff, 0x8c, 0x9c, 0xba, 0xb7, 0x7a, 0x9d, 0x01,
+	0x31, 0xdd, 0x98, 0x19, 0xbc, 0xf8, 0xc5, 0xc7, 0x44, 0xd5, 0xfd, 0x6e, 0xd7, 0xad, 0xba, 0x4b,
+	0xdd, 0xba, 0x77, 0x44, 0xe6, 0x3c, 0x97, 0x8a, 0xbd, 0xb2, 0x60, 0xb4, 0xb6, 0x2c, 0x98, 0xbb,
+	0xdc, 0xb8, 0xb8, 0xec, 0x52, 0x41, 0x6b, 0xde, 0x92, 0x2b, 0xb8, 0xcf, 0xb5, 0xd1, 0x68, 0x7c,
+	0x49, 0x30, 0x77, 0xa9, 0x71, 0x71, 0x66, 0x94, 0xd6, 0x2c, 0x87, 0x2f, 0xc3, 0xff, 0xe2, 0xac,
+	0x99, 0x69, 0x93, 0x7b, 0x35, 0xee, 0x19, 0xf0, 0xaf, 0x65, 0xfc, 0x87, 0x1a, 0x1a, 0xaf, 0xf2,
+	0x2a, 0xc7, 0xbf, 0xcb, 0xff, 0x87, 0x7f, 0x5d, 0xfc, 0xfa, 0x3b, 0x84, 0xec, 0x58, 0x4c, 0x14,
+	0xb8, 0x53, 0xb1, 0xaa, 0xda, 0x35, 0x42, 0x6a, 0xb4, 0x69, 0x94, 0xea, 0xe5, 0x2a, 0xf3, 0xf5,
+	0xa1, 0x85, 0xa1, 0x0b, 0x27, 0x56, 0x5f, 0xf8, 0xfa, 0x97, 0xf3, 0x8f, 0xfd, 0xf7, 0x2f, 0xe7,
+	0x27, 0x10, 0xce, 0x2b, 0xef, 0x2d, 0x59, 0x7c, 0xb9, 0x46, 0xfd, 0xdd, 0xa5, 0xab, 0x8e, 0xff,
+	0x9f, 0xff, 0xf1, 0x12, 0x51, 0x7c, 0xae, 0x3a, 0x7e, 0xf1, 0x44, 0x8d, 0x36, 0x57, 0x81, 0x5a,
+	0xbb, 0x46, 0x4e, 0xd7, 0x2c, 0xc7, 0x10, 0xcc, 0xad, 0xfb, 0xd4, 0xb7, 0xb8, 0xa3, 0x7f, 0x07,
+	0xf0, 0xce, 0x2b, 0xbc, 0xd9, 0x76, 0xbc, 0x1b, 0xac, 0x4a, 0xcd, 0xd6, 0x1a, 0x33, 0x8b, 0xa7,
+	0x6a, 0x96, 0x53, 0x0c, 0x29, 0x25, 0x56, 0x84, 0x63, 0x98, 0xd4, 0xd5, 0xbf, 0x9b, 0x01, 0x2b,
+	0x22, 0x2d, 0x50, 0x57, 0xdb, 0x22, 0xa3, 0x82, 0xed, 0x53, 0x51, 0x36, 0x6a, 0x75, 0xdb, 0xb7,
+	0x5c, 0xdb, 0x62, 0x42, 0x7f, 0xbc, 0x7b, 0xb8, 0x11, 0xa4, 0xde, 0x0c, 0x89, 0xdf, 0x7e, 0xfc,
+	0x57, 0x5f, 0xcd, 0x0f, 0x2d, 0xfe, 0xcf, 0x13, 0x64, 0x64, 0x47, 0xd4, 0x3d, 0xff, 0x06, 0x6b,
+	0x30, 0x5b, 0x09, 0x74, 0x9b, 0x8c, 0xb9, 0x82, 0x37, 0x2c, 0xcf, 0xe2, 0x0e, 0xb5, 0x0d, 0x25,
+	0x10, 0x25, 0xd9, 0xae, 0xd8, 0x8d, 0xc6, 0xe8, 0x37, 0x41, 0x28, 0xda, 0x9b, 0x44, 0x4f, 0x83,
+	0x5a, 0x8e, 0xcf, 0x84, 0x55, 0xf3, 0x40, 0xc6, 0xa7, 0x8a, 0x93, 0x49, 0xa2, 0xab, 0x6a, 0x54,
+	0x7e, 0x0e, 0xf3, 0x7c, 0x5a, 0xb2, 0x2d, 0x6f, 0x97, 0x95, 0xc3, 0xcf, 0xc9, 0x20, 0xcc, 0xd1,
+	0x18, 0x7d, 0xf4, 0x39, 0x69, 0xd0, 0xf0, 0x73, 0x1e, 0xc7, 0xcf, 0x49, 0x12, 0x85, 0x9f, 0x73,
+	0x9d, 0x0c, 0xfb, 0x52, 0x62, 0xb1, 0x4f, 0xf9, 0x8d, 0x0c, 0xfb, 0xaa, 0x68, 0xd5, 0x67, 0x2c,
+	0x91, 0xb1, 0x38, 0x98, 0xc7, 0xa8, 0xc7, 0x1d, 0x4f, 0x7f, 0x02, 0xbe, 0x60, 0x34, 0x9a, 0xbb,
+	0x8d, 0x03, 0xda, 0x3a, 0x39, 0x69, 0x72, 0xc1, 0x42, 0xce, 0xbf, 0xd9, 0x3d, 0x67, 0x22, 0x09,
+	0x15, 0xdb, 0x0b, 0x64, 0x24, 0x84, 0x09, 0x78, 0x3e, 0x09, 0x3c, 0x4f, 0xab, 0x59, 0x01, 0xc3,
+	0xd7, 0xc8, 0xa4, 0xc3, 0xf6, 0x0d, 0xcb, 0x69, 0x58, 0xc1, 0x41, 0x16, 0xac, 0x6c, 0xf9, 0x9e,
+	0x7e, 0x02, 0xe6, 0x8f, 0x3b, 0x6c, 0xff, 0x6a, 0x38, 0x58, 0xc0, 0x31, 0x6d, 0x8d, 0xcc, 0xc5,
+	0x37, 0xbb, 0x03, 0x35, 0x01, 0xea, 0x33, 0xb1, 0x59, 0x1d, 0x51, 0xe2, 0x7b, 0xd4, 0x01, 0xe5,
+	0x29, 0x44, 0x89, 0xcd, 0x6a, 0x47, 0x79, 0x97, 0xcc, 0x04, 0x22, 0xee, 0x80, 0x70, 0x12, 0x10,
+	0x74, 0x35, 0xa3, 0x9d, 0xfa, 0x12, 0x99, 0x02, 0x49, 0x75, 0x20, 0x3d, 0x05, 0xa4, 0x13, 0x72,
+	0xb8, 0x8d, 0x4e, 0xa9, 0xd7, 0xbf, 0xed, 0x91, 0x27, 0xb6, 0xc0, 0x22, 0x6a, 0xe7, 0xc8, 0x49,
+	0xe6, 0x72, 0x73, 0xd7, 0x28, 0xd9, 0xdc, 0xdc, 0xf3, 0x40, 0x9b, 0xbe, 0x5b, 0x7c, 0x0a, 0xfe,
+	0xb6, 0x0a, 0x7f, 0x92, 0xb2, 0xc6, 0xcd, 0x30, 0xca, 0x75, 0x81, 0xbc, 0x60, 0x18, 0x15, 0xe4,
+	0xbb, 0xc5, 0x71, 0x1c, 0x5d, 0x53, 0x83, 0xeb, 0x30, 0x26, 0xd5, 0xa3, 0xee, 0x78, 0x3e, 0xdd,
+	0x63, 0x65, 0xa3, 0xcc, 0x4c, 0xda, 0x32, 0x04, 0xf5, 0x59, 0x26, 0xf5, 0x08, 0xe8, 0xd7, 0x24,
+	0x79, 0x91, 0xfa, 0x4c, 0xbb, 0x49, 0x46, 0x7d, 0x41, 0x1d, 0xaf, 0xc2, 0x84, 0xe1, 0xd3, 0x26,
+	0x42, 0x66, 0xb0, 0x37, 0xc3, 0x01, 0xf5, 0x0e, 0x6d, 0x02, 0xe0, 0x47, 0xe4, 0xb4, 0x34, 0xd2,
+	0xbe, 0xe5, 0x1a, 0xb4, 0xc6, 0xeb, 0x8e, 0xaf, 0x94, 0x26, 0x93, 0xa1, 0x3e, 0x59, 0xa3, 0xcd,
+	0x1d, 0xcb, 0x5d, 0x01, 0x00, 0x8d, 0x92, 0x29, 0x05, 0xe9, 0x19, 0x1e, 0x73, 0x7c, 0xc3, 0x65,
+	0x02, 0x05, 0x06, 0xfa, 0x93, 0x11, 0x7b, 0x0c, 0xb1, 0xbd, 0x6d, 0xe6, 0xf8, 0x5b, 0x4c, 0x80,
+	0x70, 0xb5, 0x4f, 0xc9, 0xb8, 0x64, 0x51, 0xb5, 0x2a, 0x88, 0x0e, 0xa7, 0x80, 0x31, 0xa5, 0x76,
+	0x99, 0xf0, 0x47, 0x6b, 0xb4, 0x79, 0xd9, 0xaa, 0x48, 0xec, 0xab, 0x88, 0xa2, 0x5d, 0x24, 0x13,
+	0x80, 0xcc, 0x1d, 0xbb, 0x65, 0xf8, 0x3c, 0x40, 0x47, 0x55, 0x7c, 0xb2, 0xa8, 0xc9, 0xc1, 0x9b,
+	0x8e, 0xdd, 0xda, 0xe1, 0x8a, 0xc2, 0xd3, 0x6e, 0x90, 0x61, 0x93, 0xd7, 0x5c, 0x9b, 0xf9, 0x4c,
+	0x18, 0xde, 0x2e, 0x15, 0x0c, 0xf4, 0xb0, 0xcb, 0x5d, 0x39, 0x1d, 0xd2, 0x6e, 0x4b, 0x52, 0xe9,
+	0xa1, 0x7c, 0xc1, 0xa8, 0x57, 0x17, 0x2d, 0x05, 0x46, 0x32, 0x59, 0x32, 0x24, 0x45, 0xac, 0x1b,
+	0x64, 0x98, 0xba, 0xae, 0x60, 0x8e, 0x6f, 0x99, 0xcc, 0xf0, 0xa5, 0x7f, 0x92, 0xda, 0xf9, 0xd4,
+	0x2b, 0x67, 0x97, 0xda, 0xa2, 0x80, 0xa5, 0xc8, 0x7b, 0xaf, 0x3e, 0x2e, 0x79, 0x15, 0x4f, 0x47,
+	0xb4, 0x72, 0x4c, 0xbb, 0x42, 0x4e, 0x79, 0x3e, 0x75, 0xca, 0xd2, 0xe3, 0x01, 0xd6, 0xc9, 0xee,
+	0xb1, 0x4e, 0x06, 0x94, 0x80, 0xb4, 0x46, 0x9e, 0x62, 0x4d, 0x97, 0x09, 0x1f, 0x71, 0x4e, 0x75,
+	0x8f, 0x43, 0x90, 0x0e, 0x50, 0x3e, 0x20, 0x27, 0x98, 0x6b, 0x99, 0x88, 0x71, 0xba, 0x7b, 0x8c,
+	0x27, 0x25, 0x15, 0x20, 0xbc, 0x47, 0x66, 0x4d, 0xee, 0x34, 0x2c, 0x13, 0xf4, 0x7a, 0x97, 0xda,
+	0x15, 0xc3, 0xb6, 0x2a, 0x2c, 0xd0, 0xf0, 0x61, 0xd0, 0x70, 0x3d, 0x9a, 0x72, 0x85, 0xda, 0x95,
+	0x1b, 0x56, 0x85, 0x29, 0x2d, 0x37, 0xc8, 0x34, 0x6b, 0xfa, 0x4c, 0x48, 0x73, 0x1a, 0xc3, 0x01,
+	0x4b, 0xa0, 0x8f, 0x74, 0xbf, 0x6b, 0x53, 0x01, 0x4a, 0x21, 0x04, 0x29, 0x4a, 0x0c, 0xed, 0x16,
+	0x19, 0x8f, 0xe1, 0xca, 0xc3, 0x0e, 0x2b, 0xd3, 0x47, 0xbb, 0xc7, 0xd6, 0x22, 0x80, 0x2d, 0x26,
+	0xd6, 0x24, 0xb9, 0xf6, 0x3e, 0x39, 0x53, 0x66, 0x15, 0x5a, 0xb7, 0x7d, 0x43, 0xb0, 0x86, 0xc5,
+	0xf6, 0x25, 0xb4, 0xc5, 0xcb, 0xc1, 0xba, 0x35, 0x58, 0xf7, 0xb4, 0x9a, 0x53, 0x84, 0x29, 0x5b,
+	0x30, 0x43, 0x2d, 0x7c, 0x9d, 0xcc, 0x07, 0x00, 0xe6, 0x2e, 0xb5, 0x6d, 0xe6, 0x54, 0x59, 0x0a,
+	0x63, 0x0c, 0x30, 0x02, 0x3e, 0x85, 0x60, 0x56, 0x02, 0xe6, 0x33, 0x32, 0x8e, 0x3e, 0x3e, 0x34,
+	0xe3, 0x60, 0xf2, 0xf4, 0xf1, 0xec, 0x9a, 0xac, 0xd5, 0x64, 0x34, 0x10, 0xe0, 0x6c, 0x4b, 0x18,
+	0xed, 0x0a, 0x59, 0x88, 0x41, 0x53, 0xd3, 0x94, 0x16, 0x8a, 0x96, 0x2c, 0xdb, 0xf2, 0x5b, 0xc1,
+	0x67, 0x4e, 0xc0, 0x67, 0xce, 0x45, 0xf3, 0x56, 0x12, 0xd3, 0xd4, 0x87, 0xde, 0x22, 0xe3, 0x82,
+	0x55, 0x98, 0x10, 0xd4, 0x36, 0x54, 0xc8, 0x07, 0xc6, 0x77, 0x32, 0xc3, 0x3e, 0x04, 0x00, 0x45,
+	0xa0, 0x07, 0xfb, 0x4b, 0xc9, 0x4c, 0xdc, 0x85, 0x71, 0xcf, 0x8f, 0x47, 0x92, 0x53, 0xdd, 0x83,
+	0xeb, 0x11, 0x4c, 0x81, 0x7b, 0x7e, 0x14, 0x51, 0x6a, 0x77, 0x88, 0x06, 0x6e, 0xd4, 0xb0, 0x65,
+	0x2c, 0x29, 0x4f, 0x69, 0xc5, 0xaa, 0xea, 0x3a, 0x28, 0xcb, 0xf9, 0x4e, 0xca, 0x92, 0x8a, 0x3b,
+	0x95, 0xca, 0x8c, 0xf8, 0xe9, 0x78, 0xf4, 0x13, 0x32, 0x26, 0xf7, 0x2e, 0xda, 0x7e, 0xdc, 0xba,
+	0xe9, 0x3c, 0x46, 0xd8, 0x72, 0xc2, 0xf3, 0x81, 0x3b, 0x77, 0x97, 0x4c, 0x86, 0xc0, 0x22, 0x21,
+	0xf1, 0x99, 0xee, 0x85, 0x32, 0x1e, 0x41, 0xc4, 0x64, 0x3e, 0x4b, 0x4e, 0xdc, 0x07, 0xd3, 0x6a,
+	0x3d, 0x64, 0xfa, 0x2c, 0x44, 0x0b, 0x4f, 0xca, 0x3f, 0x6c, 0x5b, 0x0f, 0x99, 0x74, 0xdb, 0x38,
+	0x58, 0x97, 0xba, 0x56, 0xa3, 0xf7, 0xb9, 0xb0, 0xfc, 0x96, 0x7e, 0x26, 0x83, 0xdb, 0x06, 0x2c,
+	0x49, 0xbe, 0xa9, 0xa8, 0xe5, 0xe1, 0x91, 0x92, 0xba, 0x5f, 0x17, 0x5c, 0xc4, 0x2f, 0x31, 0x67,
+	0x33, 0x1c, 0x9e, 0x9a, 0xe5, 0x5c, 0x93, 0xf4, 0xb1, 0x9b, 0x0c, 0x23, 0xba, 0x67, 0x49, 0xcf,
+	0x61, 0xa0, 0x03, 0x69, 0xca, 0x53, 0xad, 0xee, 0x5b, 0x73, 0xd9, 0x77, 0x61, 0x12, 0xc1, 0x0a,
+	0x21, 0x96, 0xba, 0x7c, 0x59, 0x64, 0x26, 0x34, 0xfa, 0xed, 0x8c, 0xe6, 0xb3, 0x33, 0xd2, 0x03,
+	0xb8, 0x36, 0x56, 0x55, 0x32, 0xad, 0x38, 0x74, 0xe0, 0xb4, 0x90, 0x9d, 0xd3, 0x94, 0x42, 0x69,
+	0x63, 0xc4, 0x88, 0xae, 0xdc, 0x4f, 0x3b, 0x9f, 0x73, 0x39, 0x44, 0x87, 0x60, 0x6d, 0x6c, 0x3e,
+	0x26, 0x93, 0x1e, 0xb7, 0xb9, 0xa1, 0x78, 0x95, 0xb8, 0x53, 0xf7, 0xf0, 0x14, 0x2f, 0x76, 0xbf,
+	0xf5, 0x63, 0x12, 0x62, 0x1d, 0x10, 0x56, 0x25, 0x00, 0x1c, 0xe2, 0x4b, 0x64, 0x4a, 0x5d, 0x8c,
+	0x8c, 0x32, 0xa3, 0x65, 0xdb, 0x72, 0x42, 0x9f, 0x75, 0x1e, 0x0c, 0xda, 0x84, 0x1a, 0x5e, 0x53,
+	0xa3, 0x91, 0x1d, 0xf3, 0x58, 0x83, 0x09, 0x66, 0x78, 0x36, 0xf5, 0x76, 0x0d, 0x97, 0x39, 0xd4,
+	0xf6, 0x5b, 0xfa, 0xf7, 0x32, 0x1c, 0x45, 0x04, 0xd8, 0x96, 0xf4, 0x5b, 0x48, 0xae, 0x55, 0xc8,
+	0x59, 0x57, 0xf0, 0xfb, 0xcc, 0x0c, 0x04, 0x0a, 0xf6, 0x2c, 0xb6, 0xde, 0xa7, 0xbb, 0xc7, 0x9f,
+	0x51, 0x48, 0x85, 0x10, 0x28, 0x5a, 0xf6, 0x17, 0x64, 0xa6, 0xc6, 0x6a, 0x25, 0x19, 0x65, 0x49,
+	0x33, 0x21, 0x9d, 0x17, 0x73, 0xea, 0x4c, 0x85, 0x49, 0xcf, 0x64, 0x70, 0xb8, 0x08, 0x03, 0xc6,
+	0xa6, 0x88, 0x20, 0x18, 0x30, 0xdd, 0x23, 0x53, 0x3e, 0xad, 0x76, 0x84, 0x7f, 0x36, 0x83, 0xe5,
+	0xf1, 0x69, 0xb5, 0x1d, 0xfb, 0x1d, 0x32, 0x03, 0x57, 0x3b, 0xc0, 0x0e, 0x2f, 0x13, 0x1e, 0x33,
+	0xb9, 0x53, 0xf6, 0xf4, 0x0b, 0xb0, 0x6f, 0x53, 0x35, 0x0b, 0x9d, 0x57, 0x70, 0x9f, 0xd8, 0xc6,
+	0x61, 0xed, 0x75, 0x32, 0x45, 0x6d, 0x9b, 0xef, 0x1b, 0x1e, 0xb3, 0x2b, 0x46, 0x5c, 0x0a, 0xfa,
+	0x73, 0x10, 0x98, 0x8e, 0xc3, 0xf0, 0x36, 0xb3, 0x2b, 0x9b, 0xd1, 0xda, 0xb4, 0xeb, 0x64, 0x31,
+	0xb2, 0xd0, 0x82, 0x79, 0x2e, 0x77, 0x3c, 0xd6, 0x76, 0x66, 0x9e, 0x07, 0xde, 0xf3, 0xe1, 0xcc,
+	0xa2, 0x9a, 0x98, 0x3a, 0x3d, 0x0f, 0xc8, 0x3c, 0xc4, 0xf6, 0xc1, 0x1d, 0x44, 0x30, 0x93, 0x59,
+	0x0d, 0x56, 0x8e, 0xc5, 0xf8, 0x2f, 0x64, 0xd7, 0x9e, 0x59, 0x19, 0xe3, 0x2b, 0xc8, 0xa2, 0x42,
+	0x0c, 0x63, 0x7d, 0x8f, 0x2c, 0x1c, 0xcc, 0x12, 0x6f, 0x5e, 0xfa, 0x8b, 0xd9, 0x79, 0x9e, 0xe9,
+	0xcc, 0x13, 0xef, 0xd7, 0xda, 0x0d, 0x72, 0xde, 0xe4, 0x8e, 0x2f, 0x6f, 0x2f, 0x8f, 0x8a, 0x0e,
+	0x5f, 0x52, 0x52, 0xc3, 0xa9, 0x85, 0x83, 0x82, 0xc4, 0x3d, 0x22, 0xb9, 0x19, 0x01, 0x22, 0x6e,
+	0x3f, 0xb8, 0x17, 0xd8, 0x27, 0x7d, 0x29, 0x87, 0x09, 0xad, 0xd1, 0x66, 0x01, 0xf1, 0x60, 0x9b,
+	0xb7, 0x98, 0xc0, 0x4d, 0xd7, 0x2c, 0x22, 0xc5, 0x69, 0xd0, 0xba, 0xbf, 0xcb, 0x85, 0xd4, 0x40,
+	0x94, 0x94, 0x62, 0xae, 0x2f, 0xe7, 0x30, 0xa2, 0x35, 0xda, 0x5c, 0x01, 0xb8, 0x55, 0xee, 0x48,
+	0x21, 0x29, 0xc6, 0xda, 0x1a, 0x99, 0x8f, 0xb3, 0x41, 0x83, 0xc2, 0x1d, 0xa3, 0xc6, 0xcb, 0x0c,
+	0xcf, 0xae, 0xfe, 0x32, 0x9c, 0xcc, 0x59, 0x1a, 0x92, 0x83, 0xd5, 0xb8, 0xe9, 0x6c, 0x86, 0x53,
+	0xb4, 0x06, 0x99, 0x0b, 0x65, 0x1d, 0x3b, 0xa8, 0xe0, 0xf0, 0x51, 0xef, 0x2e, 0xc2, 0x37, 0x5f,
+	0xec, 0x42, 0xef, 0x62, 0x5f, 0x2e, 0xb5, 0x70, 0x36, 0xd8, 0x99, 0xe8, 0x58, 0x4b, 0x58, 0x54,
+	0x46, 0x8f, 0x9c, 0x89, 0x47, 0xd6, 0x82, 0xbb, 0xb4, 0x4a, 0x63, 0xd1, 0xfb, 0x2b, 0x79, 0xb9,
+	0xce, 0xc4, 0xe2, 0xed, 0x08, 0x15, 0xc3, 0xf9, 0xd7, 0xd5, 0xe5, 0x98, 0x56, 0x3d, 0x75, 0x73,
+	0xb5, 0x7c, 0x8b, 0xfa, 0x56, 0x83, 0xe9, 0xaf, 0x62, 0xe2, 0x46, 0x9e, 0x4b, 0x5a, 0xf5, 0xe0,
+	0x3e, 0x1a, 0x8c, 0x69, 0x8c, 0x4c, 0xc4, 0x72, 0x96, 0xb1, 0x74, 0xc2, 0x6b, 0x79, 0x3f, 0x72,
+	0x2c, 0xc2, 0x8b, 0xd2, 0x0b, 0xfb, 0xa8, 0xde, 0x31, 0xb1, 0xc0, 0x06, 0xc4, 0xcf, 0xea, 0xeb,
+	0xb9, 0xf7, 0x02, 0x4f, 0xac, 0x02, 0x86, 0x2d, 0x88, 0x0e, 0xad, 0x93, 0x08, 0x83, 0x51, 0x41,
+	0x4a, 0x75, 0xe1, 0xe0, 0x22, 0x2f, 0xe5, 0xe5, 0x39, 0x65, 0x25, 0xef, 0x03, 0xab, 0x75, 0xe1,
+	0xc0, 0x42, 0x3d, 0x72, 0x56, 0x2e, 0x34, 0x26, 0xd3, 0x2a, 0xb5, 0x9c, 0x98, 0x15, 0x7b, 0x23,
+	0x2f, 0xcb, 0xe9, 0x1a, 0x6d, 0x46, 0x21, 0xda, 0x65, 0x6a, 0x39, 0xa1, 0x25, 0xe3, 0x64, 0x4e,
+	0x32, 0x95, 0xab, 0xb3, 0x9c, 0xaa, 0x3a, 0xe2, 0x5e, 0xdc, 0x8e, 0xbd, 0x99, 0x5d, 0x39, 0x67,
+	0x6a, 0xb4, 0xb9, 0x8d, 0x88, 0x78, 0xb8, 0xbd, 0xc8, 0x8a, 0x35, 0xc8, 0x5c, 0x92, 0x99, 0xd1,
+	0xb2, 0x98, 0x1d, 0x37, 0xd6, 0xbf, 0x3d, 0x94, 0xfb, 0x90, 0x7b, 0x71, 0xa6, 0x77, 0x25, 0x6e,
+	0xb8, 0x50, 0x8b, 0x4c, 0x05, 0x7c, 0x5d, 0xce, 0x21, 0xa9, 0xec, 0x2b, 0x55, 0xfe, 0x9d, 0xdc,
+	0x0c, 0xc7, 0x15, 0xe4, 0x16, 0xe7, 0xf6, 0xa6, 0xe5, 0xf8, 0xa8, 0xc4, 0x06, 0x99, 0x48, 0xb0,
+	0x32, 0xa9, 0x6b, 0x94, 0xa8, 0xc7, 0xf4, 0xdf, 0xcd, 0xf1, 0xe0, 0xa0, 0xc5, 0x58, 0x14, 0xa8,
+	0xbb, 0x4a, 0x3d, 0xd0, 0xbc, 0x36, 0x06, 0x70, 0x28, 0x7f, 0x2f, 0xf7, 0x4a, 0x52, 0x6c, 0xe0,
+	0x40, 0x7e, 0x46, 0x46, 0xdb, 0x73, 0x85, 0x6f, 0xe5, 0xe5, 0x30, 0x9c, 0xce, 0x1b, 0x7e, 0x40,
+	0xce, 0x3a, 0x6c, 0x3f, 0x08, 0x1a, 0x90, 0x45, 0x55, 0x50, 0x33, 0xf4, 0x64, 0x6f, 0xe3, 0x7d,
+	0xdf, 0x61, 0xfb, 0xa8, 0x91, 0x40, 0x7a, 0x59, 0xce, 0x88, 0x5d, 0xd4, 0xc1, 0x0d, 0xab, 0xbc,
+	0x54, 0x89, 0xda, 0xd4, 0x31, 0x99, 0xfe, 0x4e, 0x9e, 0x8b, 0xba, 0x74, 0xbd, 0x88, 0xb3, 0x8a,
+	0x30, 0x32, 0x9c, 0x0d, 0xa1, 0x2b, 0x75, 0xa7, 0xec, 0x45, 0x69, 0xff, 0x77, 0xc1, 0x85, 0x4c,
+	0x04, 0xc3, 0x1b, 0x72, 0x34, 0xcc, 0xfa, 0xbf, 0x41, 0xf4, 0x14, 0x9d, 0x60, 0xbe, 0xe0, 0x86,
+	0x5b, 0xad, 0xe8, 0xef, 0x75, 0x20, 0x2c, 0xca, 0xd1, 0xad, 0x6a, 0x25, 0x88, 0x64, 0x22, 0xfb,
+	0xdb, 0xee, 0x96, 0xbf, 0x9f, 0x2f, 0x92, 0x89, 0xcc, 0x76, 0xca, 0x33, 0xdf, 0x26, 0x23, 0x51,
+	0xf4, 0xa7, 0xb2, 0xad, 0xbf, 0x9f, 0xe3, 0x98, 0x9e, 0x0e, 0x22, 0x44, 0x95, 0x70, 0x75, 0xd1,
+	0xae, 0x04, 0xd7, 0x81, 0x0e, 0x76, 0xe5, 0x27, 0x43, 0xf9, 0x0c, 0x8b, 0x12, 0x73, 0x9b, 0x61,
+	0xa9, 0x93, 0x73, 0x29, 0xe1, 0x75, 0x60, 0xfa, 0x7e, 0x76, 0x9e, 0x67, 0x13, 0xe2, 0x6b, 0x63,
+	0xeb, 0x92, 0x39, 0x9b, 0x8a, 0x2a, 0x33, 0x82, 0xab, 0x06, 0x5e, 0xd8, 0x0c, 0x7f, 0x57, 0x30,
+	0x6f, 0x97, 0xdb, 0x65, 0xfd, 0x83, 0x1c, 0x5b, 0x06, 0x90, 0x5b, 0x88, 0x88, 0xd7, 0xb6, 0x9d,
+	0x00, 0x4f, 0x9e, 0xfa, 0xf0, 0x5a, 0x23, 0x18, 0x7a, 0x8a, 0x0a, 0x63, 0xfa, 0x4a, 0x8e, 0x53,
+	0x1f, 0xdc, 0x6a, 0x14, 0xce, 0x06, 0x63, 0x5a, 0x93, 0x2c, 0xc6, 0x64, 0x18, 0xe7, 0x60, 0x44,
+	0x89, 0x57, 0x7d, 0x35, 0x3b, 0xb3, 0xf9, 0x08, 0x36, 0xc6, 0x6f, 0x25, 0xc4, 0xd4, 0x7c, 0xb2,
+	0x70, 0x10, 0xe7, 0xe0, 0x72, 0xae, 0x17, 0x72, 0x6c, 0x60, 0x47, 0xbe, 0xdb, 0x0a, 0x51, 0x2b,
+	0x90, 0x39, 0x97, 0x89, 0x9a, 0xe5, 0x79, 0x16, 0x77, 0x6c, 0xe6, 0x79, 0xf0, 0xd2, 0x15, 0xcb,
+	0x4e, 0xe9, 0x6b, 0x10, 0x04, 0xcd, 0x26, 0x67, 0x6d, 0x5a, 0x4e, 0x94, 0x94, 0x92, 0xa6, 0x22,
+	0x0d, 0x02, 0xcf, 0x0d, 0x4c, 0xe8, 0xeb, 0xf8, 0xf4, 0x93, 0xa2, 0xa6, 0x4d, 0xc8, 0xf4, 0xde,
+	0x22, 0x23, 0xf2, 0x62, 0x97, 0xd8, 0xc7, 0x8d, 0x1c, 0xda, 0xe7, 0xd3, 0x6a, 0x7c, 0x0f, 0xcb,
+	0x44, 0x07, 0xaf, 0x2e, 0x05, 0xeb, 0xb0, 0x30, 0x39, 0x28, 0x9d, 0x85, 0x7e, 0x39, 0x3b, 0xfc,
+	0x84, 0xf4, 0xe7, 0x0a, 0x0b, 0x15, 0x40, 0xba, 0x09, 0xed, 0x27, 0x43, 0xe4, 0x42, 0x27, 0x16,
+	0x06, 0x6f, 0x30, 0x51, 0x91, 0xb7, 0xc2, 0x20, 0x5c, 0xb2, 0xb8, 0x7e, 0x25, 0xaf, 0xdf, 0x38,
+	0xef, 0xb5, 0x71, 0xbe, 0xa9, 0xf0, 0x55, 0xe8, 0x64, 0x71, 0xed, 0x7d, 0x72, 0x26, 0xfd, 0x25,
+	0x89, 0x17, 0xb4, 0xab, 0x0b, 0x43, 0x17, 0x1e, 0x2f, 0x4e, 0x27, 0xa1, 0xd6, 0x63, 0xef, 0x69,
+	0x8c, 0x4c, 0xe0, 0x03, 0xa7, 0x02, 0xa1, 0xa6, 0x59, 0x17, 0xd4, 0x6c, 0xe9, 0xd7, 0x72, 0x07,
+	0xb3, 0xd2, 0x22, 0x2a, 0xb8, 0x15, 0x85, 0x26, 0x5d, 0x83, 0x64, 0x43, 0x5d, 0x97, 0x51, 0xdb,
+	0x33, 0x2a, 0x5c, 0x44, 0x9c, 0xae, 0xc3, 0x37, 0xca, 0xcf, 0x58, 0xc1, 0xe1, 0x0d, 0x2e, 0x42,
+	0xc2, 0x0f, 0xc8, 0x59, 0x49, 0x88, 0x8b, 0xa2, 0xa6, 0x6f, 0x35, 0x2c, 0xbf, 0x05, 0xf4, 0xb8,
+	0x5c, 0xfd, 0x06, 0xae, 0xb0, 0x66, 0xe1, 0x5b, 0xdf, 0x8a, 0x9a, 0xb2, 0xc1, 0x55, 0x96, 0x51,
+	0xbb, 0x4b, 0x86, 0x23, 0xd6, 0xe8, 0xcb, 0x37, 0xf3, 0xae, 0xed, 0x54, 0xf8, 0x91, 0xe0, 0xc9,
+	0xd7, 0xc9, 0x7c, 0x9b, 0xe0, 0x8c, 0x7d, 0xcb, 0x29, 0xf3, 0xfd, 0xc0, 0x97, 0xef, 0xc0, 0xe7,
+	0x85, 0x9b, 0x14, 0xac, 0xeb, 0x0e, 0x4c, 0x52, 0xee, 0xfc, 0x0a, 0x5a, 0x70, 0x58, 0x1d, 0x8b,
+	0x19, 0x72, 0x2f, 0xee, 0x00, 0x3f, 0x04, 0x75, 0x92, 0x46, 0x19, 0x96, 0xc8, 0x22, 0xd3, 0xec,
+	0x45, 0x5e, 0x6d, 0x15, 0xbd, 0x4f, 0x88, 0x84, 0x8e, 0x39, 0x0e, 0x73, 0x13, 0x60, 0x66, 0x62,
+	0x30, 0x38, 0x27, 0xc2, 0x30, 0x51, 0x87, 0x20, 0x0d, 0x8d, 0xd1, 0x62, 0x14, 0xa2, 0x6e, 0x65,
+	0xd7, 0x21, 0x19, 0xa9, 0xc0, 0x33, 0x87, 0x8c, 0x13, 0xc3, 0xa8, 0xd4, 0xc6, 0x5b, 0x78, 0x60,
+	0xcf, 0x05, 0x7b, 0x50, 0x67, 0xf0, 0xfc, 0xac, 0xd2, 0x7e, 0x1f, 0x65, 0x67, 0x24, 0x83, 0x7d,
+	0xe5, 0x39, 0x8a, 0x01, 0x9c, 0xca, 0xfc, 0xdd, 0xc7, 0x6b, 0x78, 0x3b, 0x37, 0x48, 0xb8, 0xeb,
+	0xc5, 0x7c, 0x57, 0xfe, 0x34, 0xb3, 0x6d, 0x09, 0x06, 0x66, 0x55, 0x70, 0x97, 0x7b, 0xac, 0x1c,
+	0x32, 0x64, 0x4d, 0xd7, 0x92, 0x61, 0x1a, 0xea, 0xe4, 0x36, 0x84, 0x77, 0xb3, 0xc1, 0x2c, 0x05,
+	0xb3, 0x0e, 0x73, 0x94, 0x56, 0xde, 0x23, 0x53, 0x90, 0x58, 0xa2, 0x9e, 0x67, 0x55, 0x1d, 0x29,
+	0x16, 0x79, 0xa7, 0x87, 0xb3, 0x7b, 0x2b, 0x43, 0xde, 0x4b, 0x62, 0xac, 0x28, 0x08, 0x79, 0xdf,
+	0x87, 0x43, 0xdb, 0x22, 0xcf, 0x26, 0xb1, 0x0f, 0x7e, 0x33, 0xbb, 0xdd, 0x3d, 0xaf, 0xf3, 0x71,
+	0x5e, 0xeb, 0x07, 0xbc, 0x9f, 0x5d, 0x27, 0x8b, 0x49, 0xd6, 0x51, 0x8e, 0x21, 0xf6, 0xd0, 0x72,
+	0x07, 0x13, 0x39, 0x71, 0xc0, 0x30, 0x67, 0x10, 0x7b, 0x4a, 0xd9, 0x27, 0xcf, 0xa4, 0x5c, 0xcf,
+	0x41, 0x22, 0xfb, 0xb8, 0xfb, 0x65, 0x2c, 0x26, 0x21, 0xb7, 0x3b, 0x09, 0xb0, 0x44, 0x66, 0x69,
+	0x89, 0x3a, 0x65, 0x2e, 0xb9, 0xe0, 0xfb, 0x04, 0xa3, 0x7e, 0x98, 0xbc, 0xbd, 0x9b, 0xe1, 0x9d,
+	0x28, 0xc4, 0xb9, 0x56, 0x17, 0xad, 0x6d, 0x46, 0xfd, 0x20, 0x85, 0x7b, 0x93, 0x8c, 0x06, 0x0f,
+	0x14, 0xd1, 0x63, 0xcb, 0xbd, 0x0c, 0xb5, 0x05, 0xf7, 0xf1, 0x79, 0x22, 0x7c, 0x67, 0x29, 0x93,
+	0x33, 0xf0, 0xa9, 0xd4, 0x34, 0x99, 0xeb, 0xcb, 0x30, 0x3f, 0x30, 0x54, 0xb8, 0xd5, 0x9f, 0x74,
+	0x8f, 0x3d, 0x2d, 0x81, 0x56, 0x42, 0x1c, 0x34, 0x65, 0xc1, 0x03, 0xe9, 0x48, 0xfc, 0x6d, 0x05,
+	0x0c, 0xf4, 0xa7, 0xf9, 0x82, 0xea, 0x6b, 0xd1, 0x02, 0x20, 0xd1, 0x1c, 0xc2, 0x7a, 0xcc, 0x66,
+	0x78, 0x48, 0xf7, 0x99, 0x55, 0xdd, 0xf5, 0xf5, 0xcf, 0xb2, 0x24, 0x9a, 0x15, 0xf0, 0x76, 0x00,
+	0x72, 0x07, 0x30, 0xb4, 0x35, 0x32, 0xaf, 0x38, 0xe0, 0x6e, 0x5a, 0x4e, 0x15, 0xbd, 0x14, 0xf2,
+	0xb0, 0x9c, 0xaa, 0xfe, 0x39, 0x58, 0xf2, 0x59, 0x44, 0x80, 0xcd, 0x92, 0x93, 0x36, 0xb8, 0xb8,
+	0x13, 0x4c, 0xd1, 0xec, 0x64, 0x20, 0xd7, 0x31, 0xf7, 0x6e, 0x74, 0xff, 0xb5, 0xf1, 0x00, 0xae,
+	0x43, 0xfa, 0x5d, 0x90, 0xf3, 0x98, 0x20, 0x4a, 0xb1, 0xc1, 0x3b, 0x8d, 0x52, 0x28, 0xa6, 0xff,
+	0x41, 0x86, 0x9a, 0xb4, 0x79, 0xc8, 0x0b, 0x25, 0x58, 0xc1, 0xe5, 0x46, 0xa9, 0x1d, 0xd3, 0xf6,
+	0xc9, 0x22, 0x04, 0x78, 0xdc, 0x47, 0x7b, 0xd1, 0x39, 0x87, 0xfa, 0x87, 0x43, 0xf9, 0xae, 0x1b,
+	0x3b, 0x12, 0xb6, 0x73, 0x26, 0xf5, 0x02, 0x19, 0x91, 0x8c, 0x61, 0x83, 0x04, 0x2b, 0x0b, 0xba,
+	0xef, 0xe9, 0x5f, 0x60, 0x35, 0x56, 0x8d, 0x36, 0xe5, 0x8e, 0x14, 0xf1, 0xaf, 0xf2, 0xb0, 0xe0,
+	0x2b, 0x3a, 0x53, 0xa9, 0x50, 0xc1, 0x3c, 0x26, 0xe4, 0xb5, 0x48, 0x8a, 0x9f, 0x66, 0x38, 0x2c,
+	0x01, 0x0c, 0x68, 0x3e, 0x82, 0x80, 0xe0, 0xaf, 0x93, 0x61, 0xf5, 0x4e, 0x2f, 0x43, 0x74, 0x80,
+	0x2d, 0x65, 0xaa, 0x5a, 0x94, 0xb4, 0x1b, 0x0c, 0xc1, 0x9e, 0x27, 0xa3, 0x98, 0xfd, 0x02, 0x40,
+	0xc1, 0xe5, 0xc5, 0x58, 0x37, 0x61, 0x65, 0xc3, 0x90, 0xbe, 0x92, 0x7f, 0x2f, 0xc2, 0x9f, 0x83,
+	0xf0, 0x36, 0x5c, 0x5e, 0x3c, 0xbc, 0x2d, 0xe7, 0x0b, 0x6f, 0x8b, 0x0a, 0x2b, 0x16, 0xde, 0x3e,
+	0x24, 0x17, 0x3a, 0x71, 0xe8, 0x18, 0xdd, 0xb2, 0x0c, 0x1e, 0x42, 0xb4, 0xb1, 0xea, 0x18, 0xcf,
+	0xa6, 0x79, 0x27, 0xe2, 0xd9, 0x0a, 0x46, 0x7b, 0x49, 0xa8, 0x78, 0x3c, 0x7b, 0x07, 0xe3, 0xd9,
+	0x10, 0x24, 0x8c, 0x32, 0xab, 0x19, 0xde, 0xf8, 0xa0, 0x46, 0x15, 0x01, 0xc2, 0x40, 0x74, 0x9d,
+	0xcc, 0xb7, 0x81, 0xa6, 0x62, 0xbd, 0x5d, 0x8c, 0xf5, 0x44, 0x8a, 0x34, 0x11, 0xeb, 0xdd, 0x21,
+	0xa3, 0x89, 0xef, 0x93, 0x27, 0x54, 0x7f, 0x98, 0x7d, 0xef, 0x86, 0x63, 0xdf, 0x28, 0xcf, 0xa7,
+	0xb6, 0x47, 0x66, 0x43, 0xd0, 0x32, 0xab, 0x71, 0x30, 0x08, 0xd1, 0x65, 0xfc, 0x07, 0x39, 0x02,
+	0xaa, 0x00, 0x6f, 0x4d, 0xc1, 0x45, 0x57, 0x71, 0x15, 0xce, 0x87, 0x0c, 0xe3, 0xb7, 0xc6, 0x1f,
+	0x4a, 0x4e, 0x10, 0xce, 0x07, 0xdf, 0x17, 0xbb, 0x2f, 0x5e, 0x4c, 0x6d, 0x8f, 0x60, 0x2e, 0xde,
+	0x16, 0x7f, 0x04, 0xb2, 0xd3, 0x62, 0x54, 0x45, 0xe6, 0xc2, 0x55, 0xf1, 0x75, 0x32, 0x95, 0xdc,
+	0xd1, 0x2a, 0x0b, 0x4e, 0xc3, 0x97, 0x58, 0xf2, 0x17, 0xdf, 0xae, 0x2a, 0x53, 0x07, 0xe1, 0xdd,
+	0x98, 0x19, 0x08, 0xe5, 0x61, 0x72, 0x6e, 0x97, 0xf9, 0xbe, 0xa3, 0xff, 0x18, 0x4b, 0x89, 0xd2,
+	0x2b, 0x2c, 0xa8, 0x71, 0xed, 0x2d, 0x12, 0x8e, 0x19, 0x75, 0x07, 0xcc, 0x48, 0x48, 0xfb, 0x5b,
+	0x58, 0x96, 0x38, 0x19, 0x4c, 0xb8, 0x05, 0xe3, 0x21, 0x69, 0x89, 0xcc, 0x0a, 0x6e, 0x87, 0xaf,
+	0x26, 0x96, 0x53, 0xb1, 0x69, 0x94, 0xbe, 0xd7, 0xad, 0x0c, 0xe1, 0x81, 0xc4, 0xc1, 0x23, 0x7e,
+	0x35, 0x40, 0xc1, 0x4c, 0xeb, 0x0e, 0xbe, 0x5c, 0xc8, 0xf3, 0xe5, 0xf3, 0xa4, 0x1d, 0xb8, 0x0f,
+	0xf8, 0x67, 0x1f, 0xb9, 0xd1, 0x10, 0x94, 0x17, 0x90, 0x38, 0xa6, 0xf8, 0x4d, 0xf2, 0x6c, 0x07,
+	0xc4, 0x8e, 0x7a, 0xbf, 0x97, 0x21, 0xa4, 0x32, 0xd3, 0x8c, 0xda, 0xd5, 0xfe, 0x3d, 0x32, 0x9b,
+	0xe2, 0x9c, 0xd0, 0x7a, 0x1b, 0x0e, 0x87, 0x9e, 0x00, 0x8a, 0x2b, 0xbd, 0x2a, 0xe9, 0x08, 0x20,
+	0x42, 0x9d, 0xaf, 0x65, 0x2b, 0xe9, 0x50, 0x12, 0x09, 0x55, 0xbe, 0x40, 0xe6, 0xd2, 0x90, 0x29,
+	0x8d, 0x77, 0x30, 0x26, 0x30, 0x93, 0x84, 0x09, 0x85, 0xb7, 0x03, 0x8b, 0x06, 0xd7, 0x0e, 0x4b,
+	0xb0, 0xb2, 0x41, 0x4b, 0xbc, 0xc1, 0x82, 0x9b, 0x0e, 0xcf, 0xad, 0x98, 0x45, 0x85, 0xb7, 0x22,
+	0xe1, 0xd4, 0x4d, 0xe7, 0xbd, 0xc0, 0x0a, 0x18, 0x25, 0x5e, 0x77, 0x7c, 0xe9, 0x2b, 0x4d, 0x9b,
+	0x42, 0x5d, 0x82, 0x4d, 0x5b, 0xba, 0x8b, 0x82, 0xc4, 0x29, 0xab, 0x30, 0xa3, 0x88, 0x13, 0xd6,
+	0xe4, 0xb8, 0x56, 0x27, 0x4f, 0x77, 0xc8, 0x09, 0xa5, 0x10, 0xa5, 0xbf, 0x7b, 0xd0, 0xbd, 0x64,
+	0xcf, 0xb5, 0xe5, 0x8f, 0x8a, 0x71, 0xf6, 0x18, 0x9c, 0x82, 0x5f, 0x6b, 0x30, 0x61, 0x55, 0xac,
+	0x94, 0x5f, 0x13, 0xf9, 0xfc, 0xda, 0x6d, 0x85, 0x95, 0xf4, 0x6b, 0x9d, 0x38, 0x74, 0x3c, 0xdf,
+	0x5e, 0x06, 0xbf, 0xd6, 0x68, 0x63, 0xd5, 0xd1, 0xaf, 0xa5, 0x79, 0x27, 0x4e, 0xb8, 0x8f, 0x7e,
+	0x2d, 0x09, 0xd5, 0xc1, 0xaf, 0x85, 0x20, 0xe1, 0x19, 0xaf, 0x67, 0xf3, 0x6b, 0x81, 0x5c, 0xe2,
+	0x7e, 0xad, 0x0d, 0x34, 0x75, 0xca, 0x1b, 0xe8, 0xd7, 0x1a, 0x29, 0xd2, 0xc4, 0x31, 0xbf, 0x84,
+	0x56, 0x1a, 0x17, 0x85, 0x33, 0x4d, 0x30, 0x58, 0x9e, 0xbe, 0x8f, 0x89, 0xc0, 0x20, 0x43, 0x73,
+	0x3b, 0x3e, 0xa8, 0x19, 0x64, 0x22, 0x64, 0x8f, 0x29, 0x07, 0x75, 0x6d, 0x68, 0xe6, 0x28, 0x4f,
+	0x0e, 0x90, 0x20, 0xdf, 0xa0, 0xee, 0x0e, 0x3e, 0x26, 0x57, 0x52, 0x4c, 0x52, 0x79, 0x8d, 0x56,
+	0xbe, 0x9a, 0x85, 0xdb, 0x71, 0x7e, 0x89, 0xfc, 0xc6, 0x97, 0x89, 0x64, 0xb2, 0xd2, 0x9c, 0xa8,
+	0x03, 0x47, 0x9d, 0xb2, 0x3f, 0xca, 0xfd, 0x6c, 0x35, 0x17, 0xa1, 0xa3, 0x1e, 0x6d, 0x06, 0xed,
+	0x39, 0x78, 0xde, 0x7e, 0x4c, 0x9e, 0x49, 0x3d, 0x0a, 0xa8, 0x6f, 0x90, 0x6b, 0xae, 0xd4, 0x9d,
+	0x72, 0xb8, 0xf4, 0x9f, 0xe6, 0x88, 0xd5, 0xcf, 0x25, 0x9e, 0x06, 0xf0, 0x03, 0xb6, 0x98, 0xd8,
+	0x00, 0x5c, 0x14, 0x40, 0x8b, 0x2c, 0x62, 0x2d, 0x69, 0xfa, 0x03, 0xe4, 0xa5, 0x41, 0x58, 0xa5,
+	0x3a, 0x54, 0x24, 0xfc, 0x71, 0x0e, 0xe6, 0xf3, 0x50, 0x5a, 0x9a, 0x64, 0x5e, 0x88, 0x81, 0x6a,
+	0x1f, 0xe2, 0xbd, 0xe8, 0xd1, 0xac, 0x3d, 0xfd, 0x4f, 0x86, 0xe0, 0x5c, 0x2e, 0x74, 0x58, 0x4b,
+	0x1c, 0xce, 0xd3, 0x36, 0xc8, 0x7c, 0x3b, 0x56, 0xd2, 0xae, 0xfe, 0xe9, 0x10, 0xaa, 0x48, 0x7a,
+	0x57, 0x12, 0xc6, 0x75, 0x85, 0x9c, 0x49, 0xd6, 0xbf, 0x06, 0x17, 0x71, 0xa5, 0x66, 0x7f, 0x86,
+	0x71, 0xc5, 0x4c, 0xa2, 0xf8, 0x55, 0xcd, 0x51, 0x5a, 0xf6, 0xa2, 0x8c, 0x1e, 0xab, 0x41, 0xdf,
+	0x83, 0x43, 0x4b, 0x36, 0x2b, 0xeb, 0x7f, 0x3e, 0x04, 0x6f, 0x6b, 0x23, 0xe1, 0xc8, 0x3a, 0x0e,
+	0x68, 0xcf, 0x91, 0x91, 0x3d, 0xd6, 0x32, 0x5c, 0xea, 0xef, 0x86, 0x93, 0x7f, 0x86, 0x93, 0x4f,
+	0xef, 0xb1, 0xd6, 0x16, 0xf5, 0x77, 0x83, 0xa9, 0xcb, 0x64, 0x4c, 0x4e, 0x8d, 0xc0, 0x71, 0x5d,
+	0x7f, 0x81, 0x9f, 0x34, 0xba, 0xc7, 0x5a, 0x9b, 0xc1, 0x10, 0x2e, 0x06, 0x02, 0x24, 0x53, 0x9a,
+	0xce, 0x76, 0xaa, 0xbf, 0x0c, 0x03, 0x24, 0x9c, 0x90, 0x22, 0x7d, 0x83, 0x4c, 0x99, 0xbc, 0xee,
+	0x98, 0x96, 0xdd, 0x46, 0xf9, 0x57, 0x48, 0x39, 0xa1, 0xc6, 0xdb, 0x09, 0x23, 0x02, 0x94, 0x9f,
+	0xb2, 0x54, 0xfa, 0x5f, 0x2b, 0xc2, 0x70, 0x1c, 0x45, 0x87, 0x26, 0x4a, 0x5b, 0x22, 0x5a, 0x44,
+	0x18, 0xc6, 0x71, 0x7f, 0xa3, 0x16, 0x17, 0x0e, 0x85, 0x21, 0xdc, 0x0a, 0x56, 0x24, 0x24, 0x24,
+	0x82, 0x59, 0x54, 0xc5, 0xee, 0x6f, 0xf1, 0xec, 0x4c, 0xd7, 0x68, 0xf3, 0x7a, 0x4c, 0x34, 0xde,
+	0x16, 0x13, 0x8a, 0xe5, 0x45, 0x32, 0x9e, 0x14, 0xa8, 0xa2, 0xfc, 0x3b, 0x64, 0xaa, 0xc5, 0x25,
+	0xaa, 0x48, 0x5e, 0x25, 0x13, 0xa1, 0x48, 0xcd, 0x5d, 0xea, 0x54, 0x99, 0x92, 0xca, 0xdf, 0x23,
+	0xcd, 0x58, 0x30, 0x5a, 0x80, 0x41, 0x94, 0x09, 0x84, 0xb9, 0x8a, 0x48, 0xb0, 0x06, 0x53, 0x6d,
+	0x63, 0xca, 0xad, 0xfc, 0x03, 0x52, 0x4e, 0x05, 0x53, 0x8a, 0x30, 0x63, 0xd3, 0x72, 0x94, 0x57,
+	0x59, 0x26, 0x63, 0x11, 0x4b, 0x5e, 0xab, 0x59, 0xbe, 0xe1, 0xfb, 0xb6, 0xfe, 0x8f, 0x4a, 0x32,
+	0x21, 0x43, 0x18, 0xda, 0xf1, 0x6d, 0xed, 0x36, 0x99, 0x4a, 0x13, 0x94, 0x99, 0xcb, 0x3d, 0xcb,
+	0xd7, 0x7f, 0x3e, 0xd4, 0x4d, 0xe4, 0x39, 0x91, 0xc4, 0x5c, 0x43, 0x62, 0xed, 0x63, 0x79, 0xa1,
+	0x08, 0x44, 0xc5, 0x4b, 0xf7, 0x55, 0x86, 0x07, 0x6e, 0x47, 0xff, 0xd4, 0x15, 0xf0, 0x64, 0x48,
+	0x7f, 0x33, 0x20, 0x87, 0x7b, 0xd1, 0x25, 0x32, 0xf5, 0x70, 0x0f, 0xb6, 0x12, 0xb2, 0xe2, 0xf1,
+	0xd3, 0xf6, 0xcf, 0xb8, 0xcc, 0xf1, 0x87, 0x7b, 0xd7, 0x59, 0x6b, 0x25, 0x1c, 0x45, 0xc1, 0x6e,
+	0x90, 0x05, 0x9f, 0x56, 0x03, 0x7b, 0x4d, 0xa5, 0x2f, 0x09, 0x6c, 0x26, 0x16, 0x36, 0xb8, 0x9e,
+	0xfe, 0x2f, 0xa8, 0xf6, 0xb3, 0x3e, 0xad, 0xa2, 0xf1, 0x5d, 0xc1, 0x69, 0xa0, 0xad, 0x05, 0xea,
+	0xae, 0xba, 0x9e, 0x94, 0x58, 0x60, 0xf3, 0x31, 0x8c, 0x8a, 0xee, 0x64, 0xff, 0xda, 0x9d, 0xc4,
+	0x90, 0x1c, 0x83, 0xa6, 0xe8, 0x0a, 0x76, 0x15, 0xfd, 0x5a, 0x3a, 0xd7, 0x8c, 0xc7, 0x14, 0xde,
+	0xd5, 0xb8, 0xd0, 0xbf, 0x1a, 0x0a, 0x5f, 0x0d, 0xb6, 0x92, 0xe9, 0x66, 0x79, 0x54, 0x0b, 0x38,
+	0xeb, 0xed, 0x85, 0x5f, 0x7d, 0x35, 0x3f, 0xf4, 0xd3, 0xff, 0xfb, 0xf7, 0xe7, 0xa7, 0x62, 0xbd,
+	0xaa, 0x4d, 0xe8, 0x56, 0xc5, 0xc6, 0xac, 0xc5, 0x9f, 0xdf, 0x21, 0xe3, 0x45, 0xe6, 0xde, 0x74,
+	0x55, 0x9d, 0x18, 0xb5, 0x7f, 0xdd, 0xb1, 0xf5, 0xeb, 0x8e, 0xad, 0x9e, 0x75, 0x6c, 0x1d, 0xd6,
+	0x00, 0x73, 0xa2, 0x07, 0x0d, 0x30, 0xe4, 0x08, 0x0d, 0x30, 0x4f, 0x0d, 0xae, 0x01, 0xe6, 0xe4,
+	0x91, 0x1a, 0x60, 0x4e, 0xf5, 0xb3, 0x01, 0xe6, 0x74, 0x2f, 0x1a, 0x60, 0x0e, 0xe8, 0x53, 0x19,
+	0xee, 0x73, 0x9f, 0xca, 0x48, 0x4f, 0xfb, 0x54, 0x46, 0xbb, 0xeb, 0x53, 0xd1, 0xfa, 0xd2, 0xa7,
+	0x32, 0xd6, 0xbf, 0x3e, 0x95, 0xf1, 0x41, 0xf5, 0xa9, 0x4c, 0x0c, 0xac, 0x4f, 0x65, 0x72, 0x40,
+	0x7d, 0x2a, 0x53, 0x83, 0xe8, 0x53, 0xd1, 0xfb, 0xd7, 0xa7, 0x32, 0xfd, 0xa8, 0x3e, 0x95, 0x43,
+	0x1b, 0x4a, 0x66, 0x06, 0xd1, 0x50, 0x32, 0xdb, 0xdf, 0x86, 0x92, 0x33, 0xfd, 0x6d, 0x28, 0x39,
+	0x9b, 0xbb, 0xa1, 0x64, 0xee, 0xc8, 0x0d, 0x25, 0xf3, 0x3d, 0x6b, 0x28, 0x59, 0x38, 0x86, 0x86,
+	0x92, 0x73, 0xc7, 0xd4, 0x50, 0xb2, 0xd8, 0x9b, 0x86, 0x92, 0xf3, 0x03, 0x6c, 0x28, 0xf9, 0xde,
+	0x60, 0x1b, 0x4a, 0x9e, 0xee, 0x45, 0x43, 0xc9, 0x33, 0xc7, 0xd2, 0x50, 0xf2, 0xec, 0x80, 0x1b,
+	0x4a, 0x2e, 0xe4, 0x69, 0x28, 0x79, 0x6e, 0xd0, 0x0d, 0x25, 0xcf, 0x1f, 0x43, 0x43, 0xc9, 0x0b,
+	0x83, 0x6f, 0x28, 0x79, 0xf1, 0x58, 0x1a, 0x4a, 0x5e, 0xea, 0x6d, 0x43, 0x49, 0xc7, 0x2e, 0x85,
+	0xa5, 0xc1, 0x75, 0x29, 0x2c, 0xe7, 0xed, 0x52, 0x78, 0xb9, 0xef, 0x5d, 0x0a, 0x17, 0xf3, 0x76,
+	0x29, 0xbc, 0x72, 0xc4, 0x2e, 0x85, 0x57, 0x7b, 0xdc, 0xa5, 0x70, 0xab, 0x43, 0x97, 0x82, 0x7f,
+	0xf4, 0x26, 0x05, 0x7e, 0x68, 0x93, 0xc2, 0xfe, 0x31, 0xf4, 0x28, 0xbc, 0x76, 0x0c, 0x3d, 0x0a,
+	0xaf, 0x0f, 0xa8, 0x47, 0xe1, 0xd2, 0x20, 0x7b, 0x14, 0xde, 0x38, 0xa6, 0x1e, 0x85, 0x37, 0x7b,
+	0xde, 0xa3, 0xd0, 0xa9, 0x4d, 0xe0, 0xad, 0xfe, 0xb6, 0x09, 0xbc, 0x7d, 0x3c, 0x6d, 0x02, 0xef,
+	0x1c, 0x6b, 0x9b, 0xc0, 0xbb, 0xb9, 0xdb, 0x04, 0xde, 0x1b, 0x58, 0x9b, 0xc0, 0xf7, 0x8f, 0xd4,
+	0x26, 0xf0, 0x7e, 0x8e, 0x36, 0x81, 0x0f, 0x06, 0xd7, 0x26, 0x70, 0xb9, 0x57, 0x6d, 0x02, 0x2b,
+	0xbd, 0x69, 0x13, 0x58, 0x3d, 0x52, 0x9b, 0x40, 0x61, 0x50, 0x6d, 0x02, 0x6b, 0x83, 0x6c, 0x13,
+	0x58, 0x1f, 0x6c, 0x9b, 0xc0, 0xc6, 0xe1, 0x6d, 0x02, 0x87, 0x54, 0xa2, 0x5f, 0xe9, 0x5b, 0x25,
+	0xfa, 0xd5, 0x23, 0x54, 0xa2, 0x77, 0xaa, 0x11, 0xbf, 0xd6, 0xef, 0x1a, 0xf1, 0xeb, 0x83, 0xa9,
+	0x11, 0xbf, 0xd1, 0x9b, 0x1a, 0xf1, 0xcd, 0x9e, 0xd5, 0x88, 0x3f, 0xe8, 0xae, 0x46, 0xbc, 0xde,
+	0xc3, 0x12, 0xf1, 0x46, 0x57, 0x25, 0xe2, 0x8d, 0x9e, 0x57, 0x88, 0x1f, 0xd6, 0xe1, 0xf0, 0x61,
+	0x4f, 0x3a, 0x1c, 0x3a, 0xd5, 0xa1, 0xdf, 0xcc, 0x51, 0x87, 0xbe, 0xd5, 0x9f, 0x3a, 0xf4, 0x8f,
+	0x7a, 0x5b, 0x87, 0x5e, 0xcc, 0x5e, 0x87, 0xbe, 0x7d, 0x2c, 0x75, 0xe8, 0x3b, 0x03, 0xae, 0x43,
+	0xbf, 0x95, 0xbb, 0x0e, 0xfd, 0x76, 0xff, 0xeb, 0xd0, 0xef, 0x74, 0x51, 0x87, 0x7e, 0x48, 0x95,
+	0xf2, 0xc7, 0x7d, 0xae, 0x52, 0xbe, 0x3b, 0x90, 0x2a, 0xe5, 0x7b, 0x03, 0xad, 0x52, 0xfe, 0x24,
+	0x67, 0x95, 0xf2, 0xa7, 0xfd, 0xae, 0x52, 0xfe, 0xec, 0xe8, 0x55, 0xca, 0x9f, 0x0f, 0xb2, 0x4a,
+	0xd9, 0xe8, 0x55, 0x95, 0xf2, 0x17, 0x03, 0xab, 0x52, 0xa6, 0xc7, 0x52, 0xa5, 0x5c, 0x1a, 0x70,
+	0x95, 0xb2, 0x99, 0xbb, 0x4a, 0xb9, 0xdc, 0xff, 0x2a, 0x65, 0x76, 0xb4, 0x2a, 0xe5, 0x4a, 0xae,
+	0x2a, 0xe5, 0xea, 0x20, 0xab, 0x94, 0x77, 0x7b, 0x5d, 0xa5, 0xdc, 0xb1, 0x19, 0xc9, 0xea, 0x7f,
+	0x33, 0xd2, 0xfd, 0x81, 0x35, 0x23, 0xed, 0xe5, 0x6a, 0x46, 0xb2, 0xf3, 0x34, 0x23, 0xd5, 0x72,
+	0x37, 0x23, 0x39, 0x87, 0x34, 0x23, 0xbd, 0xf9, 0x88, 0x66, 0x24, 0xfe, 0xc8, 0x5e, 0xa4, 0xfa,
+	0xa1, 0x3f, 0x3a, 0xe5, 0xf6, 0xe3, 0x37, 0xa7, 0x76, 0x0f, 0xfe, 0xcd, 0xa9, 0x07, 0xbd, 0xfd,
+	0xc9, 0xa9, 0xcf, 0x0f, 0xfa, 0xc9, 0x29, 0xd1, 0x9b, 0x5f, 0x9c, 0x2a, 0x1f, 0xf4, 0x8b, 0x53,
+	0x5e, 0x2f, 0x7f, 0x70, 0xea, 0x47, 0x5d, 0x75, 0x0b, 0x34, 0xfb, 0xd5, 0x2c, 0xf0, 0x65, 0xd7,
+	0xcd, 0x02, 0xad, 0xbe, 0xf4, 0x0a, 0x34, 0xbb, 0xea, 0x15, 0x78, 0xd8, 0x87, 0x56, 0x81, 0xcd,
+	0xee, 0x5a, 0x05, 0x7e, 0xd0, 0x65, 0xa7, 0xc0, 0xfa, 0xe1, 0x9d, 0x02, 0x3f, 0x3c, 0xbc, 0x51,
+	0xe0, 0xed, 0xa5, 0xa0, 0x1e, 0xf7, 0xe9, 0xb6, 0x7a, 0xdc, 0x4e, 0x45, 0xb8, 0xab, 0x2f, 0x7f,
+	0xfd, 0xcd, 0xdc, 0xd0, 0x2f, 0xbe, 0x99, 0x1b, 0xfa, 0xdf, 0x6f, 0xe6, 0x86, 0x7e, 0xf6, 0xed,
+	0xdc, 0x63, 0xbf, 0xf8, 0x76, 0xee, 0xb1, 0xff, 0xfa, 0x76, 0xee, 0xb1, 0x7b, 0x93, 0x6d, 0x00,
+	0x7e, 0xcb, 0x65, 0x5e, 0xe9, 0x09, 0xf8, 0x8f, 0xc4, 0xbc, 0xfa, 0xff, 0x01, 0x00, 0x00, 0xff,
+	0xff, 0x37, 0xe1, 0xe2, 0xec, 0x9d, 0x66, 0x00, 0x00,
 }
 
 func (this *TierConfig) Equal(that interface{}) bool {
@@ -2341,9 +2299,6 @@ func (this *Params) Equal(that interface{}) bool {
 	if !this.TreasuryShare.Equal(that1.TreasuryShare) {
 		return false
 	}
-	if !this.MinReputationMultiplier.Equal(that1.MinReputationMultiplier) {
-		return false
-	}
 	if !this.ApprenticeTier.Equal(&that1.ApprenticeTier) {
 		return false
 	}
@@ -2419,25 +2374,7 @@ func (this *Params) Equal(that interface{}) bool {
 	if this.InterimDeadlineEpochs != that1.InterimDeadlineEpochs {
 		return false
 	}
-	if this.MaxActiveChallengesPerCommittee != that1.MaxActiveChallengesPerCommittee {
-		return false
-	}
-	if this.MaxNewChallengesPerEpoch != that1.MaxNewChallengesPerEpoch {
-		return false
-	}
-	if this.ChallengeQueueMaxSize != that1.ChallengeQueueMaxSize {
-		return false
-	}
-	if !this.MinorSlashPenalty.Equal(that1.MinorSlashPenalty) {
-		return false
-	}
-	if !this.ModerateSlashPenalty.Equal(that1.ModerateSlashPenalty) {
-		return false
-	}
 	if !this.SevereSlashPenalty.Equal(that1.SevereSlashPenalty) {
-		return false
-	}
-	if !this.ZeroingSlashPenalty.Equal(that1.ZeroingSlashPenalty) {
 		return false
 	}
 	if !this.ProjectCompletionBonusRate.Equal(that1.ProjectCompletionBonusRate) {
@@ -2806,6 +2743,12 @@ func (this *Params) Equal(that interface{}) bool {
 	if this.TagBudgetAwarderEpochCapBps != that1.TagBudgetAwarderEpochCapBps {
 		return false
 	}
+	if !this.BudgetReviewThreshold.Equal(that1.BudgetReviewThreshold) {
+		return false
+	}
+	if this.MaxProposedProjectsPerCreator != that1.MaxProposedProjectsPerCreator {
+		return false
+	}
 	return true
 }
 func (this *RepOperationalParams) Equal(that interface{}) bool {
@@ -2849,9 +2792,6 @@ func (this *RepOperationalParams) Equal(that interface{}) bool {
 		return false
 	}
 	if this.GiftOnlyToInvitees != that1.GiftOnlyToInvitees {
-		return false
-	}
-	if !this.MinReputationMultiplier.Equal(that1.MinReputationMultiplier) {
 		return false
 	}
 	if this.DefaultReviewPeriodEpochs != that1.DefaultReviewPeriodEpochs {
@@ -2903,15 +2843,6 @@ func (this *RepOperationalParams) Equal(that interface{}) bool {
 		return false
 	}
 	if this.InterimDeadlineEpochs != that1.InterimDeadlineEpochs {
-		return false
-	}
-	if this.MaxActiveChallengesPerCommittee != that1.MaxActiveChallengesPerCommittee {
-		return false
-	}
-	if this.MaxNewChallengesPerEpoch != that1.MaxNewChallengesPerEpoch {
-		return false
-	}
-	if this.ChallengeQueueMaxSize != that1.ChallengeQueueMaxSize {
 		return false
 	}
 	if !this.ProjectCompletionBonusRate.Equal(that1.ProjectCompletionBonusRate) {
@@ -3404,19 +3335,38 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.TagBudgetAwarderEpochCapBps != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.TagBudgetAwarderEpochCapBps))
+	if m.MaxProposedProjectsPerCreator != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.MaxProposedProjectsPerCreator))
 		i--
 		dAtA[i] = 0xa
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x80
+	}
+	{
+		size := m.BudgetReviewThreshold.Size()
+		i -= size
+		if _, err := m.BudgetReviewThreshold.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x9
+	i--
+	dAtA[i] = 0xfa
+	if m.TagBudgetAwarderEpochCapBps != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.TagBudgetAwarderEpochCapBps))
+		i--
+		dAtA[i] = 0x9
+		i--
+		dAtA[i] = 0xf0
 	}
 	if m.ZkKeyActivationDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ZkKeyActivationDelay))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xe8
 	}
 	{
 		size := m.MigrationObjectionBond.Size()
@@ -3427,9 +3377,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0xa
+	dAtA[i] = 0x9
 	i--
-	dAtA[i] = 0x9a
+	dAtA[i] = 0xe2
 	{
 		size := m.RecoveryCommitDeposit.Size()
 		i -= size
@@ -3439,78 +3389,78 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0xa
+	dAtA[i] = 0x9
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	if m.RecoveryCommitTtl != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.RecoveryCommitTtl))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xd0
 	}
 	if m.RecoveryRevealMinBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.RecoveryRevealMinBlocks))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xc8
 	}
 	if m.RecoveryChangeDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.RecoveryChangeDelay))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xc0
 	}
 	if m.KeyMigrationWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.KeyMigrationWindow))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0xb8
 	}
 	if m.MaxKeyMigrationsPerWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxKeyMigrationsPerWindow))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0xb0
 	}
 	if m.MigrationCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MigrationCooldown))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0xa8
 	}
 	if m.MigrationAcceptWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MigrationAcceptWindow))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xa0
 	}
 	if m.CouncilMigrationDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.CouncilMigrationDelay))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0x98
 	}
 	if m.RecoveryMigrationDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.RecoveryMigrationDelay))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0x90
 	}
 	if m.KeyMigrationDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.KeyMigrationDelay))
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0x88
 	}
 	if m.KeyPathEnabled {
 		i--
@@ -3522,7 +3472,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x9
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x80
 	}
 	if m.MigrationEnabled {
 		i--
@@ -3532,30 +3482,30 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x9
+		dAtA[i] = 0x8
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xf8
 	}
 	if m.InvitationAcceptanceEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InvitationAcceptanceEpochs))
 		i--
-		dAtA[i] = 0x9
+		dAtA[i] = 0x8
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xf0
 	}
 	if m.InitiativeBountyReclaimDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InitiativeBountyReclaimDelay))
 		i--
-		dAtA[i] = 0x9
+		dAtA[i] = 0x8
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xe8
 	}
 	if m.MaxInitiativeBountyContributions != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxInitiativeBountyContributions))
 		i--
-		dAtA[i] = 0x9
+		dAtA[i] = 0x8
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xe0
 	}
 	{
 		size := m.MinInitiativeBountyContribution.Size()
@@ -3566,9 +3516,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x9
+	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	{
 		size := m.MaxInitiativeBountyPerFunderEpoch.Size()
 		i -= size
@@ -3578,9 +3528,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x9
+	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xd2
 	{
 		size := m.InitiativeBountyMaxBudgetRatio.Size()
 		i -= size
@@ -3590,9 +3540,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x9
+	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xca
 	{
 		size := m.MaxInterimRewardsPerSeason.Size()
 		i -= size
@@ -3604,7 +3554,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xc2
 	{
 		size := m.MaxTotalContentStakePerMember.Size()
 		i -= size
@@ -3616,7 +3566,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xba
 	{
 		size := m.MaxCompletionBonusStakeMultiple.Size()
 		i -= size
@@ -3628,7 +3578,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xb2
 	{
 		size := m.MinStakeAmount.Size()
 		i -= size
@@ -3640,7 +3590,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xaa
 	{
 		size := m.StakingPoolCapRate.Size()
 		i -= size
@@ -3652,7 +3602,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xa2
 	{
 		size := m.StakingPoolCapBase.Size()
 		i -= size
@@ -3664,7 +3614,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0x9a
 	{
 		size := m.StakingPoolMintShare.Size()
 		i -= size
@@ -3676,7 +3626,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0x92
 	{
 		size := m.StakingRewardYieldPerEpoch.Size()
 		i -= size
@@ -3688,43 +3638,43 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x8
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0x8a
 	if m.ReviewerUnbondCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerUnbondCooldown))
 		i--
 		dAtA[i] = 0x8
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x80
 	}
 	if m.ReviewerDemotionCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerDemotionCooldown))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xf8
 	}
 	if m.MinReviewerAgeBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinReviewerAgeBlocks))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xf0
 	}
 	if m.MinReviewerRepTier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinReviewerRepTier))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xe8
 	}
 	if len(m.MinReviewerTrustLevel) > 0 {
 		i -= len(m.MinReviewerTrustLevel)
 		copy(dAtA[i:], m.MinReviewerTrustLevel)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.MinReviewerTrustLevel)))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0x9a
+		dAtA[i] = 0xe2
 	}
 	{
 		size := m.ReviewerDemotionThreshold.Size()
@@ -3735,9 +3685,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x8
+	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	{
 		size := m.MinReviewerBond.Size()
 		i -= size
@@ -3747,9 +3697,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x8
+	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xd2
 	{
 		size := m.MaxVerifierDreamMintPerEpoch.Size()
 		i -= size
@@ -3759,9 +3709,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x8
+	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xca
 	{
 		size := m.VerifierDreamReward.Size()
 		i -= size
@@ -3773,20 +3723,20 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xc2
 	if m.MinEpochVerifications != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinEpochVerifications))
 		i--
 		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0xb8
 	}
 	if m.VerifierAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.VerifierAccuracyWindowEpochs))
 		i--
 		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0xb0
 	}
 	{
 		size := m.MinVerifierAccuracy.Size()
@@ -3799,13 +3749,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xaa
 	if m.VerifierRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.VerifierRewardEpochBlocks))
 		i--
 		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xa0
 	}
 	{
 		size := m.VerifierRewardPoolOverflowBurnRatio.Size()
@@ -3818,7 +3768,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0x9a
 	{
 		size := m.MaxVerifierRewardPool.Size()
 		i -= size
@@ -3830,7 +3780,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0x92
 	{
 		size := m.PermissionlessMinReviewBountyRate.Size()
 		i -= size
@@ -3842,13 +3792,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0x8a
 	if m.ReviewBountyReclaimDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewBountyReclaimDelay))
 		i--
 		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x80
 	}
 	{
 		size := m.ReviewRequiredAboveBudget.Size()
@@ -3859,15 +3809,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7
+	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0xfa
 	if m.CuratorAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.CuratorAccuracyWindowEpochs))
 		i--
-		dAtA[i] = 0x7
+		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xf0
 	}
 	{
 		size := m.MinCuratorAccuracy.Size()
@@ -3878,15 +3828,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7
+	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0xea
 	if m.CuratorRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.CuratorRewardEpochBlocks))
 		i--
-		dAtA[i] = 0x7
+		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xe0
 	}
 	{
 		size := m.CuratorRewardPoolOverflowBurnRatio.Size()
@@ -3897,9 +3847,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7
+	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	{
 		size := m.MaxCuratorRewardPool.Size()
 		i -= size
@@ -3909,9 +3859,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7
+	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xd2
 	{
 		size := m.RoleRewardInflationShare.Size()
 		i -= size
@@ -3921,15 +3871,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7
+	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xca
 	if m.ReviewerAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerAccuracyWindowEpochs))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xc0
 	}
 	{
 		size := m.MinReviewerAccuracy.Size()
@@ -3942,13 +3892,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xba
 	if m.ReviewerRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerRewardEpochBlocks))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0xb0
 	}
 	{
 		size := m.ReviewerRewardPoolOverflowBurnRatio.Size()
@@ -3961,7 +3911,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xaa
 	{
 		size := m.MaxReviewerRewardPool.Size()
 		i -= size
@@ -3973,13 +3923,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xa2
 	if m.MaxReviewRounds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxReviewRounds))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0x98
 	}
 	{
 		size := m.ReviewFeeRate.Size()
@@ -3992,7 +3942,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0x92
 	{
 		size := m.ReviewerBondReserveRate.Size()
 		i -= size
@@ -4004,13 +3954,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0x8a
 	if m.MaxJuryRedraws != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxJuryRedraws))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x80
 	}
 	{
 		size := m.InitiativeCompletionBonusRate.Size()
@@ -4021,15 +3971,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0xfa
 	if m.MinJurySeatingsForWeighting != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinJurySeatingsForWeighting))
 		i--
-		dAtA[i] = 0x6
+		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xf0
 	}
 	{
 		size := m.MinJurorSelectionWeight.Size()
@@ -4040,9 +3990,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0xea
 	{
 		size := m.MinJurorReward.Size()
 		i -= size
@@ -4052,9 +4002,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0x9a
+	dAtA[i] = 0xe2
 	{
 		size := m.JuryAcceptanceWindowRatio.Size()
 		i -= size
@@ -4064,9 +4014,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	{
 		size := m.JurorRewardRate.Size()
 		i -= size
@@ -4076,9 +4026,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xd2
 	{
 		size := m.AbandonedJurySeatPenalty.Size()
 		i -= size
@@ -4088,9 +4038,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xca
 	{
 		size := m.PermissionlessSelfAssignedBondRate.Size()
 		i -= size
@@ -4102,13 +4052,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xc2
 	if m.SelfAssignedChallengeMultiplier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SelfAssignedChallengeMultiplier))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0xb8
 	}
 	{
 		size := m.SelfAssignedExternalConvictionRatio.Size()
@@ -4121,7 +4071,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xb2
 	{
 		size := m.SelfAssignedBondRate.Size()
 		i -= size
@@ -4133,20 +4083,20 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xaa
 	if m.SentinelAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelAccuracyWindowEpochs))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xa0
 	}
 	if m.ProposedProjectExpiryBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ProposedProjectExpiryBlocks))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0x98
 	}
 	{
 		size := m.MaxProjectRequestedSpark.Size()
@@ -4159,7 +4109,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0x92
 	{
 		size := m.MaxProjectRequestedBudget.Size()
 		i -= size
@@ -4171,7 +4121,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0x8a
 	{
 		size := m.MaxDreamMintPerEpoch.Size()
 		i -= size
@@ -4183,20 +4133,20 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x82
 	if m.MaxActiveInterimsPerMember != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveInterimsPerMember))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xf8
 	}
 	if m.MaxActiveInitiativesPerMember != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveInitiativesPerMember))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xf0
 	}
 	{
 		size := m.MinAppealRate.Size()
@@ -4207,22 +4157,22 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x5
+	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0xea
 	if m.MinEpochActivityForReward != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinEpochActivityForReward))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xe0
 	}
 	if m.MinAppealsForAccuracy != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinAppealsForAccuracy))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xd8
 	}
 	{
 		size := m.MinSentinelAccuracy.Size()
@@ -4233,15 +4183,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x5
+	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xd2
 	if m.SentinelRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelRewardEpochBlocks))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xc8
 	}
 	{
 		size := m.SentinelRewardPoolOverflowBurnRatio.Size()
@@ -4254,7 +4204,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xc2
 	{
 		size := m.MaxSentinelRewardPool.Size()
 		i -= size
@@ -4266,7 +4216,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xba
 	{
 		size := m.TagCreationFee.Size()
 		i -= size
@@ -4278,20 +4228,20 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xb2
 	if m.PermissionlessMaxTier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PermissionlessMaxTier))
 		i--
 		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0xa8
 	}
 	if m.PermissionlessMinTrustLevel != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PermissionlessMinTrustLevel))
 		i--
 		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xa0
 	}
 	{
 		size := m.InitiativeCreationFeeStandard.Size()
@@ -4304,7 +4254,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0x9a
 	{
 		size := m.InitiativeCreationFeeApprentice.Size()
 		i -= size
@@ -4316,7 +4266,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0x92
 	{
 		size := m.ProjectCreationFee.Size()
 		i -= size
@@ -4328,7 +4278,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0x8a
 	{
 		size := m.LargeProjectBudgetThreshold.Size()
 		i -= size
@@ -4340,7 +4290,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x82
 	{
 		size := m.MaxInitiativeRewardsPerSeason.Size()
 		i -= size
@@ -4350,9 +4300,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0xfa
 	{
 		size := m.MaxInitiativeStakePerMember.Size()
 		i -= size
@@ -4362,9 +4312,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0xf2
 	if m.TreasuryFundsRetroPgf {
 		i--
 		if m.TreasuryFundsRetroPgf {
@@ -4373,9 +4323,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xe8
 	}
 	if m.TreasuryFundsInterims {
 		i--
@@ -4385,9 +4335,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xe0
 	}
 	{
 		size := m.MaxTreasuryBalance.Size()
@@ -4398,15 +4348,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	if m.NewMemberDecayGraceEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.NewMemberDecayGraceEpochs))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xd0
 	}
 	{
 		size := m.StakedDecayRate.Size()
@@ -4417,9 +4367,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xca
 	{
 		size := m.MaxStakingRewardsPerSeason.Size()
 		i -= size
@@ -4431,7 +4381,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xc2
 	{
 		size := m.MaxReputationGainPerEpoch.Size()
 		i -= size
@@ -4443,7 +4393,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xba
 	{
 		size := m.InvitationStakeBurnRate.Size()
 		i -= size
@@ -4455,7 +4405,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xb2
 	{
 		size := m.MaxConvictionSharePerMember.Size()
 		i -= size
@@ -4467,7 +4417,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xaa
 	{
 		size := m.ReputationDecayRate.Size()
 		i -= size
@@ -4479,13 +4429,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xa2
 	if m.MaxTagsPerInitiative != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxTagsPerInitiative))
 		i--
 		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0x98
 	}
 	{
 		size := m.ConvictionPropagationRatio.Size()
@@ -4498,7 +4448,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0x92
 	{
 		size := m.ContentChallengeRewardShare.Size()
 		i -= size
@@ -4510,7 +4460,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0x8a
 	if m.AuthorBondSlashOnModeration {
 		i--
 		if m.AuthorBondSlashOnModeration {
@@ -4521,7 +4471,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x80
 	}
 	{
 		size := m.MaxAuthorBondPerContent.Size()
@@ -4532,9 +4482,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0xfa
 	{
 		size := m.MaxContentStakePerMember.Size()
 		i -= size
@@ -4544,15 +4494,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0xf2
 	if m.ContentConvictionHalfLifeEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ContentConvictionHalfLifeEpochs))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xe8
 	}
 	{
 		size := m.MaxTransferReceivedPerSeason.Size()
@@ -4563,9 +4513,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x9a
+	dAtA[i] = 0xe2
 	{
 		size := m.MaxTransferReceivedPerEpoch.Size()
 		i -= size
@@ -4575,15 +4525,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xda
 	if m.ChallengeResponseDeadlineEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ChallengeResponseDeadlineEpochs))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xd0
 	}
 	if m.AllowSelfMemberStake {
 		i--
@@ -4593,16 +4543,16 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xc8
 	}
 	if m.MinStakeDurationSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinStakeDurationSeconds))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xc0
 	}
 	{
 		size := m.TagStakeRevenueShare.Size()
@@ -4615,7 +4565,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xba
 	{
 		size := m.MemberStakeRevenueShare.Size()
 		i -= size
@@ -4627,7 +4577,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xb2
 	{
 		size := m.ProjectCompletionBonusRate.Size()
 		i -= size
@@ -4639,19 +4589,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xe2
-	{
-		size := m.ZeroingSlashPenalty.Size()
-		i -= size
-		if _, err := m.ZeroingSlashPenalty.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x2
-	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xaa
 	{
 		size := m.SevereSlashPenalty.Size()
 		i -= size
@@ -4663,58 +4601,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xd2
-	{
-		size := m.ModerateSlashPenalty.Size()
-		i -= size
-		if _, err := m.ModerateSlashPenalty.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x2
-	i--
-	dAtA[i] = 0xca
-	{
-		size := m.MinorSlashPenalty.Size()
-		i -= size
-		if _, err := m.MinorSlashPenalty.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x2
-	i--
-	dAtA[i] = 0xc2
-	if m.ChallengeQueueMaxSize != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.ChallengeQueueMaxSize))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0xb8
-	}
-	if m.MaxNewChallengesPerEpoch != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.MaxNewChallengesPerEpoch))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0xb0
-	}
-	if m.MaxActiveChallengesPerCommittee != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveChallengesPerCommittee))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0xa8
-	}
+	dAtA[i] = 0xa2
 	if m.InterimDeadlineEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InterimDeadlineEpochs))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x98
 	}
 	{
 		size := m.SoloExpertBonusRate.Size()
@@ -4727,7 +4620,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x9a
+	dAtA[i] = 0x92
 	{
 		size := m.ExpertComplexityBudget.Size()
 		i -= size
@@ -4739,7 +4632,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0x8a
 	{
 		size := m.ComplexComplexityBudget.Size()
 		i -= size
@@ -4751,7 +4644,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0x82
 	{
 		size := m.StandardComplexityBudget.Size()
 		i -= size
@@ -4761,9 +4654,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x2
+	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xfa
 	{
 		size := m.SimpleComplexityBudget.Size()
 		i -= size
@@ -4775,7 +4668,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xf2
 	{
 		size := m.MinJurorReputation.Size()
 		i -= size
@@ -4787,7 +4680,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xea
 	{
 		size := m.JurySuperMajority.Size()
 		i -= size
@@ -4799,13 +4692,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xe2
 	if m.JurySize != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.JurySize))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0xd8
 	}
 	{
 		size := m.ChallengerRewardRate.Size()
@@ -4818,7 +4711,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xd2
 	{
 		size := m.MinChallengeStake.Size()
 		i -= size
@@ -4830,7 +4723,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0xca
 	{
 		size, err := m.TrustLevelConfig.MarshalToSizedBuffer(dAtA[:i])
 		if err != nil {
@@ -4842,7 +4735,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0xc2
 	{
 		size := m.InvitationCostMultiplier.Size()
 		i -= size
@@ -4854,7 +4747,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xba
 	{
 		size := m.ReferralRewardRate.Size()
 		i -= size
@@ -4866,13 +4759,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0xb2
 	if m.InvitationAccountabilityEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InvitationAccountabilityEpochs))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xa8
 	}
 	{
 		size := m.MinInvitationStake.Size()
@@ -4885,20 +4778,20 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0xa2
 	if m.DefaultChallengePeriodEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.DefaultChallengePeriodEpochs))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x98
 	}
 	if m.DefaultReviewPeriodEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.DefaultReviewPeriodEpochs))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0x90
 	}
 	{
 		size := m.ConvictionPerDream.Size()
@@ -4911,7 +4804,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0x8a
 	{
 		size := m.ExternalConvictionRatio.Size()
 		i -= size
@@ -4923,13 +4816,11 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0x82
 	if m.ConvictionHalfLifeEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ConvictionHalfLifeEpochs))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x78
 	}
 	{
 		size, err := m.EpicTier.MarshalToSizedBuffer(dAtA[:i])
@@ -4940,7 +4831,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7a
+	dAtA[i] = 0x72
 	{
 		size, err := m.ExpertTier.MarshalToSizedBuffer(dAtA[:i])
 		if err != nil {
@@ -4950,7 +4841,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x72
+	dAtA[i] = 0x6a
 	{
 		size, err := m.StandardTier.MarshalToSizedBuffer(dAtA[:i])
 		if err != nil {
@@ -4960,23 +4851,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6a
+	dAtA[i] = 0x62
 	{
 		size, err := m.ApprenticeTier.MarshalToSizedBuffer(dAtA[:i])
 		if err != nil {
 			return 0, err
 		}
 		i -= size
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x62
-	{
-		size := m.MinReputationMultiplier.Size()
-		i -= size
-		if _, err := m.MinReputationMultiplier.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
@@ -5097,16 +4978,16 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	if m.InitiativeBountyReclaimDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InitiativeBountyReclaimDelay))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xe0
 	}
 	if m.MaxInitiativeBountyContributions != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxInitiativeBountyContributions))
 		i--
 		dAtA[i] = 0x7
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xd8
 	}
 	{
 		size := m.MinInitiativeBountyContribution.Size()
@@ -5119,7 +5000,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xd2
 	{
 		size := m.MaxInitiativeBountyPerFunderEpoch.Size()
 		i -= size
@@ -5131,7 +5012,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xca
 	{
 		size := m.InitiativeBountyMaxBudgetRatio.Size()
 		i -= size
@@ -5143,7 +5024,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xc2
 	{
 		size := m.MaxInterimRewardsPerSeason.Size()
 		i -= size
@@ -5155,7 +5036,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xba
 	{
 		size := m.MaxTotalContentStakePerMember.Size()
 		i -= size
@@ -5167,7 +5048,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0xb2
 	{
 		size := m.MaxCompletionBonusStakeMultiple.Size()
 		i -= size
@@ -5179,7 +5060,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0xaa
 	{
 		size := m.MinStakeAmount.Size()
 		i -= size
@@ -5191,7 +5072,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xa2
 	{
 		size := m.StakingPoolCapRate.Size()
 		i -= size
@@ -5203,7 +5084,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x9a
 	{
 		size := m.StakingPoolCapBase.Size()
 		i -= size
@@ -5215,7 +5096,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0x92
 	{
 		size := m.StakingPoolMintShare.Size()
 		i -= size
@@ -5227,7 +5108,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0x8a
 	{
 		size := m.StakingRewardYieldPerEpoch.Size()
 		i -= size
@@ -5239,34 +5120,34 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x7
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x82
 	if m.ReviewerUnbondCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerUnbondCooldown))
 		i--
-		dAtA[i] = 0x7
+		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xf8
 	}
 	if m.ReviewerDemotionCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerDemotionCooldown))
 		i--
-		dAtA[i] = 0x7
+		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xf0
 	}
 	if m.MinReviewerAgeBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinReviewerAgeBlocks))
 		i--
-		dAtA[i] = 0x7
+		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xe8
 	}
 	if m.MinReviewerRepTier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinReviewerRepTier))
 		i--
-		dAtA[i] = 0x7
+		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xe0
 	}
 	if len(m.MinReviewerTrustLevel) > 0 {
 		i -= len(m.MinReviewerTrustLevel)
@@ -5275,7 +5156,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xfa
+		dAtA[i] = 0xda
 	}
 	{
 		size := m.ReviewerDemotionThreshold.Size()
@@ -5288,7 +5169,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xd2
 	{
 		size := m.MinReviewerBond.Size()
 		i -= size
@@ -5300,7 +5181,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xca
 	{
 		size := m.MaxVerifierDreamMintPerEpoch.Size()
 		i -= size
@@ -5312,7 +5193,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xc2
 	{
 		size := m.VerifierDreamReward.Size()
 		i -= size
@@ -5324,20 +5205,20 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xba
 	if m.MinEpochVerifications != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinEpochVerifications))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0xb0
 	}
 	if m.VerifierAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.VerifierAccuracyWindowEpochs))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xa8
 	}
 	{
 		size := m.MinVerifierAccuracy.Size()
@@ -5350,13 +5231,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xa2
 	if m.VerifierRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.VerifierRewardEpochBlocks))
 		i--
 		dAtA[i] = 0x6
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0x98
 	}
 	{
 		size := m.VerifierRewardPoolOverflowBurnRatio.Size()
@@ -5369,7 +5250,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0x92
 	{
 		size := m.MaxVerifierRewardPool.Size()
 		i -= size
@@ -5381,7 +5262,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0x8a
 	{
 		size := m.PermissionlessMinReviewBountyRate.Size()
 		i -= size
@@ -5393,13 +5274,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x6
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x82
 	if m.ReviewBountyReclaimDelay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewBountyReclaimDelay))
 		i--
-		dAtA[i] = 0x6
+		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xf8
 	}
 	{
 		size := m.ReviewRequiredAboveBudget.Size()
@@ -5410,15 +5291,15 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xf2
 	if m.CuratorAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.CuratorAccuracyWindowEpochs))
 		i--
-		dAtA[i] = 0x6
+		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xe8
 	}
 	{
 		size := m.MinCuratorAccuracy.Size()
@@ -5429,15 +5310,15 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x6
+	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xe2
 	if m.CuratorRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.CuratorRewardEpochBlocks))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xd8
 	}
 	{
 		size := m.CuratorRewardPoolOverflowBurnRatio.Size()
@@ -5450,7 +5331,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xd2
 	{
 		size := m.MaxCuratorRewardPool.Size()
 		i -= size
@@ -5462,7 +5343,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xca
 	{
 		size := m.RoleRewardInflationShare.Size()
 		i -= size
@@ -5474,13 +5355,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xc2
 	if m.ReviewerAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerAccuracyWindowEpochs))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xb8
 	}
 	{
 		size := m.MinReviewerAccuracy.Size()
@@ -5493,13 +5374,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0xb2
 	if m.ReviewerRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ReviewerRewardEpochBlocks))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xa8
 	}
 	{
 		size := m.ReviewerRewardPoolOverflowBurnRatio.Size()
@@ -5512,7 +5393,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xa2
 	{
 		size := m.MaxReviewerRewardPool.Size()
 		i -= size
@@ -5524,13 +5405,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x9a
 	if m.MaxReviewRounds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxReviewRounds))
 		i--
 		dAtA[i] = 0x5
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x90
 	}
 	{
 		size := m.ReviewFeeRate.Size()
@@ -5543,7 +5424,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0x8a
 	{
 		size := m.ReviewerBondReserveRate.Size()
 		i -= size
@@ -5555,13 +5436,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x5
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x82
 	if m.MaxJuryRedraws != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxJuryRedraws))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xf8
 	}
 	{
 		size := m.JuryAcceptanceWindowRatio.Size()
@@ -5572,9 +5453,9 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x5
+	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xf2
 	{
 		size := m.InitiativeCompletionBonusRate.Size()
 		i -= size
@@ -5584,15 +5465,15 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x5
+	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xea
 	if m.MinJurySeatingsForWeighting != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinJurySeatingsForWeighting))
 		i--
-		dAtA[i] = 0x5
+		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xe0
 	}
 	{
 		size := m.MinJurorSelectionWeight.Size()
@@ -5605,7 +5486,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xda
 	{
 		size := m.MinJurorReward.Size()
 		i -= size
@@ -5617,7 +5498,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xd2
 	{
 		size := m.JurorRewardRate.Size()
 		i -= size
@@ -5629,7 +5510,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xca
 	{
 		size := m.AbandonedJurySeatPenalty.Size()
 		i -= size
@@ -5641,20 +5522,20 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xc2
 	if m.SentinelAccuracyWindowEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelAccuracyWindowEpochs))
 		i--
 		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xb8
 	}
 	if m.ProposedProjectExpiryBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ProposedProjectExpiryBlocks))
 		i--
 		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0xb0
 	}
 	{
 		size := m.MaxProjectRequestedSpark.Size()
@@ -5667,7 +5548,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0xaa
 	{
 		size := m.MaxProjectRequestedBudget.Size()
 		i -= size
@@ -5679,7 +5560,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xa2
 	{
 		size := m.MaxDreamMintPerEpoch.Size()
 		i -= size
@@ -5691,20 +5572,20 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x9a
 	if m.MaxActiveInterimsPerMember != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveInterimsPerMember))
 		i--
 		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x90
 	}
 	if m.MaxActiveInitiativesPerMember != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveInitiativesPerMember))
 		i--
 		dAtA[i] = 0x4
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x88
 	}
 	{
 		size := m.MinAppealRate.Size()
@@ -5717,20 +5598,20 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x4
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x82
 	if m.MinEpochActivityForReward != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinEpochActivityForReward))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xf8
 	}
 	if m.MinAppealsForAccuracy != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinAppealsForAccuracy))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xf0
 	}
 	{
 		size := m.MinSentinelAccuracy.Size()
@@ -5741,15 +5622,15 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xea
 	if m.SentinelRewardEpochBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelRewardEpochBlocks))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xe0
 	}
 	{
 		size := m.SentinelRewardPoolOverflowBurnRatio.Size()
@@ -5762,7 +5643,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xda
 	{
 		size := m.MaxSentinelRewardPool.Size()
 		i -= size
@@ -5774,7 +5655,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xd2
 	{
 		size := m.TagCreationFee.Size()
 		i -= size
@@ -5786,7 +5667,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xca
 	{
 		size := m.InitiativeCreationFeeStandard.Size()
 		i -= size
@@ -5798,7 +5679,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xc2
 	{
 		size := m.InitiativeCreationFeeApprentice.Size()
 		i -= size
@@ -5810,7 +5691,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xba
 	{
 		size := m.ProjectCreationFee.Size()
 		i -= size
@@ -5822,7 +5703,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0xb2
 	{
 		size := m.LargeProjectBudgetThreshold.Size()
 		i -= size
@@ -5834,7 +5715,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0xaa
 	{
 		size := m.MaxInitiativeRewardsPerSeason.Size()
 		i -= size
@@ -5846,7 +5727,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xa2
 	{
 		size := m.MaxInitiativeStakePerMember.Size()
 		i -= size
@@ -5858,7 +5739,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x9a
 	if m.TreasuryFundsRetroPgf {
 		i--
 		if m.TreasuryFundsRetroPgf {
@@ -5869,7 +5750,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x90
 	}
 	if m.TreasuryFundsInterims {
 		i--
@@ -5881,7 +5762,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x88
 	}
 	{
 		size := m.MaxTreasuryBalance.Size()
@@ -5894,13 +5775,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x82
 	if m.NewMemberDecayGraceEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.NewMemberDecayGraceEpochs))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xf8
 	}
 	{
 		size := m.StakedDecayRate.Size()
@@ -5911,9 +5792,9 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xf2
 	{
 		size := m.MaxStakingRewardsPerSeason.Size()
 		i -= size
@@ -5923,9 +5804,9 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xea
 	{
 		size := m.MaxReputationGainPerEpoch.Size()
 		i -= size
@@ -5935,9 +5816,9 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xe2
 	{
 		size := m.InvitationStakeBurnRate.Size()
 		i -= size
@@ -5949,7 +5830,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xda
 	{
 		size := m.MaxConvictionSharePerMember.Size()
 		i -= size
@@ -5961,7 +5842,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xd2
 	{
 		size := m.ReputationDecayRate.Size()
 		i -= size
@@ -5973,13 +5854,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xea
+	dAtA[i] = 0xca
 	if m.MaxTagsPerInitiative != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxTagsPerInitiative))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0xc0
 	}
 	{
 		size := m.ConvictionPropagationRatio.Size()
@@ -5992,7 +5873,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xda
+	dAtA[i] = 0xba
 	{
 		size := m.ContentChallengeRewardShare.Size()
 		i -= size
@@ -6004,7 +5885,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xd2
+	dAtA[i] = 0xb2
 	if m.AuthorBondSlashOnModeration {
 		i--
 		if m.AuthorBondSlashOnModeration {
@@ -6015,7 +5896,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xa8
 	}
 	{
 		size := m.MaxAuthorBondPerContent.Size()
@@ -6028,7 +5909,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xa2
 	{
 		size := m.MaxContentStakePerMember.Size()
 		i -= size
@@ -6040,13 +5921,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0x9a
 	if m.ContentConvictionHalfLifeEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ContentConvictionHalfLifeEpochs))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x90
 	}
 	{
 		size := m.MaxTransferReceivedPerSeason.Size()
@@ -6059,7 +5940,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0x8a
 	{
 		size := m.MaxTransferReceivedPerEpoch.Size()
 		i -= size
@@ -6071,13 +5952,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x82
 	if m.ChallengeResponseDeadlineEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ChallengeResponseDeadlineEpochs))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xf8
 	}
 	if m.AllowSelfMemberStake {
 		i--
@@ -6087,16 +5968,16 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xf0
 	}
 	if m.MinStakeDurationSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinStakeDurationSeconds))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xe8
 	}
 	{
 		size := m.TagStakeRevenueShare.Size()
@@ -6107,9 +5988,9 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x2
+	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0xe2
 	{
 		size := m.MemberStakeRevenueShare.Size()
 		i -= size
@@ -6121,7 +6002,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xda
 	{
 		size := m.ProjectCompletionBonusRate.Size()
 		i -= size
@@ -6133,34 +6014,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xf2
-	if m.ChallengeQueueMaxSize != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.ChallengeQueueMaxSize))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xe8
-	}
-	if m.MaxNewChallengesPerEpoch != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.MaxNewChallengesPerEpoch))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xe0
-	}
-	if m.MaxActiveChallengesPerCommittee != 0 {
-		i = encodeVarintParams(dAtA, i, uint64(m.MaxActiveChallengesPerCommittee))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xd8
-	}
+	dAtA[i] = 0xd2
 	if m.InterimDeadlineEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InterimDeadlineEpochs))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0xc8
 	}
 	{
 		size := m.SoloExpertBonusRate.Size()
@@ -6173,7 +6033,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xca
+	dAtA[i] = 0xc2
 	{
 		size := m.ExpertComplexityBudget.Size()
 		i -= size
@@ -6185,7 +6045,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xc2
+	dAtA[i] = 0xba
 	{
 		size := m.ComplexComplexityBudget.Size()
 		i -= size
@@ -6197,7 +6057,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xba
+	dAtA[i] = 0xb2
 	{
 		size := m.StandardComplexityBudget.Size()
 		i -= size
@@ -6209,7 +6069,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0xaa
 	{
 		size := m.SimpleComplexityBudget.Size()
 		i -= size
@@ -6221,7 +6081,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0xa2
 	{
 		size := m.MinJurorReputation.Size()
 		i -= size
@@ -6233,7 +6093,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xa2
+	dAtA[i] = 0x9a
 	{
 		size := m.JurySuperMajority.Size()
 		i -= size
@@ -6245,13 +6105,13 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0x9a
+	dAtA[i] = 0x92
 	if m.JurySize != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.JurySize))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0x88
 	}
 	{
 		size := m.ChallengerRewardRate.Size()
@@ -6264,7 +6124,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0x82
 	{
 		size := m.MinChallengeStake.Size()
 		i -= size
@@ -6274,9 +6134,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x1
-	i--
-	dAtA[i] = 0x82
+	dAtA[i] = 0x7a
 	{
 		size := m.InvitationCostMultiplier.Size()
 		i -= size
@@ -6286,7 +6144,7 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x7a
+	dAtA[i] = 0x72
 	{
 		size := m.ReferralRewardRate.Size()
 		i -= size
@@ -6296,11 +6154,11 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x72
+	dAtA[i] = 0x6a
 	if m.InvitationAccountabilityEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.InvitationAccountabilityEpochs))
 		i--
-		dAtA[i] = 0x68
+		dAtA[i] = 0x60
 	}
 	{
 		size := m.MinInvitationStake.Size()
@@ -6311,27 +6169,17 @@ func (m *RepOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x62
+	dAtA[i] = 0x5a
 	if m.DefaultChallengePeriodEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.DefaultChallengePeriodEpochs))
 		i--
-		dAtA[i] = 0x58
+		dAtA[i] = 0x50
 	}
 	if m.DefaultReviewPeriodEpochs != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.DefaultReviewPeriodEpochs))
 		i--
-		dAtA[i] = 0x50
+		dAtA[i] = 0x48
 	}
-	{
-		size := m.MinReputationMultiplier.Size()
-		i -= size
-		if _, err := m.MinReputationMultiplier.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x4a
 	if m.GiftOnlyToInvitees {
 		i--
 		if m.GiftOnlyToInvitees {
@@ -6506,8 +6354,6 @@ func (m *Params) Size() (n int) {
 	n += 1 + l + sovParams(uint64(l))
 	l = m.TreasuryShare.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.MinReputationMultiplier.Size()
-	n += 1 + l + sovParams(uint64(l))
 	l = m.ApprenticeTier.Size()
 	n += 1 + l + sovParams(uint64(l))
 	l = m.StandardTier.Size()
@@ -6517,7 +6363,7 @@ func (m *Params) Size() (n int) {
 	l = m.EpicTier.Size()
 	n += 1 + l + sovParams(uint64(l))
 	if m.ConvictionHalfLifeEpochs != 0 {
-		n += 2 + sovParams(uint64(m.ConvictionHalfLifeEpochs))
+		n += 1 + sovParams(uint64(m.ConvictionHalfLifeEpochs))
 	}
 	l = m.ExternalConvictionRatio.Size()
 	n += 2 + l + sovParams(uint64(l))
@@ -6564,22 +6410,7 @@ func (m *Params) Size() (n int) {
 	if m.InterimDeadlineEpochs != 0 {
 		n += 2 + sovParams(uint64(m.InterimDeadlineEpochs))
 	}
-	if m.MaxActiveChallengesPerCommittee != 0 {
-		n += 2 + sovParams(uint64(m.MaxActiveChallengesPerCommittee))
-	}
-	if m.MaxNewChallengesPerEpoch != 0 {
-		n += 2 + sovParams(uint64(m.MaxNewChallengesPerEpoch))
-	}
-	if m.ChallengeQueueMaxSize != 0 {
-		n += 2 + sovParams(uint64(m.ChallengeQueueMaxSize))
-	}
-	l = m.MinorSlashPenalty.Size()
-	n += 2 + l + sovParams(uint64(l))
-	l = m.ModerateSlashPenalty.Size()
-	n += 2 + l + sovParams(uint64(l))
 	l = m.SevereSlashPenalty.Size()
-	n += 2 + l + sovParams(uint64(l))
-	l = m.ZeroingSlashPenalty.Size()
 	n += 2 + l + sovParams(uint64(l))
 	l = m.ProjectCompletionBonusRate.Size()
 	n += 2 + l + sovParams(uint64(l))
@@ -6878,6 +6709,11 @@ func (m *Params) Size() (n int) {
 	if m.TagBudgetAwarderEpochCapBps != 0 {
 		n += 2 + sovParams(uint64(m.TagBudgetAwarderEpochCapBps))
 	}
+	l = m.BudgetReviewThreshold.Size()
+	n += 2 + l + sovParams(uint64(l))
+	if m.MaxProposedProjectsPerCreator != 0 {
+		n += 2 + sovParams(uint64(m.MaxProposedProjectsPerCreator))
+	}
 	return n
 }
 
@@ -6906,8 +6742,6 @@ func (m *RepOperationalParams) Size() (n int) {
 	if m.GiftOnlyToInvitees {
 		n += 2
 	}
-	l = m.MinReputationMultiplier.Size()
-	n += 1 + l + sovParams(uint64(l))
 	if m.DefaultReviewPeriodEpochs != 0 {
 		n += 1 + sovParams(uint64(m.DefaultReviewPeriodEpochs))
 	}
@@ -6924,7 +6758,7 @@ func (m *RepOperationalParams) Size() (n int) {
 	l = m.InvitationCostMultiplier.Size()
 	n += 1 + l + sovParams(uint64(l))
 	l = m.MinChallengeStake.Size()
-	n += 2 + l + sovParams(uint64(l))
+	n += 1 + l + sovParams(uint64(l))
 	l = m.ChallengerRewardRate.Size()
 	n += 2 + l + sovParams(uint64(l))
 	if m.JurySize != 0 {
@@ -6946,15 +6780,6 @@ func (m *RepOperationalParams) Size() (n int) {
 	n += 2 + l + sovParams(uint64(l))
 	if m.InterimDeadlineEpochs != 0 {
 		n += 2 + sovParams(uint64(m.InterimDeadlineEpochs))
-	}
-	if m.MaxActiveChallengesPerCommittee != 0 {
-		n += 2 + sovParams(uint64(m.MaxActiveChallengesPerCommittee))
-	}
-	if m.MaxNewChallengesPerEpoch != 0 {
-		n += 2 + sovParams(uint64(m.MaxNewChallengesPerEpoch))
-	}
-	if m.ChallengeQueueMaxSize != 0 {
-		n += 2 + sovParams(uint64(m.ChallengeQueueMaxSize))
 	}
 	l = m.ProjectCompletionBonusRate.Size()
 	n += 2 + l + sovParams(uint64(l))
@@ -8068,40 +7893,6 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 11:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MinReputationMultiplier", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.MinReputationMultiplier.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 12:
-			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ApprenticeTier", wireType)
 			}
 			var msglen int
@@ -8133,7 +7924,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 13:
+		case 12:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StandardTier", wireType)
 			}
@@ -8166,7 +7957,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 14:
+		case 13:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ExpertTier", wireType)
 			}
@@ -8199,7 +7990,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 15:
+		case 14:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EpicTier", wireType)
 			}
@@ -8232,7 +8023,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 16:
+		case 15:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionHalfLifeEpochs", wireType)
 			}
@@ -8251,7 +8042,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 17:
+		case 16:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ExternalConvictionRatio", wireType)
 			}
@@ -8285,7 +8076,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 18:
+		case 17:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionPerDream", wireType)
 			}
@@ -8319,7 +8110,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 19:
+		case 18:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DefaultReviewPeriodEpochs", wireType)
 			}
@@ -8338,7 +8129,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 20:
+		case 19:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DefaultChallengePeriodEpochs", wireType)
 			}
@@ -8357,7 +8148,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 21:
+		case 20:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinInvitationStake", wireType)
 			}
@@ -8391,7 +8182,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 22:
+		case 21:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationAccountabilityEpochs", wireType)
 			}
@@ -8410,7 +8201,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 23:
+		case 22:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReferralRewardRate", wireType)
 			}
@@ -8444,7 +8235,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 24:
+		case 23:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationCostMultiplier", wireType)
 			}
@@ -8478,7 +8269,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 25:
+		case 24:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TrustLevelConfig", wireType)
 			}
@@ -8511,7 +8302,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 26:
+		case 25:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinChallengeStake", wireType)
 			}
@@ -8545,7 +8336,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 27:
+		case 26:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ChallengerRewardRate", wireType)
 			}
@@ -8579,7 +8370,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 28:
+		case 27:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JurySize", wireType)
 			}
@@ -8598,7 +8389,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 29:
+		case 28:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JurySuperMajority", wireType)
 			}
@@ -8632,7 +8423,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 30:
+		case 29:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurorReputation", wireType)
 			}
@@ -8666,7 +8457,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 31:
+		case 30:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SimpleComplexityBudget", wireType)
 			}
@@ -8700,7 +8491,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 32:
+		case 31:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StandardComplexityBudget", wireType)
 			}
@@ -8734,7 +8525,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 33:
+		case 32:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ComplexComplexityBudget", wireType)
 			}
@@ -8768,7 +8559,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 34:
+		case 33:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ExpertComplexityBudget", wireType)
 			}
@@ -8802,7 +8593,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 35:
+		case 34:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SoloExpertBonusRate", wireType)
 			}
@@ -8836,7 +8627,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 36:
+		case 35:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InterimDeadlineEpochs", wireType)
 			}
@@ -8855,132 +8646,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 37:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveChallengesPerCommittee", wireType)
-			}
-			m.MaxActiveChallengesPerCommittee = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.MaxActiveChallengesPerCommittee |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 38:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MaxNewChallengesPerEpoch", wireType)
-			}
-			m.MaxNewChallengesPerEpoch = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.MaxNewChallengesPerEpoch |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 39:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ChallengeQueueMaxSize", wireType)
-			}
-			m.ChallengeQueueMaxSize = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ChallengeQueueMaxSize |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 40:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MinorSlashPenalty", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.MinorSlashPenalty.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 41:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ModerateSlashPenalty", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.ModerateSlashPenalty.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 42:
+		case 36:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SevereSlashPenalty", wireType)
 			}
@@ -9014,41 +8680,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 43:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ZeroingSlashPenalty", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.ZeroingSlashPenalty.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 44:
+		case 37:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ProjectCompletionBonusRate", wireType)
 			}
@@ -9082,7 +8714,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 45:
+		case 38:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MemberStakeRevenueShare", wireType)
 			}
@@ -9116,7 +8748,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 46:
+		case 39:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TagStakeRevenueShare", wireType)
 			}
@@ -9150,7 +8782,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 47:
+		case 40:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinStakeDurationSeconds", wireType)
 			}
@@ -9169,7 +8801,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 48:
+		case 41:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AllowSelfMemberStake", wireType)
 			}
@@ -9189,7 +8821,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.AllowSelfMemberStake = bool(v != 0)
-		case 49:
+		case 42:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ChallengeResponseDeadlineEpochs", wireType)
 			}
@@ -9208,7 +8840,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 50:
+		case 43:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTransferReceivedPerEpoch", wireType)
 			}
@@ -9242,7 +8874,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 51:
+		case 44:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTransferReceivedPerSeason", wireType)
 			}
@@ -9276,7 +8908,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 52:
+		case 45:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContentConvictionHalfLifeEpochs", wireType)
 			}
@@ -9295,7 +8927,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 53:
+		case 46:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxContentStakePerMember", wireType)
 			}
@@ -9329,7 +8961,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 54:
+		case 47:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAuthorBondPerContent", wireType)
 			}
@@ -9363,7 +8995,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 55:
+		case 48:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AuthorBondSlashOnModeration", wireType)
 			}
@@ -9383,7 +9015,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.AuthorBondSlashOnModeration = bool(v != 0)
-		case 56:
+		case 49:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContentChallengeRewardShare", wireType)
 			}
@@ -9417,7 +9049,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 57:
+		case 50:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionPropagationRatio", wireType)
 			}
@@ -9451,7 +9083,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 58:
+		case 51:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTagsPerInitiative", wireType)
 			}
@@ -9470,7 +9102,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 59:
+		case 52:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReputationDecayRate", wireType)
 			}
@@ -9504,7 +9136,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 60:
+		case 53:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxConvictionSharePerMember", wireType)
 			}
@@ -9538,7 +9170,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 61:
+		case 54:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationStakeBurnRate", wireType)
 			}
@@ -9572,7 +9204,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 62:
+		case 55:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReputationGainPerEpoch", wireType)
 			}
@@ -9606,7 +9238,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 63:
+		case 56:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxStakingRewardsPerSeason", wireType)
 			}
@@ -9640,7 +9272,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 64:
+		case 57:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakedDecayRate", wireType)
 			}
@@ -9674,7 +9306,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 65:
+		case 58:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field NewMemberDecayGraceEpochs", wireType)
 			}
@@ -9693,7 +9325,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 66:
+		case 59:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTreasuryBalance", wireType)
 			}
@@ -9727,7 +9359,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 67:
+		case 60:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TreasuryFundsInterims", wireType)
 			}
@@ -9747,7 +9379,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.TreasuryFundsInterims = bool(v != 0)
-		case 68:
+		case 61:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TreasuryFundsRetroPgf", wireType)
 			}
@@ -9767,7 +9399,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.TreasuryFundsRetroPgf = bool(v != 0)
-		case 69:
+		case 62:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeStakePerMember", wireType)
 			}
@@ -9801,7 +9433,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 70:
+		case 63:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeRewardsPerSeason", wireType)
 			}
@@ -9835,7 +9467,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 71:
+		case 64:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LargeProjectBudgetThreshold", wireType)
 			}
@@ -9869,7 +9501,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 72:
+		case 65:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ProjectCreationFee", wireType)
 			}
@@ -9903,7 +9535,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 73:
+		case 66:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeCreationFeeApprentice", wireType)
 			}
@@ -9937,7 +9569,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 74:
+		case 67:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeCreationFeeStandard", wireType)
 			}
@@ -9971,7 +9603,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 75:
+		case 68:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PermissionlessMinTrustLevel", wireType)
 			}
@@ -9990,7 +9622,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 76:
+		case 69:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PermissionlessMaxTier", wireType)
 			}
@@ -10009,7 +9641,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 77:
+		case 70:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TagCreationFee", wireType)
 			}
@@ -10043,7 +9675,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 78:
+		case 71:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxSentinelRewardPool", wireType)
 			}
@@ -10077,7 +9709,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 79:
+		case 72:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -10111,7 +9743,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 80:
+		case 73:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelRewardEpochBlocks", wireType)
 			}
@@ -10130,7 +9762,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 81:
+		case 74:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelAccuracy", wireType)
 			}
@@ -10164,7 +9796,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 82:
+		case 75:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinAppealsForAccuracy", wireType)
 			}
@@ -10183,7 +9815,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 83:
+		case 76:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinEpochActivityForReward", wireType)
 			}
@@ -10202,7 +9834,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 84:
+		case 77:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinAppealRate", wireType)
 			}
@@ -10236,7 +9868,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 85:
+		case 78:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveInitiativesPerMember", wireType)
 			}
@@ -10255,7 +9887,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 86:
+		case 79:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveInterimsPerMember", wireType)
 			}
@@ -10274,7 +9906,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 87:
+		case 80:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxDreamMintPerEpoch", wireType)
 			}
@@ -10308,7 +9940,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 88:
+		case 81:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxProjectRequestedBudget", wireType)
 			}
@@ -10342,7 +9974,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 89:
+		case 82:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxProjectRequestedSpark", wireType)
 			}
@@ -10376,7 +10008,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 90:
+		case 83:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ProposedProjectExpiryBlocks", wireType)
 			}
@@ -10395,7 +10027,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 91:
+		case 84:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelAccuracyWindowEpochs", wireType)
 			}
@@ -10414,7 +10046,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 92:
+		case 85:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SelfAssignedBondRate", wireType)
 			}
@@ -10448,7 +10080,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 93:
+		case 86:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SelfAssignedExternalConvictionRatio", wireType)
 			}
@@ -10482,7 +10114,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 94:
+		case 87:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SelfAssignedChallengeMultiplier", wireType)
 			}
@@ -10501,7 +10133,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 95:
+		case 88:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PermissionlessSelfAssignedBondRate", wireType)
 			}
@@ -10535,7 +10167,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 96:
+		case 89:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AbandonedJurySeatPenalty", wireType)
 			}
@@ -10569,7 +10201,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 97:
+		case 90:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JurorRewardRate", wireType)
 			}
@@ -10603,7 +10235,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 98:
+		case 91:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JuryAcceptanceWindowRatio", wireType)
 			}
@@ -10637,7 +10269,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 99:
+		case 92:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurorReward", wireType)
 			}
@@ -10671,7 +10303,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 100:
+		case 93:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurorSelectionWeight", wireType)
 			}
@@ -10705,7 +10337,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 101:
+		case 94:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurySeatingsForWeighting", wireType)
 			}
@@ -10724,7 +10356,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 102:
+		case 95:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeCompletionBonusRate", wireType)
 			}
@@ -10758,7 +10390,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 103:
+		case 96:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxJuryRedraws", wireType)
 			}
@@ -10777,7 +10409,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 104:
+		case 97:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerBondReserveRate", wireType)
 			}
@@ -10811,7 +10443,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 105:
+		case 98:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewFeeRate", wireType)
 			}
@@ -10845,7 +10477,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 106:
+		case 99:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReviewRounds", wireType)
 			}
@@ -10864,7 +10496,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 107:
+		case 100:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReviewerRewardPool", wireType)
 			}
@@ -10898,7 +10530,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 108:
+		case 101:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -10932,7 +10564,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 109:
+		case 102:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerRewardEpochBlocks", wireType)
 			}
@@ -10951,7 +10583,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 110:
+		case 103:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerAccuracy", wireType)
 			}
@@ -10985,7 +10617,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 111:
+		case 104:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerAccuracyWindowEpochs", wireType)
 			}
@@ -11004,7 +10636,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 112:
+		case 105:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RoleRewardInflationShare", wireType)
 			}
@@ -11038,7 +10670,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 113:
+		case 106:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxCuratorRewardPool", wireType)
 			}
@@ -11072,7 +10704,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 114:
+		case 107:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CuratorRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -11106,7 +10738,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 115:
+		case 108:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CuratorRewardEpochBlocks", wireType)
 			}
@@ -11125,7 +10757,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 116:
+		case 109:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinCuratorAccuracy", wireType)
 			}
@@ -11159,7 +10791,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 117:
+		case 110:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CuratorAccuracyWindowEpochs", wireType)
 			}
@@ -11178,7 +10810,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 118:
+		case 111:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewRequiredAboveBudget", wireType)
 			}
@@ -11212,7 +10844,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 119:
+		case 112:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewBountyReclaimDelay", wireType)
 			}
@@ -11231,7 +10863,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 120:
+		case 113:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PermissionlessMinReviewBountyRate", wireType)
 			}
@@ -11265,7 +10897,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 121:
+		case 114:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxVerifierRewardPool", wireType)
 			}
@@ -11299,7 +10931,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 122:
+		case 115:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -11333,7 +10965,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 123:
+		case 116:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierRewardEpochBlocks", wireType)
 			}
@@ -11352,7 +10984,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 124:
+		case 117:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinVerifierAccuracy", wireType)
 			}
@@ -11386,7 +11018,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 125:
+		case 118:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierAccuracyWindowEpochs", wireType)
 			}
@@ -11405,7 +11037,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 126:
+		case 119:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinEpochVerifications", wireType)
 			}
@@ -11424,7 +11056,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 127:
+		case 120:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierDreamReward", wireType)
 			}
@@ -11458,7 +11090,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 128:
+		case 121:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxVerifierDreamMintPerEpoch", wireType)
 			}
@@ -11492,7 +11124,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 129:
+		case 122:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerBond", wireType)
 			}
@@ -11526,7 +11158,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 130:
+		case 123:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerDemotionThreshold", wireType)
 			}
@@ -11560,7 +11192,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 131:
+		case 124:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerTrustLevel", wireType)
 			}
@@ -11592,7 +11224,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.MinReviewerTrustLevel = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 132:
+		case 125:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerRepTier", wireType)
 			}
@@ -11611,7 +11243,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 133:
+		case 126:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerAgeBlocks", wireType)
 			}
@@ -11630,7 +11262,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 134:
+		case 127:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerDemotionCooldown", wireType)
 			}
@@ -11649,7 +11281,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 135:
+		case 128:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerUnbondCooldown", wireType)
 			}
@@ -11668,7 +11300,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 136:
+		case 129:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingRewardYieldPerEpoch", wireType)
 			}
@@ -11702,7 +11334,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 137:
+		case 130:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingPoolMintShare", wireType)
 			}
@@ -11736,7 +11368,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 138:
+		case 131:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingPoolCapBase", wireType)
 			}
@@ -11770,7 +11402,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 139:
+		case 132:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingPoolCapRate", wireType)
 			}
@@ -11804,7 +11436,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 140:
+		case 133:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinStakeAmount", wireType)
 			}
@@ -11838,7 +11470,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 141:
+		case 134:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxCompletionBonusStakeMultiple", wireType)
 			}
@@ -11872,7 +11504,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 142:
+		case 135:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTotalContentStakePerMember", wireType)
 			}
@@ -11906,7 +11538,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 143:
+		case 136:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInterimRewardsPerSeason", wireType)
 			}
@@ -11940,7 +11572,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 144:
+		case 137:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeBountyMaxBudgetRatio", wireType)
 			}
@@ -11974,7 +11606,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 145:
+		case 138:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeBountyPerFunderEpoch", wireType)
 			}
@@ -12008,7 +11640,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 146:
+		case 139:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinInitiativeBountyContribution", wireType)
 			}
@@ -12042,7 +11674,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 147:
+		case 140:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeBountyContributions", wireType)
 			}
@@ -12061,7 +11693,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 148:
+		case 141:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeBountyReclaimDelay", wireType)
 			}
@@ -12080,7 +11712,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 149:
+		case 142:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationAcceptanceEpochs", wireType)
 			}
@@ -12099,7 +11731,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 150:
+		case 143:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MigrationEnabled", wireType)
 			}
@@ -12119,7 +11751,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.MigrationEnabled = bool(v != 0)
-		case 151:
+		case 144:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field KeyPathEnabled", wireType)
 			}
@@ -12139,7 +11771,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.KeyPathEnabled = bool(v != 0)
-		case 152:
+		case 145:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field KeyMigrationDelay", wireType)
 			}
@@ -12158,7 +11790,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 153:
+		case 146:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RecoveryMigrationDelay", wireType)
 			}
@@ -12177,7 +11809,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 154:
+		case 147:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CouncilMigrationDelay", wireType)
 			}
@@ -12196,7 +11828,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 155:
+		case 148:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MigrationAcceptWindow", wireType)
 			}
@@ -12215,7 +11847,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 156:
+		case 149:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MigrationCooldown", wireType)
 			}
@@ -12234,7 +11866,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 157:
+		case 150:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxKeyMigrationsPerWindow", wireType)
 			}
@@ -12253,7 +11885,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 158:
+		case 151:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field KeyMigrationWindow", wireType)
 			}
@@ -12272,7 +11904,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 159:
+		case 152:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RecoveryChangeDelay", wireType)
 			}
@@ -12291,7 +11923,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 160:
+		case 153:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RecoveryRevealMinBlocks", wireType)
 			}
@@ -12310,7 +11942,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 161:
+		case 154:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RecoveryCommitTtl", wireType)
 			}
@@ -12329,7 +11961,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 162:
+		case 155:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RecoveryCommitDeposit", wireType)
 			}
@@ -12363,7 +11995,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 163:
+		case 156:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MigrationObjectionBond", wireType)
 			}
@@ -12397,7 +12029,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 164:
+		case 157:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ZkKeyActivationDelay", wireType)
 			}
@@ -12416,7 +12048,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 165:
+		case 158:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TagBudgetAwarderEpochCapBps", wireType)
 			}
@@ -12431,6 +12063,59 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.TagBudgetAwarderEpochCapBps |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 159:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BudgetReviewThreshold", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.BudgetReviewThreshold.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 160:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxProposedProjectsPerCreator", wireType)
+			}
+			m.MaxProposedProjectsPerCreator = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MaxProposedProjectsPerCreator |= uint32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -12714,40 +12399,6 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.GiftOnlyToInvitees = bool(v != 0)
 		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MinReputationMultiplier", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.MinReputationMultiplier.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 10:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DefaultReviewPeriodEpochs", wireType)
 			}
@@ -12766,7 +12417,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 11:
+		case 10:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DefaultChallengePeriodEpochs", wireType)
 			}
@@ -12785,7 +12436,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 12:
+		case 11:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinInvitationStake", wireType)
 			}
@@ -12819,7 +12470,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 13:
+		case 12:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationAccountabilityEpochs", wireType)
 			}
@@ -12838,7 +12489,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 14:
+		case 13:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReferralRewardRate", wireType)
 			}
@@ -12872,7 +12523,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 15:
+		case 14:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationCostMultiplier", wireType)
 			}
@@ -12906,7 +12557,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 16:
+		case 15:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinChallengeStake", wireType)
 			}
@@ -12940,7 +12591,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 17:
+		case 16:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ChallengerRewardRate", wireType)
 			}
@@ -12974,7 +12625,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 18:
+		case 17:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JurySize", wireType)
 			}
@@ -12993,7 +12644,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 19:
+		case 18:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JurySuperMajority", wireType)
 			}
@@ -13027,7 +12678,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 20:
+		case 19:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurorReputation", wireType)
 			}
@@ -13061,7 +12712,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 21:
+		case 20:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SimpleComplexityBudget", wireType)
 			}
@@ -13095,7 +12746,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 22:
+		case 21:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StandardComplexityBudget", wireType)
 			}
@@ -13129,7 +12780,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 23:
+		case 22:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ComplexComplexityBudget", wireType)
 			}
@@ -13163,7 +12814,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 24:
+		case 23:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ExpertComplexityBudget", wireType)
 			}
@@ -13197,7 +12848,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 25:
+		case 24:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SoloExpertBonusRate", wireType)
 			}
@@ -13231,7 +12882,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 26:
+		case 25:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InterimDeadlineEpochs", wireType)
 			}
@@ -13250,64 +12901,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 27:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveChallengesPerCommittee", wireType)
-			}
-			m.MaxActiveChallengesPerCommittee = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.MaxActiveChallengesPerCommittee |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 28:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MaxNewChallengesPerEpoch", wireType)
-			}
-			m.MaxNewChallengesPerEpoch = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.MaxNewChallengesPerEpoch |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 29:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ChallengeQueueMaxSize", wireType)
-			}
-			m.ChallengeQueueMaxSize = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ChallengeQueueMaxSize |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 30:
+		case 26:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ProjectCompletionBonusRate", wireType)
 			}
@@ -13341,7 +12935,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 31:
+		case 27:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MemberStakeRevenueShare", wireType)
 			}
@@ -13375,7 +12969,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 32:
+		case 28:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TagStakeRevenueShare", wireType)
 			}
@@ -13409,7 +13003,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 33:
+		case 29:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinStakeDurationSeconds", wireType)
 			}
@@ -13428,7 +13022,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 34:
+		case 30:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AllowSelfMemberStake", wireType)
 			}
@@ -13448,7 +13042,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.AllowSelfMemberStake = bool(v != 0)
-		case 35:
+		case 31:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ChallengeResponseDeadlineEpochs", wireType)
 			}
@@ -13467,7 +13061,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 36:
+		case 32:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTransferReceivedPerEpoch", wireType)
 			}
@@ -13501,7 +13095,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 37:
+		case 33:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTransferReceivedPerSeason", wireType)
 			}
@@ -13535,7 +13129,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 38:
+		case 34:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContentConvictionHalfLifeEpochs", wireType)
 			}
@@ -13554,7 +13148,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 39:
+		case 35:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxContentStakePerMember", wireType)
 			}
@@ -13588,7 +13182,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 40:
+		case 36:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAuthorBondPerContent", wireType)
 			}
@@ -13622,7 +13216,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 41:
+		case 37:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AuthorBondSlashOnModeration", wireType)
 			}
@@ -13642,7 +13236,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.AuthorBondSlashOnModeration = bool(v != 0)
-		case 42:
+		case 38:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContentChallengeRewardShare", wireType)
 			}
@@ -13676,7 +13270,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 43:
+		case 39:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionPropagationRatio", wireType)
 			}
@@ -13710,7 +13304,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 44:
+		case 40:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTagsPerInitiative", wireType)
 			}
@@ -13729,7 +13323,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 45:
+		case 41:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReputationDecayRate", wireType)
 			}
@@ -13763,7 +13357,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 46:
+		case 42:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxConvictionSharePerMember", wireType)
 			}
@@ -13797,7 +13391,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 47:
+		case 43:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InvitationStakeBurnRate", wireType)
 			}
@@ -13831,7 +13425,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 48:
+		case 44:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReputationGainPerEpoch", wireType)
 			}
@@ -13865,7 +13459,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 49:
+		case 45:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxStakingRewardsPerSeason", wireType)
 			}
@@ -13899,7 +13493,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 50:
+		case 46:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakedDecayRate", wireType)
 			}
@@ -13933,7 +13527,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 51:
+		case 47:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field NewMemberDecayGraceEpochs", wireType)
 			}
@@ -13952,7 +13546,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 52:
+		case 48:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTreasuryBalance", wireType)
 			}
@@ -13986,7 +13580,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 53:
+		case 49:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TreasuryFundsInterims", wireType)
 			}
@@ -14006,7 +13600,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.TreasuryFundsInterims = bool(v != 0)
-		case 54:
+		case 50:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TreasuryFundsRetroPgf", wireType)
 			}
@@ -14026,7 +13620,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.TreasuryFundsRetroPgf = bool(v != 0)
-		case 55:
+		case 51:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeStakePerMember", wireType)
 			}
@@ -14060,7 +13654,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 56:
+		case 52:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeRewardsPerSeason", wireType)
 			}
@@ -14094,7 +13688,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 57:
+		case 53:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LargeProjectBudgetThreshold", wireType)
 			}
@@ -14128,7 +13722,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 58:
+		case 54:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ProjectCreationFee", wireType)
 			}
@@ -14162,7 +13756,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 59:
+		case 55:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeCreationFeeApprentice", wireType)
 			}
@@ -14196,7 +13790,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 60:
+		case 56:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeCreationFeeStandard", wireType)
 			}
@@ -14230,7 +13824,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 61:
+		case 57:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TagCreationFee", wireType)
 			}
@@ -14264,7 +13858,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 62:
+		case 58:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxSentinelRewardPool", wireType)
 			}
@@ -14298,7 +13892,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 63:
+		case 59:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -14332,7 +13926,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 64:
+		case 60:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelRewardEpochBlocks", wireType)
 			}
@@ -14351,7 +13945,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 65:
+		case 61:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelAccuracy", wireType)
 			}
@@ -14385,7 +13979,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 66:
+		case 62:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinAppealsForAccuracy", wireType)
 			}
@@ -14404,7 +13998,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 67:
+		case 63:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinEpochActivityForReward", wireType)
 			}
@@ -14423,7 +14017,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 68:
+		case 64:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinAppealRate", wireType)
 			}
@@ -14457,7 +14051,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 69:
+		case 65:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveInitiativesPerMember", wireType)
 			}
@@ -14476,7 +14070,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 70:
+		case 66:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxActiveInterimsPerMember", wireType)
 			}
@@ -14495,7 +14089,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 71:
+		case 67:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxDreamMintPerEpoch", wireType)
 			}
@@ -14529,7 +14123,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 72:
+		case 68:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxProjectRequestedBudget", wireType)
 			}
@@ -14563,7 +14157,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 73:
+		case 69:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxProjectRequestedSpark", wireType)
 			}
@@ -14597,7 +14191,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 74:
+		case 70:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ProposedProjectExpiryBlocks", wireType)
 			}
@@ -14616,7 +14210,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 75:
+		case 71:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelAccuracyWindowEpochs", wireType)
 			}
@@ -14635,7 +14229,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 76:
+		case 72:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AbandonedJurySeatPenalty", wireType)
 			}
@@ -14669,7 +14263,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 77:
+		case 73:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JurorRewardRate", wireType)
 			}
@@ -14703,7 +14297,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 78:
+		case 74:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurorReward", wireType)
 			}
@@ -14737,7 +14331,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 79:
+		case 75:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurorSelectionWeight", wireType)
 			}
@@ -14771,7 +14365,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 80:
+		case 76:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinJurySeatingsForWeighting", wireType)
 			}
@@ -14790,7 +14384,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 81:
+		case 77:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeCompletionBonusRate", wireType)
 			}
@@ -14824,7 +14418,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 82:
+		case 78:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field JuryAcceptanceWindowRatio", wireType)
 			}
@@ -14858,7 +14452,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 83:
+		case 79:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxJuryRedraws", wireType)
 			}
@@ -14877,7 +14471,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 84:
+		case 80:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerBondReserveRate", wireType)
 			}
@@ -14911,7 +14505,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 85:
+		case 81:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewFeeRate", wireType)
 			}
@@ -14945,7 +14539,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 86:
+		case 82:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReviewRounds", wireType)
 			}
@@ -14964,7 +14558,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 87:
+		case 83:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReviewerRewardPool", wireType)
 			}
@@ -14998,7 +14592,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 88:
+		case 84:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -15032,7 +14626,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 89:
+		case 85:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerRewardEpochBlocks", wireType)
 			}
@@ -15051,7 +14645,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 90:
+		case 86:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerAccuracy", wireType)
 			}
@@ -15085,7 +14679,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 91:
+		case 87:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerAccuracyWindowEpochs", wireType)
 			}
@@ -15104,7 +14698,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 92:
+		case 88:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RoleRewardInflationShare", wireType)
 			}
@@ -15138,7 +14732,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 93:
+		case 89:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxCuratorRewardPool", wireType)
 			}
@@ -15172,7 +14766,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 94:
+		case 90:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CuratorRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -15206,7 +14800,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 95:
+		case 91:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CuratorRewardEpochBlocks", wireType)
 			}
@@ -15225,7 +14819,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 96:
+		case 92:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinCuratorAccuracy", wireType)
 			}
@@ -15259,7 +14853,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 97:
+		case 93:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CuratorAccuracyWindowEpochs", wireType)
 			}
@@ -15278,7 +14872,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 98:
+		case 94:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewRequiredAboveBudget", wireType)
 			}
@@ -15312,7 +14906,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 99:
+		case 95:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewBountyReclaimDelay", wireType)
 			}
@@ -15331,7 +14925,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 100:
+		case 96:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PermissionlessMinReviewBountyRate", wireType)
 			}
@@ -15365,7 +14959,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 101:
+		case 97:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxVerifierRewardPool", wireType)
 			}
@@ -15399,7 +14993,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 102:
+		case 98:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierRewardPoolOverflowBurnRatio", wireType)
 			}
@@ -15433,7 +15027,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 103:
+		case 99:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierRewardEpochBlocks", wireType)
 			}
@@ -15452,7 +15046,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 104:
+		case 100:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinVerifierAccuracy", wireType)
 			}
@@ -15486,7 +15080,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 105:
+		case 101:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierAccuracyWindowEpochs", wireType)
 			}
@@ -15505,7 +15099,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 106:
+		case 102:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinEpochVerifications", wireType)
 			}
@@ -15524,7 +15118,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 107:
+		case 103:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field VerifierDreamReward", wireType)
 			}
@@ -15558,7 +15152,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 108:
+		case 104:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxVerifierDreamMintPerEpoch", wireType)
 			}
@@ -15592,7 +15186,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 109:
+		case 105:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerBond", wireType)
 			}
@@ -15626,7 +15220,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 110:
+		case 106:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerDemotionThreshold", wireType)
 			}
@@ -15660,7 +15254,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 111:
+		case 107:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerTrustLevel", wireType)
 			}
@@ -15692,7 +15286,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.MinReviewerTrustLevel = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 112:
+		case 108:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerRepTier", wireType)
 			}
@@ -15711,7 +15305,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 113:
+		case 109:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinReviewerAgeBlocks", wireType)
 			}
@@ -15730,7 +15324,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 114:
+		case 110:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerDemotionCooldown", wireType)
 			}
@@ -15749,7 +15343,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 115:
+		case 111:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ReviewerUnbondCooldown", wireType)
 			}
@@ -15768,7 +15362,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 116:
+		case 112:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingRewardYieldPerEpoch", wireType)
 			}
@@ -15802,7 +15396,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 117:
+		case 113:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingPoolMintShare", wireType)
 			}
@@ -15836,7 +15430,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 118:
+		case 114:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingPoolCapBase", wireType)
 			}
@@ -15870,7 +15464,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 119:
+		case 115:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StakingPoolCapRate", wireType)
 			}
@@ -15904,7 +15498,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 120:
+		case 116:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinStakeAmount", wireType)
 			}
@@ -15938,7 +15532,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 121:
+		case 117:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxCompletionBonusStakeMultiple", wireType)
 			}
@@ -15972,7 +15566,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 122:
+		case 118:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxTotalContentStakePerMember", wireType)
 			}
@@ -16006,7 +15600,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 123:
+		case 119:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInterimRewardsPerSeason", wireType)
 			}
@@ -16040,7 +15634,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 124:
+		case 120:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeBountyMaxBudgetRatio", wireType)
 			}
@@ -16074,7 +15668,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 125:
+		case 121:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeBountyPerFunderEpoch", wireType)
 			}
@@ -16108,7 +15702,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 126:
+		case 122:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinInitiativeBountyContribution", wireType)
 			}
@@ -16142,7 +15736,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 127:
+		case 123:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxInitiativeBountyContributions", wireType)
 			}
@@ -16161,7 +15755,7 @@ func (m *RepOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 128:
+		case 124:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field InitiativeBountyReclaimDelay", wireType)
 			}

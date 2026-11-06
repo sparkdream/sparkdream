@@ -80,9 +80,11 @@ Key principles:
 - **Polls**: non-binding single-choice questions any member can put to their
   group for a chosen duration, voted openly or by secret ballot (§11.4).
 - **Veto by policy version bump**: `MsgVetoGroupProposals` does not iterate
-  proposals — it bumps the policy's `version`. Every accepted proposal
-  records the version at submit time; on execute, a mismatch flips the
-  proposal to `VETOED` instead of running.
+  proposals — it bumps the policy's `version`. Every proposal records the
+  version at submit time; a mismatch closes it `VETOED` wherever it is next
+  seen: votes are refused, the EndBlocker ends it `VETOED` at its voting
+  deadline or execution deadline, and an execute attempt closes it `VETOED`
+  instead of running (§6).
 
 ---
 
@@ -219,6 +221,16 @@ message DecisionPolicy {
 `min_execution_period` is what the test-params verifier reads to
 distinguish testparams (1 s) from production builds (259200 s = 72 h).
 
+Both periods are bounded by compiled constants
+(`x/commons/keeper/decision_policy_bounds.go`): `voting_period` in
+`(0, MaxVotingPeriodSeconds]` and `min_execution_period` in
+`[0, MaxMinExecutionPeriodSeconds]`, both 90 days. The bounds apply on
+`MsgRegisterGroup` and on both `MsgUpdateGroupConfig` paths (full policy
+replacement and the in-place period update). They are the only ceiling since
+the ZK-delay cap was removed (§10); they exist to stop a typo from parking a
+body's proposals for years (COM-203), not as a security boundary. Changing
+them is a chain upgrade.
+
 ### 3.4. PolicyPermissions
 
 The allowlist of message type URLs a policy may execute.
@@ -245,7 +257,7 @@ message Proposal {
   ProposalStatus status = 6;
   int64 submit_time = 7;
   int64 voting_deadline = 8;             // submit_time + DecisionPolicy.voting_period
-  uint64 policy_version = 9;             // snapshot at submit; mismatch on execute = VETOED
+  uint64 policy_version = 9;             // snapshot at submit; mismatch = VETOED (§6)
   string metadata = 10;
   int64 execution_time = 11;             // earliest execute; set when ACCEPTED
   string failed_reason = 12;             // populated on FAILED/VETOED/REJECTED
@@ -278,8 +290,8 @@ Status enum:
 | `ACCEPTED` | Threshold met; awaiting execution after `execution_time` |
 | `REJECTED` | Voting deadline passed without meeting threshold |
 | `EXECUTED` | All inner messages ran successfully |
-| `FAILED` | Inner-message handler returned an error during execute (state reverts) |
-| `VETOED` | Policy version was bumped between accept and execute |
+| `FAILED` | Execute found the proposal can never run (allowlist narrowed, unpack, signer or handler check failed); persisted, see §6.4 |
+| `VETOED` | Policy version was bumped after submit (veto, config change, narrowed permissions, renewal); set by the EndBlocker at the voting or execution deadline, or by an earlier execute attempt |
 | `EXPIRED` | Execution window closed without a successful execute (set by the EndBlocker) |
 
 ### 3.6. Category
@@ -297,8 +309,10 @@ message Category {
 }
 ```
 
-Created via `MsgCreateCategory` by gov, the Commons Council, or the Commons
-Operations Committee. Per-module restrictions (e.g. "blog category 1 is
+Created via `MsgCreateCategory` by gov, the Commons Council, or any single member
+of the Commons Operations Committee (1-of-N, deliberately: a category is bounded by its
+title and description lengths, carries no funds, and `MsgDeleteCategory` only removes an
+empty one, so one member acting alone can do no lasting harm). Per-module restrictions (e.g. "blog category 1 is
 read-only") layer on top.
 
 ### 3.7. RecurringSpend (migrated to x/session)
@@ -403,6 +417,7 @@ Notable design choices (post-migration):
 | `OpenPollsByCouncil` | `(council_name, poll_id)` | Open polls only; the per-group and per-creator caps |
 | `PollQueue` | `(due_time, poll_id)` | Deadline of an open poll, end of retention of a closed or cancelled one |
 | `PollVoterTrees` | `poll_id → VoterTree` | A secret poll's voter snapshot, deleted when the poll closes |
+| `PollOpenCounts` | `creator → PollOpenCount{creator, utc_day, count}` | Polls the creator opened on its current UTC day: the per-creator opening rate limit (§11.4); one record per creator, reset on a new day, never decremented |
 | `ProposalSeq`, `CouncilSeq`, `CategorySeq`, `PollSeq` | sequences | Auto-increment ID generators (poll IDs start at 1) |
 
 The pre-migration `RecurringSpends*` collections (`RecurringSpends`,
@@ -468,13 +483,16 @@ message Params {
 }
 ```
 
-`proposal_fee` is a **minimum transaction fee**, not a transfer: the
-`ProposalFeeDecorator` ante decorator (§6.1) requires the tx's `--fees` to
-cover `proposal_fee` once per fee-requiring `MsgSubmitProposal` in the tx (N
-proposals in one tx need N times the fee). The fee goes to validators like
-any tx fee. `MsgRegisterGroup` signed by a council additionally transfers
-`proposal_fee` from the signing policy to the commons module (a registration
-fee). The recurring-spend params live on x/session.
+`proposal_fee` is owed once per fee-requiring `MsgSubmitProposal`, by
+whichever of two paths the message takes (§6.1). A top-level one is floored
+by the `ProposalFeeDecorator` ante decorator: the tx's `--fees` must cover
+`proposal_fee` once per such message (N proposals in one tx need N times the
+fee), and the fee goes to validators like any tx fee. A nested one (inside
+an x/vault proposal, or a commons proposal executing as a policy) skips the
+ante, so the handler transfers `proposal_fee` from the proposer to the fee
+collector itself. `MsgRegisterGroup` signed by a council additionally
+transfers `proposal_fee` from the signing policy to the commons module (a
+registration fee). The recurring-spend params live on x/session.
 
 ---
 
@@ -507,7 +525,9 @@ The chain ships **ten** governance bodies (`Group` records) post-bootstrap:
 7. **Ecosystem Operations Committee** (parent: Ecosystem Council).
 8. **Ecosystem Governance Committee** (parent: Ecosystem Council).
 9. **Commons Operations Committee** (parent: Commons Council). It has no electoral delegation: the Commons Council elects it (`MsgUpdateGroupMembers` / `MsgRenewGroup` from the council policy), so a committee proposal can never add, remove or swap the committee's own members.
-10. **Commons Governance Committee** (parent: Commons Council). Besides `MsgUpdateGroupMembers`, its bootstrap permissions include x/rep's `MsgForceMigration` and `MsgCancelMigration`: it is the HR authority of the member key migration (council path), see docs/x-rep-spec.md "Member key migration". `MsgRegisterGroup` and `MsgUpdateGroupConfig` refuse a `voting_period` longer than x/rep's `zk_key_activation_delay` (in seconds, network builds only), so a council window can never outlive the anonymous double-vote protection.
+10. **Commons Governance Committee** (parent: Commons Supervisory Board; it is the Commons Council's electoral delegate). Besides `MsgUpdateGroupMembers`, its bootstrap permissions include x/rep's `MsgForceMigration` and `MsgCancelMigration`: it is the HR authority of the member key migration (council path), see docs/x-rep-spec.md "Member key migration". A `MsgForceMigration` proposal needs the strict majority of a membership change (§6.3).
+
+Voting periods are not capped by x/rep's `zk_key_activation_delay`. An earlier cap refused a `voting_period` longer than the delay so a council window could not outlive the anonymous double-vote protection; it was removed (CMN-101) because secret ballots vote against a voter snapshot taken when the ballot opens (§11.2), so a key change during the window adds no voter, and the cap only refused the bootstrap's own windows on every network build (and blocked x/rep `MsgUpdateParams`).
 
 The three Operations Committees (Commons, Technical, Ecosystem) each carry
 x/rep's project lifecycle messages in their bootstrap permissions:
@@ -518,6 +538,23 @@ a single committee member may only approve a budget up to
 `large_project_budget_threshold` directly, and may not cancel or complete a
 project. See docs/x-rep-spec.md "Approving a Project Budget", "Cancelling a
 Project" and "Completing a Project".
+
+The keeper gate of another module is only half of a grant: a policy
+address signs only through an executed proposal, and `MsgSubmitProposal`
+refuses a message that is not in the policy's `AllowedMessages`. So every
+message a keeper accepts from the Commons Council or Commons Operations
+Committee policy (`IsCouncilOrCommitteePolicy`, `IsCouncilBodyPolicy`,
+federation's `isCouncilPolicy`, service's `assertCommitteePolicy`) is on
+that body's bootstrap allowlist: among others x/service
+`MsgResolveReportByJury` (REDUCE / dissolve, SVC-201), x/federation
+`MsgResumePeer`, `MsgRemovePeer` and `MsgSuspendPeer` (the §6.2
+stranded-peer bundle, FED-203), `MsgModerateContent`,
+`MsgRevokeIdentityLink`, and every module's `MsgUpdateOperationalParams`
+(x/session included). `app/committee_allowlist_guard_test.go`
+(`TestPolicyGatedMessagesAreAllowlisted`) boots the chain from its default
+genesis and checks each gated message against the live
+`PolicyPermissions` of the body its gate names; add a row there whenever a
+keeper starts accepting a policy address.
 
 Each top-level council additionally has a **veto policy address** — a
 second policy on the same `Group` record, with its own `DecisionPolicy`
@@ -654,16 +691,20 @@ SubmitProposal ───▶ SUBMITTED
        │
        ├── (voting deadline reached, EndBlocker)
        │       │
+       │       ├── policy_version mismatch ──▶ VETOED
        │       ├── threshold met ──▶ ACCEPTED
        │       └── threshold not met ──▶ REJECTED
        │
        └── ExecuteProposal (anyone, after execution_time)
                │
-               ├── policy_version mismatch ──▶ refused (tx error; see 6.4)
-               ├── inner-msg handler ok      ──▶ EXECUTED
-               └── inner-msg handler error   ──▶ refused (tx error; see 6.4)
+               ├── policy_version mismatch     ──▶ VETOED (tx ok; see 6.4)
+               ├── never runnable (allowlist,
+               │   unpack, signer, handler)    ──▶ FAILED (tx ok; see 6.4)
+               ├── inner-msg handler ok        ──▶ EXECUTED
+               └── inner-msg handler error     ──▶ refused (tx error, stays ACCEPTED)
 
 ACCEPTED ──(execution window of 14 days past execution_time closes, EndBlocker)──▶ EXPIRED
+                                                    (VETOED on a policy_version mismatch)
 ```
 
 ### 6.1. Submit
@@ -673,7 +714,11 @@ ACCEPTED ──(execution window of 14 days past execution_time closes, EndBlock
 1. Authenticate proposer is a member of the council that owns
    `policy_address` (lookup via `PolicyToName`).
 2. Verify the council has not expired (`now <= current_term_expiration`).
-3. The proposal fee is enforced by the `ProposalFeeDecorator` ante decorator (`x/commons/ante/group_policy.go`). For every top-level `MsgSubmitProposal` the decorator requires the tx's `--fees` to cover `Params.proposal_fee` once per fee-requiring proposal in the tx; the fee is paid via the standard Cosmos SDK fee path (to validators), not transferred to `policy_address`. `MsgVoteProposal` is **not** fee-gated (a vote costs only gas). Proposals whose every inner message is an emergency action (`MsgEmergencyCancelGovProposal`, `MsgVetoGroupProposals`) are exempt. `MsgSubmitAnonymousProposal` pays no fee (the shield module pays gas); instead each council accepts at most `MaxAnonymousProposalsPerCouncilPerDay` (20) anonymous proposals per UTC day.
+3. The proposal fee (`Params.proposal_fee`, `x/commons/keeper/proposal_fee.go`) is owed once per fee-requiring proposal and collected by one of two paths that cannot both charge the same message:
+   - **Top-level `MsgSubmitProposal`**: the `ProposalFeeDecorator` ante decorator (`x/commons/ante/group_policy.go`) requires the tx's `--fees` to cover the fee once per fee-requiring proposal in the tx (N proposals need N fees; `ErrInsufficientFee` otherwise, so the mempool turns unfunded spam away before any state is read). The fee is paid via the standard Cosmos SDK fee path (to validators), not transferred to `policy_address`, and like any tx fee it is kept when the submission fails. The decorator records what it floored as per-proposer *credits* on the tx context.
+   - **Nested `MsgSubmitProposal`** (an inner message of an x/vault proposal, or of a commons proposal executing as a policy): the message never passes the ante. The handler finds no credit for its proposer and transfers the fee itself, from the proposer (the vault or policy address) to the fee collector (`ErrInsufficientProposalFee`, 1617, when it cannot pay; event `proposal_fee_charged`). Because baseapp discards a failed handler's writes, a refused submission costs this proposer nothing but gas. When the proposer is a **group policy** the fee is treasury spend, so it first passes `CheckSpendPreconditions` (activation, term, per-epoch cap) and debits the policy's `EpochSpending` bucket like a `MsgSpendFromCommons` (COM-202); a gate failure surfaces as `ErrInsufficientProposalFee`.
+   - The handler consumes one credit per floored message, and the ante grants exactly one per floored message, so a top-level proposal is never charged twice. The x/vault inner-message denylist no longer refuses `MsgSubmitProposal`; x/session still forbids it in every allowlist (`ForbiddenAllowlistMsgs`, guard `x/session/types/nondelegable_guard_test.go`), so no commons message is session-delegable.
+   `MsgVoteProposal` is **not** fee-gated (a vote costs only gas). Proposals whose every inner message is an emergency action (`MsgEmergencyCancelGovProposal`, `MsgVetoGroupProposals`) are exempt on both paths; a signaling proposal (no inner messages) pays. `MsgSubmitAnonymousProposal` pays no fee (the shield module pays gas); instead each council accepts at most `MaxAnonymousProposalsPerCouncilPerDay` (20) anonymous proposals per UTC day (`AnonProposalCount[(council, day)]`; the first proposal of a day drops every older day's counter for that council, whatever the gap, so the map holds one entry per council).
 3a. A proposal carries at most 20 messages and 10,000 bytes of metadata.
 4. For each inner message, check its type URL is in
    `PolicyPermissions[policy_address].allowed_messages`. A signaling proposal
@@ -698,6 +743,11 @@ ACCEPTED ──(execution window of 14 days past execution_time closes, EndBlock
    (`ErrBallotMode`; a secret ballot takes only anonymous votes, §11.2).
 2. Voter must be a current member of the council (re-checked on every vote
    so a removed member's pending vote stops counting).
+2a. The council's `policy_version` must still match the proposal's
+    snapshot; a vote on an invalidated proposal is refused
+    (`ErrInvalidRequest`), so it can never be accepted early. The
+    EndBlocker closes it `VETOED` at its voting deadline.
+    `MsgAnonymousVoteProposal` applies the same rule.
 3. Store `Vote[(proposal_id, voter)]`.
 4. Run `checkThreshold` — if it now passes, flip status to `ACCEPTED` and
    set `execution_time = block_time + min_execution_period`. This is the
@@ -721,7 +771,9 @@ if policy_type == "threshold":
 ```
 
 **Membership changes need a strict majority.** A proposal carrying
-`MsgUpdateGroupMembers` or `MsgRenewGroup` is accepted only when
+`MsgUpdateGroupMembers`, `MsgRenewGroup` or x/rep `MsgForceMigration` (a
+COUNCIL-path migration moves the member's every seat with their identity) is
+accepted only when
 `2 * yesWeight > groupWeight` (of the proposing body's whole weight), on top
 of its policy threshold. Under the committees' percentage 0.5 policy a single
 member of a two-member committee passes ordinary proposals alone (by design,
@@ -749,34 +801,49 @@ has an anonymous tally.
    proposal cannot be run months later on the authority of a body whose
    members have since changed.
 3. Re-check `policy_version`: if mismatched (i.e. someone vetoed by bumping
-   the version, or the body was renewed), return `ErrUnauthorized`. The
-   proposal record stays `ACCEPTED` (the tx error discards the write) and
-   expires with its window.
+   the version, or the body was renewed), the proposal ends `VETOED`.
 4. For councils whose term has now expired, allow only `MsgRenewGroup`
    inside the proposal — every other inner message is rejected with
    `"TERM EXPIRED"`. This is the unique escape hatch that lets an expired
    council reactivate itself by replacing its members.
-5. For each inner message, in order:
-   - Unpack the `Any`.
-   - `validateMsgAuthority(msg, policy_address)`.
-   - Look up the handler in the msg router; reject if missing.
-   - Invoke the handler. On error, set status `FAILED` with the reason and
-     return — the entire tx reverts, including the `FAILED` write itself
-     (so the proposal stays `ACCEPTED`; this is intentional, the
-     transaction failure is the canonical record).
-6. On success, set status `EXECUTED` and emit a finalisation event.
+5. Re-check the policy's allowlist (`checkProposalPermissions`); a message
+   no longer allowed ends the proposal `FAILED`.
+6. Pre-flight every inner message before running any: unpack the `Any`,
+   `validateMsgAuthority(msg, policy_address)`, look up the handler. A
+   failure ends the proposal `FAILED`.
+7. Invoke each handler in order. A handler error reverts the whole tx and
+   the proposal stays `ACCEPTED`: it may be transient (an unfunded
+   treasury, a cooldown), so the proposal can be executed again until its
+   execution window closes.
+8. On success, set status `EXECUTED` and emit a finalisation event.
 
 `executor` need not be a council member — anyone can pay gas to execute an
 already-accepted proposal.
 
-A failed execution is reported by the tx error, not a persisted `FAILED` or
-`VETOED` status: the SDK discards a handler's writes when it returns an
-error. Persisting `FAILED` would need a success return on inner failure,
-which changes the client contract every script relies on (exit code =
-outcome). The execution window bounds how long such a proposal stays
-runnable. This is the decided behaviour: a failed or vetoed execution stays a
-tx error, and the 14-day execution window (`ProposalExecutionWindow`) is what
-retires a proposal that can never run.
+The tx result reports whether the execute request was processed; the
+proposal status reports the outcome. `MsgExecuteProposalResponse.status`
+carries it (`EXECUTED`, `VETOED` or `FAILED`), as does the
+`execute_proposal` event (`status`, plus `reason` on `VETOED`/`FAILED`,
+also stored as `failed_reason`).
+
+`VETOED` and `FAILED` from steps 3, 5 and 6 are terminal and persist: the
+execute tx succeeds and the proposal leaves the queue. These outcomes can
+never change (the policy version only grows, and a malformed message stays
+malformed), so it is safe for any executor to record them. Returning an
+error would discard the status write with the rest of the tx, and the
+proposal would read `ACCEPTED` until the EndBlocker reached it. Clients
+must therefore read `status`, not only the tx code. All these checks run
+before any inner message, so nothing executes first.
+
+Outcomes that may change on a retry stay tx errors and leave the proposal
+`ACCEPTED`: a term-expiry refusal (step 4, cleared by a renewal) and a
+handler error (step 7). The 14-day execution window
+(`ProposalExecutionWindow`) retires a proposal that keeps failing there.
+
+Most vetoed proposals never reach this step: votes on them are refused
+(§6.2) and the deadline tally closes them `VETOED` (§6.5). Step 3 matters
+for a proposal accepted before the veto and still inside its execution
+window.
 
 ### 6.5. EndBlocker finalisation
 
@@ -785,6 +852,8 @@ retires a proposal that can never run.
 `voting_deadline`, an `ACCEPTED` one at the end of its execution window. For
 each due `SUBMITTED` proposal:
 
+- If the council's `policy_version` no longer matches the snapshot →
+  `VETOED` ("policy version changed (vetoed)"), whatever the votes.
 - Tally votes.
 - If threshold met → `ACCEPTED` (status flip only; `execution_time` was
   set at submit time as `now + voting_period + min_execution_period` and
@@ -794,7 +863,9 @@ each due `SUBMITTED` proposal:
   out the rest of the voting window for no reason.
 - Else → `REJECTED` with reason `"threshold not met at voting deadline"`.
 
-A due `ACCEPTED` proposal becomes `EXPIRED` ("execution window closed").
+A due `ACCEPTED` proposal becomes `EXPIRED` ("execution window closed"),
+or `VETOED` if its `policy_version` no longer matches (accepted before a
+veto and never executed).
 Terminal proposals are never in the queue, so the per-block cost follows
 open proposals, not proposal history. `ListProposals` is paginated.
 
@@ -816,15 +887,15 @@ run, and execution checks the status.
 | `MsgUpdateParams` | gov | Replace `Params.proposal_fee` |
 | `MsgSpendFromCommons` | a registered group policy | Send funds from the council policy to a recipient, subject to `MaxSpendPerEpoch` cumulative cap |
 | `MsgEmergencyCancelGovProposal` | A signer whose `PolicyPermissions` contain `MsgEmergencyCancelGovProposal` (genesis grants this only on the **veto policies** of Commons/Technical/Ecosystem councils — i.e. the founder's golden-share channel) | Cancel a pending `x/gov` proposal — the council emergency-stop on rogue gov votes. Refused for a gov proposal that disciplines the canceller's own council or a body under it (`MsgDeleteGroup`, `MsgUpdateGroupMembers`, `MsgUpdateGroupConfig`, `MsgRenewGroup`, `MsgVetoGroupProposals`, permission messages): gov is the remedy against a captured council. A deposit-period proposal is also removed from the gov inactive queue |
-| `MsgCreatePolicyPermissions` | gov OR the policy address itself (self-registration, only for a registered group policy) | Create the allowlist for a new policy address. `ForbiddenMessages` are refused for every signer, `RestrictedMessages` for every signer but gov |
-| `MsgUpdatePolicyPermissions` | gov OR the policy address itself | Replace the allowlist. Bumps `PolicyVersion` only when a message is removed, so pending proposals carrying a now-forbidden message die at execution while a pure expansion (gov adding powers) leaves them alone; ratchet rules in `ValidatePermissions` block adding `Forbidden` messages |
-| `MsgDeletePolicyPermissions` | gov OR the policy address itself | Remove the allowlist record; bumps `PolicyVersion` (the strongest narrowing) |
-| `MsgRegisterGroup` | gov OR the Commons Council policy (any other signer, including other councils, is refused) | Create a new sub-committee under a parent policy; fails on cycle, missing parent, invalid member counts, or a non-positive weight. For every signer: the allowlist passes `ValidatePermissions` (forbidden / restricted), the vote threshold is present and valid (percentage in (0, 1], absolute in [1, total initial weight]), and a standing committee name keeps the compiled [2,5] size bounds. A council signer is further bounded by its own powers: the child's allowlist must be a subset of the council's own, `funding_weight` must be 0 (x/split shares are gov-only), `max_spend_per_epoch` must be positive and at most the council's own cap, `min_members >= 2`, a percentage threshold at least 0.5, an `electoral_policy_address` empty or a registered group policy other than the child itself, and the name must not be a reserved canonical name (the ten genesis bodies, "Operations Committee", "Governance Committee", "Supervisory Board", case-insensitive) |
-| `MsgRenewGroup` | parent policy OR a registered electoral policy (throttled by its `update_cooldown`) | Replace members and reset `current_term_expiration` to `now + term_duration`. Permitted on expired councils (this is the escape hatch the executor honours). The member count must fit `[min_members, max_members]` for every signer, gov included. Bumps `PolicyVersion`: proposals accepted by the old members cannot execute. Weight rules of §3.2 apply; leaving out the golden-share seat is refused unless the signer is gov |
+| `MsgCreatePolicyPermissions` | gov OR the policy address itself (self-registration, only for a registered group policy) | Create the allowlist for a new policy address. `ForbiddenMessages` are refused for every signer, `RestrictedMessages` for every signer but gov. The policy itself may only create an empty allowlist (ratchet down, as on update): every group policy gets its allowlist at registration, so a self-created row follows a self-delete, and a delete plus create in one proposal could otherwise swap in any allowlist (CMN-106) |
+| `MsgUpdatePolicyPermissions` | gov OR the policy address itself | Replace the allowlist. Bumps `PolicyVersion` only when a message is removed, so every in-flight proposal of the policy ends `VETOED` (§6) while a pure expansion (gov adding powers) leaves them alone; ratchet rules in `ValidatePermissions` block adding `Forbidden` messages |
+| `MsgDeletePolicyPermissions` | gov OR the policy address itself | Narrow the allowlist to nothing; bumps `PolicyVersion` (the strongest narrowing). For a registered group policy the row is **kept empty** rather than removed (COM-201): without a row `MsgSubmitProposal` refuses even a signaling proposal and only x/gov can create a row with messages again (CMN-106), so a body that deleted its own row had silenced itself for good. Rows of addresses that are not group policies are removed outright |
+| `MsgRegisterGroup` | gov OR the Commons Council policy (any other signer, including other councils, is refused) | Create a new sub-committee under a parent policy; fails on cycle, missing parent, invalid member counts, a repeated member address (CMN-103: the store keeps one seat per address, so a duplicate would pass the size and threshold checks and collapse into one seat; the same holds for `MsgRenewGroup` and `MsgUpdateGroupMembers`), or a non-positive weight. For every signer: the allowlist passes `ValidatePermissions` (forbidden / restricted), the vote threshold is present and valid (percentage in (0, 1], absolute in [1, total initial weight]), and a standing committee name keeps the compiled [2,5] size bounds. A council signer is further bounded by its own powers: the child's allowlist must be a subset of the council's own, `funding_weight` must be 0 (x/split shares are gov-only), `max_spend_per_epoch` must be positive and at most the council's own cap, `min_members >= 2`, a percentage threshold at least 0.5, an `electoral_policy_address` empty or a registered group policy other than the child itself, and the name must not be a reserved canonical name (the ten genesis bodies, "Operations Committee", "Governance Committee", "Supervisory Board", case-insensitive) |
+| `MsgRenewGroup` | parent policy OR a registered electoral policy (throttled by its `update_cooldown`) | Replace members and reset `current_term_expiration` to `now + term_duration`. Permitted on expired councils (this is the escape hatch the executor honours). The member count must fit `[min_members, max_members]` for every signer, gov included. Bumps `PolicyVersion`: in-flight proposals of the old members end `VETOED` and cannot execute. Weight rules of §3.2 apply; leaving out the golden-share seat is refused unless the signer is gov |
 | `MsgUpdateGroupMembers` | parent policy OR the group's electoral policy | Add and/or remove members without resetting the term. The `update_cooldown` is enforced ONLY when the signer is the electoral policy; direct parent or gov calls bypass the cooldown. Weight rules of §3.2 apply; removing the golden-share seat is refused unless the signer is gov |
-| `MsgUpdateGroupConfig` | parent policy OR gov | Mutate group-config knobs (`max_spend_per_epoch`, `vote_threshold`, `voting_period`, `min_execution_period`, `futarchy_enabled`, `min_members`, `max_members`, `term_duration`, `policy_type`, `electoral_policy_address`, `funding_weight`, `ballot_mode`; `BALLOT_MODE_UNSPECIFIED` leaves the mode unchanged). Every change bumps `PolicyVersion`. The parent is throttled by `update_cooldown` from `last_config_update`; gov is not. Gov only: `min_members`/`max_members` (the standing committees' compiled [2,5] holds even for gov) and `funding_weight` (replaces the x/split share). A parent may set `max_spend_per_epoch` only to a positive value within its own cap. A new `electoral_policy_address` must be a registered group policy (parent signer) and is cycle-checked. Turning `futarchy_enabled` on queues the first confidence market |
-| `MsgDeleteGroup` | parent policy OR a sibling veto policy OR gov | Remove a group from the registry. Refused while another group names it as its parent or electoral authority (`ErrGroupHasDependents`, 1615; delete or re-parent the dependents first, gov included). Members, decision policy, permissions, the x/split share are cleared and the policy version is bumped. Every x/session grant the group's standard or veto policy issued is revoked through `RevokeGrantInternal` (nobody can sign for a deleted policy to cancel them), the policies are tombstoned in `DeletedPolicies` (the session claim hook refuses any grant from a former group policy), and the residual treasury is swept to the parent policy when the parent is a group (with a gov parent the funds stay put) |
-| `MsgVetoGroupProposals` | parent policy OR a sibling veto policy OR gov | Bump `PolicyVersion` for the target group's policy — every still-`ACCEPTED` proposal will fail to execute with `VETOED` |
+| `MsgUpdateGroupConfig` | parent policy OR gov | Mutate group-config knobs (`max_spend_per_epoch`, `vote_threshold`, `voting_period`, `min_execution_period`, `futarchy_enabled`, `min_members`, `max_members`, `term_duration`, `policy_type`, `electoral_policy_address`, `funding_weight`, `ballot_mode`; `BALLOT_MODE_UNSPECIFIED` leaves the mode unchanged). A `voting_period` / `min_execution_period` sent without a new `vote_threshold` + `policy_type` updates the stored decision policy in place; both paths enforce the compiled 90-day period bounds (§3.3). Every change bumps `PolicyVersion`. The parent is throttled by `update_cooldown` from `last_config_update`; gov is not. Gov only: `min_members`/`max_members` (the standing committees' compiled [2,5] holds even for gov; `min_members` cannot be raised above the current roster of an operational group — two seats or more — so `MemberBoundsInvariant` keeps holding, `ErrInvalidGroupSize`: add members first) and `funding_weight` (replaces the x/split share). A parent may set `max_spend_per_epoch` only to a positive value within its own cap. A new `electoral_policy_address` must be a registered group policy (parent signer) and is cycle-checked. Turning `futarchy_enabled` on queues the first confidence market; turning it off removes the group's queued trigger, and turning it on replaces any trigger still queued, so an off/on toggle never leaves a group with two confidence-market loops (FUT-101); a trigger that fires while the group's market is still open skips the new market and only reschedules (FUT-201, docs/x-futarchy-spec.md §7.6) |
+| `MsgDeleteGroup` | parent policy OR a sibling veto policy OR gov | Remove a group from the registry. Refused while another group names it as its parent or electoral authority (`ErrGroupHasDependents`, 1615; delete or re-parent the dependents first, gov included). Members, decision policy, permissions, the x/split share are cleared and the policy version is bumped. Every x/session grant the group's standard or veto policy issued is revoked through `RevokeGrantInternal` (nobody can sign for a deleted policy to cancel them), the policies are tombstoned in `DeletedPolicies` (the session claim hook refuses any grant from a former group policy), and the residual treasury is swept to the parent policy when the parent is a group (with a gov parent the funds stay put). The group's open polls are cancelled (polls are keyed by group name, so a group later registered under the same name inherits none) |
+| `MsgVetoGroupProposals` | parent policy OR a sibling veto policy OR gov | Bump `PolicyVersion` for the target group's policy — every in-flight proposal (voting or accepted) of that policy ends `VETOED` (§6) |
 | `MsgForceUpgrade` | Technical Council policy (via proposal) | Schedule a chain upgrade through `x/upgrade` |
 | `MsgSubmitProposal` | a council member | Open a new proposal (subject to allowlist + fee + term expiration); `secret_ballot` asks for a secret ballot in a PROPOSER_CHOICE group (§11.2) |
 | `MsgVoteProposal` | a current council member | Cast `YES`/`NO`/`ABSTAIN`/`NO_WITH_VETO`; triggers early acceptance if threshold met. Refused on a secret ballot |
@@ -1090,7 +1161,9 @@ depth-20 sparse Merkle tree with the shield circuit's hash. It is refused
 (`ErrSecretBallotUnavailable`) when the members' weights differ (an anonymous
 vote carries no weight; one member, one vote) or fewer than
 `MinSecretBallotVoters` members have a key (5 on networks, 2 in the test
-build: below that the tally all but names each vote). The proposal records
+build: below that the tally all but names each vote). The tree's hashing
+runs outside the store, so the build charges `VoterTreeGasPerLeaf` (2,000)
+gas per keyed member on top of the metered store reads (CMN-107). The proposal records
 the root, the member count and the equal weight; the tree is stored until
 voting closes and served by `GetProposalVoterTree`. Later membership or key
 changes do not affect a ballot already open.
@@ -1112,18 +1185,47 @@ voted.
 **Client flow.** Fetch `GetProposalVoterTree` whole and build the Merkle path
 locally (asking a node for one member's path would tell it who is about to
 vote); the tree has the shape of x/rep's `trust_tree` query, so the shield
-wasm `prove()` takes it unchanged with `min_trust_level` 0. Submit
+wasm `prove()` takes it unchanged with `min_trust_level` 0 and
+`"group_tree": true` (the rate-limit nullifier is then bound to the ballot,
+see Limits; a proof without it fails). Submit
 `MsgShieldedExec` with `proof_domain = 2`, the inner
 `MsgAnonymousVoteProposal{voter: shield module account, proposal_id, option}`
 and the scope `proposal_id`.
 
 **Limits.** A small group gives little anonymity even above the minimum
-(a unanimous tally names everyone's vote). A member whose ZK key leaks
+(a unanimous tally names everyone's vote). Every shield exec carries a
+cleartext rate-limit nullifier; for trust-tree actions it is the same for all
+of one member's actions in a shield epoch. Group-tree execs (votes here and
+on polls, §11.4) bind it to the ballot instead (x/shield verifies
+`RateLimitEpoch = MiMC(scope element, epoch)`; x-shield-spec.md
+"Rate-limit linkability"), so a member's votes on two ballots, or a vote and
+the member's anonymous posts in the same epoch, carry unrelated values. No
+circuit change or new ceremony was needed. What remains is metadata a client
+must manage: the submitting account (use the public submitter), the fee and
+gas, and timing (a vote sent in the same block as the member's other
+anonymous actions invites correlation). Votes cannot be starved by other
+anonymous traffic: x/shield reserves a fifth of its per-epoch fee budget for
+group-tree execs and caps any one identity's share (x-shield-spec.md, fee
+budget). A member whose ZK key leaks
 before a ballot opens can be impersonated on that ballot; clearing the key
 (`MsgClearZkPublicKey`) only protects ballots opened afterwards. A SECRET
 group whose members stop meeting the requirements (unequal weights, too few
 keys) cannot pass proposals until its parent or gov changes its
 `ballot_mode` or membership.
+
+What members should know (all by design):
+- A member removed after a secret ballot opens keeps their leaf and can still
+  vote on every ballot open at that time; a member who joins later cannot.
+- Members without an active ZK key count in the body (`member_count`) but can
+  never vote on a secret ballot, and in a SECRET group cannot vote at all.
+  Nothing warns them: register a key (`MsgRegisterZkPublicKey`) before joining
+  a SECRET body.
+- A RECOVERY or COUNCIL migration clears the member's ZK key, so the
+  recovered member cannot vote on a secret ballot opened during the next
+  `zk_key_activation_delay`; the holder of a leaked key can still vote on
+  ballots that opened before the migration (see Limits above).
+- On an open poll, members who join after it opens may vote, so a tally can
+  exceed `eligible_voters`.
 
 ### 11.3. Queries of anonymous tallies
 
@@ -1139,7 +1241,12 @@ A poll is a non-binding question put to a group's members; nothing executes.
   expired. The question is 1-500 bytes; 2-10 options, each 1-100 bytes and
   distinct; the duration between `MinPollDuration` (1 hour on networks, 10 s
   in the test build) and 30 days. At most 20 open polls per group and 3 per
-  creator (alias-aware). A secret poll snapshots the voters exactly like a
+  creator (alias-aware), and at most `MaxPollOpensPerCreatorPerDay` (3)
+  openings per creator per UTC day (`ErrPollRateLimit`): the opening is
+  counted in `PollOpenCounts` when the poll is created and never given
+  back, so cancelling a poll frees its open-poll slot but not its opening.
+  The bucket is keyed by the signing address and starts afresh on a new UTC
+  day. A secret poll snapshots the voters exactly like a
   secret-ballot proposal (same requirements); its `eligible_voters` is the
   snapshot's leaf count, an open poll's the group's member count. Polls do
   not follow the group's `ballot_mode`: the creator chooses.
@@ -1150,7 +1257,11 @@ A poll is a non-binding question put to a group's members; nothing executes.
   against the poll's snapshot (`PROOF_DOMAIN_GROUP_TREE`, nullifier domain
   33, scope `poll_id`); refused on an open poll.
 - `MsgCancelPoll{creator, poll_id}`: the creator withdraws an open poll that
-  has no votes (`ErrPollHasVotes` otherwise).
+  has no votes (`ErrPollHasVotes` otherwise). A cancelled poll is kept for
+  `PollRetention` like a closed one. Open/cancel churn is bounded twice:
+  opening a secret poll pays the voter-tree gas (§11.2), and every opening
+  counts against the creator's daily `MaxPollOpensPerCreatorPerDay`.
+- `MsgDeleteGroup` cancels the group's open polls.
 
 The EndBlocker closes a poll after its deadline (status `CLOSED`, tallies
 final) and prunes a closed or cancelled poll with its votes after
@@ -1180,6 +1291,9 @@ do not apply.
 | 1612 | `ErrPollLimit` | 20 open polls in the group, or 3 by this creator |
 | 1613 | `ErrAlreadyVoted` | The member already voted on this poll |
 | 1614 | `ErrPollHasVotes` | A poll with votes cannot be cancelled |
+| 1615 | `ErrGroupHasDependents` | The group is the parent or electoral authority of another group (`MsgDeleteGroup`) |
+| 1616 | `ErrPollRateLimit` | The creator already opened `MaxPollOpensPerCreatorPerDay` (3) polls this UTC day; cancelling one gives nothing back |
+| 1617 | `ErrInsufficientProposalFee` | A nested `MsgSubmitProposal` (not floored by the ante) whose proposer cannot pay `proposal_fee` to the fee collector |
 | 1700 | `ErrRecurringSpendNotFound` | Used internally; the wrapper layer now surfaces `codes.NotFound` for cancelled/declined schedules via projection (M9). Reserved for legacy use sites |
 | 1701 | `ErrRecurringSpendInactive` | Schedule is in a terminal state. Post-migration this is the translated error for session's `ErrGrantNotFound` and `ErrGrantTerminal` returned from cancel/decline on a grant that's been deleted or already COMPLETED |
 | 1705 | `ErrRecurringSpendInvalidWindow` | `start_time`/`end_time` malformed (past, out-of-order, shorter than one period). Other window errors (period below min, duration over max) bubble up as session errors — the wrapper does NOT translate them |
@@ -1268,13 +1382,17 @@ message GenesisState {
   uint64 next_poll_id = 22;                             // 0 primes to 1 at import
   repeated ProposalVoterTreeEntry proposal_voter_trees = 23; // snapshots of open secret ballots
   repeated PollVoterTreeEntry poll_voter_trees = 24;    // snapshots of open secret polls
+  repeated PollOpenCount poll_open_counts = 25;         // (creator, utc_day, count), one per creator
 }
 ```
 
 The poll indexes (`PollsByCouncil`, `OpenPollsByCouncil`) and `PollQueue`
-are rebuilt from `polls` at import. Validation refuses duplicate polls or
-votes, a poll ID outside `[1, next_poll_id)`, a tally count that differs from
-the option count, an open vote on a secret poll, and a voter snapshot for a
+are rebuilt from `polls` at import; `poll_open_counts` is imported as is (a
+round trip must not grant a second daily allowance). Validation refuses
+duplicate polls or votes, a poll ID outside `[1, next_poll_id)`, a tally
+count that differs from the option count, an open vote on a secret poll, a
+second opening bucket for the same creator (or one with an empty creator or
+a negative day), and a voter snapshot for a
 poll or proposal that is not an open secret ballot.
 
 Recurring spends live in x/session and round-trip through its genesis;
@@ -1325,15 +1443,21 @@ bootstrap builds the groups.
   yesterday cannot resume spending today via dust-sized proposals — every
   `MsgSpendFromCommons` re-reads the cumulative total.
 - **Policy-version-bump veto**: avoids a quadratic scan of
-  `ProposalsByCouncil` to invalidate all pending proposals. The next
-  `ExecuteProposal` whose snapshotted `policy_version` doesn't match the
-  current value is refused; the proposal then expires with its execution
-  window.
+  `ProposalsByCouncil` to invalidate all pending proposals. Each proposal
+  is closed `VETOED` lazily where its stale `policy_version` is next seen:
+  a vote is refused, the EndBlocker closes it at its voting or execution
+  deadline, and an execute attempt closes it at once (§6.2, §6.4, §6.5).
+  Marking every proposal at veto time would need a per-council index of
+  open proposals and charge the vetoer for a walk the vetoed council could
+  inflate by flooding proposals.
 - **Invariants** (`x/commons/keeper/invariants.go`, run by app's
   `TestInvariants`): every group policy (and veto policy) indexes back to its
   group and every index entry names a live group; every group has between 1
-  and `max_members` members; a golden-share seat weighs exactly the sum of
-  the other members.
+  and `max_members` members, and an operational group (`OperationalMembers`
+  = 2 seats or more, the one-way ratchet of docs/security-hardening.md) has
+  at least `min_members` (a committee seeded with the founder alone is
+  below its minimum by design until its first add); a golden-share seat
+  weighs exactly the sum of the other members.
 - **Term-expired escape hatch**: an expired council can still execute a
   proposal whose only inner message is `MsgRenewGroup`. Any other content
   in the same proposal makes the entire execute reject. This prevents an
@@ -1348,8 +1472,12 @@ bootstrap builds the groups.
   This is the gateway condition — no individual user can directly call
   these messages, even if they own the shield-bound DREAM stake.
 - **Proposal fee disincentive**: every top-level `MsgSubmitProposal` needs
-  `Params.proposal_fee` in tx fees, once per proposal in the tx.
-  Anonymous proposals are fee-free but capped at 20 per council per day.
+  `Params.proposal_fee` in tx fees, once per proposal in the tx, and a
+  nested one (x/vault inner message, policy execution) is charged the same
+  fee by the handler from its proposer (§6.1), so no executor submits for
+  free. Anonymous proposals are fee-free but capped at 20 per council per
+  day; polls are fee-free but capped per group, per creator and per
+  creator per UTC day (§11.4).
 - **Forbidden messages**: `ForbiddenMessages` (refused in every allowlist,
   even by gov) covers the delegation escapes: x/session `MsgCreateGrant`,
   `MsgCreateSession`, `MsgExecSession`, every x/vault message,

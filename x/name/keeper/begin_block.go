@@ -15,7 +15,66 @@ const MaxDisputesResolvedPerBlock = 50
 
 // BeginBlocker processes begin block logic for the x/name module.
 func (k Keeper) BeginBlocker(ctx context.Context) error {
-	return k.processExpiredDisputes(ctx)
+	if err := k.processExpiredDisputes(ctx); err != nil {
+		return err
+	}
+	return k.processUnreviewedDisputes(ctx)
+}
+
+// processUnreviewedDisputes dismisses disputes left to a council decision
+// past the review window (NAM-102, NAM-201). An uncontested dispute is
+// routed to review once its contest window (dispute_timeout_blocks after
+// filing) closes with the owner still active; a contested dispute waits for
+// the council from the moment the owner contests it. Either way the Commons
+// Council or its Operations Committee has until filed_at +
+// 2*dispute_timeout_blocks to decide it. A dispute the council leaves
+// undecided is dismissed exactly like a MsgResolveDispute dismissal: the
+// name stays with its owner, the claimant's stake is burned and a
+// contesting owner's stake is returned. Without the window an undecided
+// dispute froze the name (no transfer, no KEY migration) for good, and a
+// claimant could freeze any number of names for the price of stakes nobody
+// ever settled; with it only for uncontested disputes, contesting turned a
+// bounded freeze into an indefinite one.
+//
+// Walks only the ReviewDisputes index, capped at MaxDisputesResolvedPerBlock;
+// each dismissal runs in a cache context and a failing one is logged and
+// retried next block.
+func (k Keeper) processUnreviewedDisputes(ctx context.Context) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	timeout := commontypes.Saturate[int64](k.GetParams(ctx).DisputeTimeoutBlocks)
+	// Due: currentHeight > filed_at + 2*timeout.
+	rng := new(collections.Range[collections.Pair[int64, string]]).
+		EndExclusive(collections.Join(sdkCtx.BlockHeight()-2*timeout, ""))
+	var due []collections.Pair[int64, string]
+	if err := k.ReviewDisputes.Walk(ctx, rng, func(key collections.Pair[int64, string]) (bool, error) {
+		due = append(due, key)
+		return len(due) >= MaxDisputesResolvedPerBlock, nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate disputes awaiting review: %w", err)
+	}
+
+	for _, key := range due {
+		dispute, found := k.GetDispute(ctx, key.K2())
+		if !found || !dispute.Active || (!dispute.AwaitingReview && dispute.ContestChallengeId == "") || dispute.FiledAt != key.K1() {
+			if err := k.ReviewDisputes.Remove(ctx, key); err != nil {
+				sdkCtx.Logger().Error("processUnreviewedDisputes: ReviewDisputes.Remove failed", "err", err)
+			}
+			continue
+		}
+		cacheCtx, write := sdkCtx.CacheContext()
+		if err := k.resolveDisputeInternal(cacheCtx, dispute, false); err != nil {
+			sdkCtx.Logger().Error("failed to dismiss unreviewed dispute", "name", dispute.Name, "error", err)
+			continue
+		}
+		write()
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"name_dispute_review_expired",
+			sdk.NewAttribute("name", dispute.Name),
+			sdk.NewAttribute("claimant", dispute.Claimant),
+			sdk.NewAttribute("contested", fmt.Sprintf("%t", dispute.ContestChallengeId != "")),
+		))
+	}
+	return nil
 }
 
 // processExpiredDisputes handles uncontested disputes whose contest window
@@ -39,7 +98,8 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 // active with its DisputeStakes row (the still-locked DREAM stays
 // accounted for) and leaves the queue for MsgResolveDispute.
 //
-// Contested disputes are never auto-resolved; they wait for MsgResolveDispute.
+// Contested disputes are never auto-resolved here; they wait for
+// MsgResolveDispute until the review window closes (processUnreviewedDisputes).
 func (k Keeper) processExpiredDisputes(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentHeight := sdkCtx.BlockHeight()
@@ -96,7 +156,7 @@ func (k Keeper) processExpiredDisputes(ctx context.Context) error {
 			if !dispute.StakeAmount.IsUint64() {
 				unlockErr = fmt.Errorf("dispute stake amount too large for uint64: %s", dispute.StakeAmount)
 			} else {
-				unlockErr = k.dreamOps.Unlock(closeCtx, dispute.Claimant, dispute.StakeAmount.Uint64())
+				_, unlockErr = k.dreamOps.UnlockOrGone(closeCtx, dispute.Claimant, dispute.StakeAmount.Uint64())
 			}
 			if unlockErr != nil {
 				// The stake cannot be released either. Never drop the

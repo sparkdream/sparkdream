@@ -21,6 +21,12 @@ func TestNormalize(t *testing.T) {
 		"&unknown;":             "&unknown;",
 		strings.Repeat("&#", 3): strings.Repeat("&#", 3),
 		"\\":                    "\\",
+		"&#0000000058;":         ":",
+		"&#x000000003a;":        ":",
+		"&#99999999999999999;":  "\uFFFD",
+		"da\\\nta":              "data",
+		"da\\\r\nta":            "data",
+		"da\\\fta":              "data",
 	}
 	for in, want := range cases {
 		if got := Normalize(in); got != want {

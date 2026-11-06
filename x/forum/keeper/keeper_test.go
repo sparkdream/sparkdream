@@ -167,6 +167,7 @@ type mockRepKeeper struct {
 	CreateGovActionAppealFn         func(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error)
 	IsMemberFn                      func(ctx context.Context, addr sdk.AccAddress) bool
 	IsActiveMemberFn                func(ctx context.Context, addr sdk.AccAddress) bool
+	GetMemberFn                     func(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error)
 	CanActAsFn                      func(ctx context.Context, signer, stored string) bool
 	GetTrustLevelFn                 func(addr sdk.AccAddress) uint64
 	ValidateInitiativeReferenceFn   func(ctx context.Context, initiativeID uint64) error
@@ -371,6 +372,9 @@ func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress)
 }
 
 func (m *mockRepKeeper) GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error) {
+	if m.GetMemberFn != nil {
+		return m.GetMemberFn(ctx, addr)
+	}
 	// Return a member with sufficient StakedDream for sentinel operations
 	staked := math.NewInt(5000)
 	return reptypes.Member{
@@ -582,7 +586,9 @@ func (m *mockRepKeeper) RecordRoleAction(_ context.Context, _ reptypes.RoleType,
 func (m *mockRepKeeper) RecordRoleOutcome(ctx context.Context, _ reptypes.RoleType, addr, kind string, upheld bool) error {
 	ra := m.roleActivity(addr)
 	ra.EpochAppealsResolved++
-	if upheld {
+	if upheld && reptypes.UpheldKeepsStreak[kind] {
+		ra.UpheldActions[kind]++
+	} else if upheld {
 		ra.UpheldActions[kind]++
 		ra.ConsecutiveUpheld++
 		ra.ConsecutiveOverturns = 0
@@ -600,6 +606,16 @@ func (m *mockRepKeeper) RecordRoleOutcome(ctx context.Context, _ reptypes.RoleTy
 			reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
 			sdk.UnwrapSDKContext(ctx).BlockTime().Unix()+reptypes.DefaultSentinelDemotionCooldown)
 	}
+	return nil
+}
+
+// RecordRoleRejection mirrors x/rep's: an accuracy miss and the per-kind
+// overturned counter, no streak, cooldown or demotion (REP-R-207).
+func (m *mockRepKeeper) RecordRoleRejection(_ context.Context, _ reptypes.RoleType, addr, kind string) error {
+	ra := m.roleActivity(addr)
+	ra.EpochAppealsResolved++
+	ra.OverturnedActions[kind]++
+	m.roleActivities[addr] = ra
 	return nil
 }
 

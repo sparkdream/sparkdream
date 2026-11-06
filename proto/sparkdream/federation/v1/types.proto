@@ -128,6 +128,17 @@ message Peer {
   // channel to the peer, as supplied at registration. Empty when the peer
   // has no transfer channel. Voucher metadata (spec §9.2) is keyed on it.
   string ibc_transfer_channel_id = 13;
+
+  // expected_chain_id pins a PEER_TYPE_SPARK_DREAM peer to the chain behind
+  // its federation channel. MsgResumePeer reads the chain id of the
+  // Tendermint light client under ibc_channel_id and refuses activation
+  // unless it equals this value (FED-106): channel ids are sequential, so a
+  // peer registered ahead of its handshake could otherwise be activated on
+  // whatever chain opened the next federation channel. Required (a
+  // CometBFT chain id, at most 50 bytes, no whitespace) for Spark Dream
+  // peers, empty for every other peer type. Correctable with
+  // MsgUpdatePeerInfo only while the peer is not ACTIVE.
+  string expected_chain_id = 14;
 }
 
 // PeerPolicy defines per-peer federation policies.

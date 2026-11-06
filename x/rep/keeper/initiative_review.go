@@ -133,26 +133,17 @@ func (k Keeper) ReviewerBondForInitiative(ctx context.Context, initiative types.
 // initiative. Returns a descriptive error rather than a bool so the message
 // server can tell the caller which gate they failed.
 func (k Keeper) QualifiedReviewer(ctx context.Context, initiative types.Initiative, project types.Project, reviewer string) error {
-	// GetBondedRole resolves the alias; a gate must not let a tombstone act
-	// on the role its successor holds.
-	if k.IsTombstoned(ctx, reviewer) {
-		return fmt.Errorf("%w: %s has migrated away", types.ErrUnauthorized, reviewer)
-	}
-	role, err := k.GetBondedRole(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, reviewer)
+	// EligibleForRole is the one action-time gate every bonded role shares
+	// (tombstone, min_age_blocks, status, staying bond, demotion cooldown);
+	// the reviewer adds only the stricter status rule below (REP-R-204).
+	role, err := k.EligibleForRole(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, reviewer)
 	if err != nil {
-		return fmt.Errorf("%w: %s does not hold the initiative-reviewer role", types.ErrUnauthorized, reviewer)
+		return fmt.Errorf("%w: %s may not review: %w", types.ErrUnauthorized, reviewer, err)
 	}
 	if role.BondStatus != types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL {
-		// RECOVERY, UNBONDING and DEMOTED all mean the bond is not backing new
-		// liability, which is exactly what a verdict creates.
+		// RECOVERY and UNBONDING pass the shared gate but mean the bond is not
+		// backing new liability, which is exactly what a verdict creates.
 		return fmt.Errorf("%w: reviewer role is %s, not NORMAL", types.ErrUnauthorized, role.BondStatus)
-	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	if cfg, cErr := k.GetBondedRoleConfig(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER); cErr == nil &&
-		cfg.MinAgeBlocks > 0 && sdkCtx.BlockHeight()-role.RegisteredAt < cfg.MinAgeBlocks {
-		return fmt.Errorf("%w: reviewer role must be held for %d blocks before reviewing",
-			types.ErrUnauthorized, cfg.MinAgeBlocks)
 	}
 
 	// Independence. The same affiliates-plus-one-invitation-hop test that gates

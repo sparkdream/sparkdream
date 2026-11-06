@@ -562,6 +562,20 @@ func (k Keeper) hasInflightHideAppeal(ctx context.Context, collID uint64) bool {
 	return inflight
 }
 
+// deleteCollectionAtomic runs deleteCollectionFull in a cache context and
+// commits only on success. EndBlocker callers log an error and retry later,
+// so a half-applied delete (deposit refunded, then a later step failing)
+// must not persist or the next attempt pays the refund again (COL-104).
+// MsgDeleteCollection needs no wrapper: a returned error reverts the tx.
+func (k Keeper) deleteCollectionAtomic(ctx context.Context, coll types.Collection) error {
+	cacheCtx, write := sdk.UnwrapSDKContext(ctx).CacheContext()
+	if err := k.deleteCollectionFull(cacheCtx, coll); err != nil {
+		return err
+	}
+	write()
+	return nil
+}
+
 // deleteCollectionFull removes a collection and all associated state.
 // Used by MsgDeleteCollection and EndBlocker TTL pruning.
 func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection) error {
@@ -695,8 +709,8 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	}
 
 	// Close open hides: release the sentinel bond. An appeal in flight is
-	// owned by x/rep, which still settles its bond; the Resolved record makes
-	// collect's appeal callbacks no-ops (see appeal_target.go).
+	// owned by x/rep and stays unresolved, so the verdict still settles the
+	// sentinel's reservation (see closeHideRecordOnTargetDelete).
 	err = k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, coll.Id)),
 		func(key collections.Pair[string, uint64]) (bool, error) {
@@ -708,7 +722,9 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			return false, nil
 		},
 	)
-	_ = err
+	if err != nil {
+		sdkCtx.Logger().Error("deleteCollectionFull: HideRecordByTarget.Walk failed", "collection_id", coll.Id, "err", err)
+	}
 
 	// Cleanup curation: refund pending challenge deposits, release any
 	// committed slash budget back to the curator's bonded role.
@@ -745,7 +761,9 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			return false, nil
 		},
 	)
-	_ = err
+	if err != nil {
+		sdkCtx.Logger().Error("deleteCollectionFull: CurationReviewsByCollection.Walk failed", "collection_id", coll.Id, "err", err)
+	}
 	// Remove all review-by-collection index entries
 	var reviewKeys []collections.Pair[uint64, uint64]
 	if err := k.CurationReviewsByCollection.Walk(ctx,
@@ -933,21 +951,28 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	return nil
 }
 
-// cleanupItemHideRecords handles hide records for an item being deleted.
+// cleanupItemHideRecords handles hide records for an item being deleted:
+// closes them and drops their by-target index entries, as the collection
+// path does (the records themselves stay for the sentinel's history).
 func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, params types.Params) {
 	targetKey := HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
+	var keys []collections.Pair[string, uint64]
 	if err := k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](targetKey),
 		func(key collections.Pair[string, uint64]) (bool, error) {
-			hr, err := k.HideRecord.Get(ctx, key.K2())
-			if err != nil {
-				return false, nil
-			}
-			k.closeHideRecordOnTargetDelete(ctx, hr)
+			keys = append(keys, key)
 			return false, nil
 		},
 	); err != nil {
 		sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupItemHideRecords: HideRecordByTarget.Walk failed", "err", err)
+	}
+	for _, key := range keys {
+		if hr, err := k.HideRecord.Get(ctx, key.K2()); err == nil {
+			k.closeHideRecordOnTargetDelete(ctx, hr)
+		}
+		if err := k.HideRecordByTarget.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupItemHideRecords: HideRecordByTarget.Remove failed", "err", err)
+		}
 	}
 }
 

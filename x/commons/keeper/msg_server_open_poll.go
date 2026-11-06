@@ -43,6 +43,9 @@ func (k msgServer) OpenPoll(goCtx context.Context, msg *types.MsgOpenPoll) (*typ
 	if err := k.checkOpenPollCaps(ctx, msg.CouncilName, msg.Creator); err != nil {
 		return nil, err
 	}
+	if err := k.recordPollOpen(ctx, msg.Creator); err != nil {
+		return nil, err
+	}
 
 	pollID, err := k.PollSeq.Next(ctx)
 	if err == nil && pollID == 0 {

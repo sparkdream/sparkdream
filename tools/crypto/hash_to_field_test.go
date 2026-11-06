@@ -77,3 +77,28 @@ func TestHashToFieldGolden(t *testing.T) {
 		t.Fatalf("HashToField(1, 2) = %s, want %s", got, want)
 	}
 }
+
+// SHD-101: a group-tree (secret-ballot) rate-limit nullifier is bound to the
+// ballot's scope, so one member's votes on two ballots in one shield epoch,
+// and a vote and that member's trust-tree actions, carry different values.
+func TestGroupTreeRateLimitNullifierIsPerBallot(t *testing.T) {
+	sk := PadTo32([]byte{42})
+	const epoch = 9
+	trust := ComputeRateLimitNullifier(sk, epoch)
+	p1 := ComputeRateLimitNullifierAt(sk, GroupTreeRateLimitEpoch(32, 1, epoch))
+	p2 := ComputeRateLimitNullifierAt(sk, GroupTreeRateLimitEpoch(32, 2, epoch))
+	poll := ComputeRateLimitNullifierAt(sk, GroupTreeRateLimitEpoch(33, 1, epoch))
+	seen := map[string]bool{}
+	for _, v := range [][]byte{trust, p1, p2, poll} {
+		if seen[string(v)] {
+			t.Fatal("two actions share a rate-limit nullifier")
+		}
+		seen[string(v)] = true
+	}
+	if !bytes.Equal(trust, ComputeRateLimitNullifierAt(sk, Uint64ToBytes(epoch))) {
+		t.Fatal("ComputeRateLimitNullifierAt must match the uint64 form")
+	}
+	if !bytes.Equal(GroupTreeRateLimitEpoch(32, 1, epoch), GroupTreeRateLimitEpochForScope(ScopeElement(32, 1), epoch)) {
+		t.Fatal("scope-element form differs")
+	}
+}

@@ -30,9 +30,16 @@ func (k Keeper) GetReputationScores(ctx context.Context, addr string) (map[strin
 }
 
 // ArchiveSeasonalReputation archives the member's seasonal reputation to lifetime
-// and resets the seasonal scores. Returns the archived reputation scores.
-// This is called by x/season during the ARCHIVE_REPUTATION and RESET_REPUTATION phases.
-func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map[string]string, error) {
+// and resets the seasonal scores to baseline: every tag an ACTIVE member held
+// with a positive score this season restarts at that value (x/season's
+// baseline_reputation, a governance param); a zero baseline clears the tags.
+// Tags the member never had, tags deducted to zero and every tag of a zeroed
+// or inactive member stay absent (REP-E-204): a zeroed member keeps their
+// tag keys at 0 and must not be handed baseline reputation in each of them
+// by the season rollover. Returns the archived reputation scores. This is
+// called by x/season during the ARCHIVE_REPUTATION and RESET_REPUTATION
+// phases.
+func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string, baseline math.LegacyDec) (map[string]string, error) {
 	addr = k.Canonical(ctx, addr) // value lookup resolves the alias (alias.go)
 	member, err := k.Member.Get(ctx, addr)
 	if err != nil {
@@ -70,8 +77,17 @@ func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map
 		member.LifetimeReputation[tag] = newLifetime.String()
 	}
 
-	// Reset seasonal scores (clear for new season)
-	member.ReputationScores = make(map[string]string)
+	// Reset seasonal scores: every tag held this season restarts at the
+	// baseline, or is cleared when the baseline is zero.
+	reset := make(map[string]string)
+	if !baseline.IsNil() && baseline.IsPositive() && member.Status == types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		for tag, scoreStr := range member.ReputationScores {
+			if score, err := math.LegacyNewDecFromStr(scoreStr); err == nil && score.IsPositive() {
+				reset[tag] = baseline.String()
+			}
+		}
+	}
+	member.ReputationScores = reset
 
 	// Forum rep follows the same archive-then-reset pattern but writes to a
 	// separate lifetime field. lifetime_forum_rep_per_tag is display-only —

@@ -163,9 +163,34 @@ func ComputeLeaf(publicKey []byte, metadata uint64) []byte {
 //
 // The domain tag must match circuit.RateLimitDomainTag.
 func ComputeRateLimitNullifier(secretKey []byte, epoch uint64) []byte {
+	return ComputeRateLimitNullifierAt(secretKey, Uint64ToBytes(epoch))
+}
+
+// ComputeRateLimitNullifierAt is ComputeRateLimitNullifier for a
+// RateLimitEpoch public input given as a field element (32 bytes):
+// hash(secretKey, domainTag, rateLimitEpoch).
+func ComputeRateLimitNullifierAt(secretKey, rateLimitEpoch []byte) []byte {
 	domainTag := Uint64ToBytes(^uint64(0)) // math.MaxUint64
-	epochBytes := Uint64ToBytes(epoch)
-	return HashToField(secretKey, domainTag, epochBytes)
+	return HashToField(secretKey, domainTag, rateLimitEpoch)
+}
+
+// GroupTreeRateLimitEpoch is the RateLimitEpoch public input of a
+// PROOF_DOMAIN_GROUP_TREE exec (a secret-ballot vote): the shield epoch bound
+// to the op's scope element, MiMC(ScopeElement(domain, rawScope), epoch).
+// With the plain epoch, every action one member takes in a shield epoch
+// carries the same rate-limit nullifier, so two secret votes, or a vote and
+// an anonymous post, would be linkable. Bound to the ballot's scope, a vote's
+// rate-limit nullifier is unique to that member and that ballot, like its
+// action nullifier. The circuit is unchanged: RateLimitEpoch is a public
+// input the verifier supplies.
+func GroupTreeRateLimitEpoch(domain uint32, rawScope uint64, epoch uint64) []byte {
+	return GroupTreeRateLimitEpochForScope(ScopeElement(domain, rawScope), epoch)
+}
+
+// GroupTreeRateLimitEpochForScope is GroupTreeRateLimitEpoch from an already
+// computed scope element (the proof's Scope public input).
+func GroupTreeRateLimitEpochForScope(scopeElement []byte, epoch uint64) []byte {
+	return HashToField(scopeElement, Uint64ToBytes(epoch))
 }
 
 // =====================================

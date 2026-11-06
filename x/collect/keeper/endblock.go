@@ -232,7 +232,7 @@ func (k Keeper) pruneExpiredCollections(
 
 		// Delete via deleteCollectionFull which handles deposit refunds, sponsorship cleanup,
 		// endorsement cleanup, hide records, curation reviews, items, collaborators, flags, etc.
-		if err := k.deleteCollectionFull(ctx, coll); err != nil {
+		if err := k.deleteCollectionAtomic(ctx, coll); err != nil {
 			sdkCtx.Logger().Error("endblock: failed to delete expired collection",
 				"collection_id", collID, "error", err)
 			pruned++
@@ -405,7 +405,11 @@ func (k Keeper) pruneExpiredHideRecords(
 					sdk.NewAttribute("sentinel", hr.Sentinel),
 					sdk.NewAttribute("released", released.String()),
 				))
+				continue
 			}
+			// A settled unappealed hide whose target delete failed in an
+			// earlier block re-indexed itself here (COL-201): retry.
+			pruned = k.retryUnappealedHideDelete(ctx, sdkCtx, hr, deadline, hrID, params, pruned)
 			continue
 		}
 
@@ -437,22 +441,32 @@ func (k Keeper) handleUnappealedHideExpiry(
 	params types.Params,
 	pruned uint32,
 ) uint32 {
-	targetDeleted := k.deleteHiddenTarget(ctx, sdkCtx, hr, params)
-
 	// Release sentinel's reserved bond (no penalty — content was not appealed)
+	// and persist Resolved BEFORE deleting the target. The delete walks every
+	// hide record on the target (closeHideRecordOnTargetDelete), this one
+	// included, and releases any record it finds unresolved; settling first
+	// keeps this the only release. A second release would saturate at zero
+	// in rep and silently free another action's reservation (COL-101).
 	if k.late.repKeeper != nil && hr.CommittedAmount.IsPositive() {
 		if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
 			sdk.UnwrapSDKContext(sdkCtx).Logger().Error("handleUnappealedHideExpiry: repKeeper.ReleaseBond failed", "err", err)
 		}
 	}
-
-	// Mark HideRecord resolved
 	hr.Resolved = true
 	if err := k.HideRecord.Set(ctx, hr.Id, hr); err != nil {
 		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("handleUnappealedHideExpiry: HideRecord.Set failed", "err", err)
 	}
 	if err := k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)); err != nil {
 		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("handleUnappealedHideExpiry: HideRecordExpiry.Remove failed", "err", err)
+	}
+
+	targetDeleted := k.deleteHiddenTarget(ctx, sdkCtx, hr, params)
+	if !targetDeleted {
+		// The record is settled but the target is still HIDDEN with every
+		// exit closed (MsgUnhideContent refuses a resolved record,
+		// MsgDeleteCollection refuses HIDDEN). Re-index at the next block so
+		// the delete is retried, as the TTL pruner retries (COL-201).
+		k.deferHiddenTargetDelete(ctx, sdkCtx, hr)
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("unappealed_hide_expired",
@@ -462,6 +476,63 @@ func (k Keeper) handleUnappealedHideExpiry(
 		sdk.NewAttribute("target_deleted", strconv.FormatBool(targetDeleted)),
 	))
 
+	return pruned + 1
+}
+
+// deferHiddenTargetDelete re-indexes a settled hide record at the next block
+// so pruneExpiredHideRecords retries the target delete (COL-201).
+func (k Keeper) deferHiddenTargetDelete(ctx context.Context, sdkCtx sdk.Context, hr types.HideRecord) {
+	retryAt := sdkCtx.BlockHeight() + 1
+	if err := k.HideRecordExpiry.Set(ctx, collections.Join(retryAt, hr.Id)); err != nil {
+		sdkCtx.Logger().Error("deferHiddenTargetDelete: HideRecordExpiry.Set failed", "hide_record_id", hr.Id, "err", err)
+		return
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_target_delete_deferred",
+		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
+		sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
+		sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
+		sdk.NewAttribute("retry_at", strconv.FormatInt(retryAt, 10)),
+	))
+}
+
+// retryUnappealedHideDelete finishes an unappealed hide whose record is
+// already settled (bond released, resolved) but whose target delete failed in
+// an earlier block and was re-indexed by deferHiddenTargetDelete (COL-201).
+// The bond is never touched again. Only a collection delete can fail
+// (deleteCollectionAtomic); the item path is best-effort and always
+// completes. The target is deleted only while it is still HIDDEN: a later
+// hide on the same target that was overturned has already restored it, and
+// a hide appeal in flight on it belongs to x/rep, so both defer or drop the
+// retry rather than delete.
+func (k Keeper) retryUnappealedHideDelete(
+	ctx context.Context,
+	sdkCtx sdk.Context,
+	hr types.HideRecord,
+	deadline int64,
+	hrID uint64,
+	params types.Params,
+	pruned uint32,
+) uint32 {
+	if err := k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)); err != nil {
+		sdkCtx.Logger().Error("retryUnappealedHideDelete: HideRecordExpiry.Remove failed", "err", err)
+	}
+	if hr.TargetType != types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION {
+		return pruned + 1
+	}
+	coll, err := k.Collection.Get(ctx, hr.TargetId)
+	if err != nil || coll.Status != types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
+		return pruned + 1 // gone, or brought back by a later verdict
+	}
+	if k.hasInflightHideAppeal(ctx, hr.TargetId) || !k.deleteHiddenTarget(ctx, sdkCtx, hr, params) {
+		k.deferHiddenTargetDelete(ctx, sdkCtx, hr)
+		return pruned + 1
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("unappealed_hide_expired",
+		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
+		sdk.NewAttribute("target_id", strconv.FormatUint(hr.TargetId, 10)),
+		sdk.NewAttribute("target_type", fmt.Sprintf("%d", int32(hr.TargetType))),
+		sdk.NewAttribute("target_deleted", "true"),
+	))
 	return pruned + 1
 }
 
@@ -605,7 +676,7 @@ func (k Keeper) pruneUnendorsedCollections(
 
 		depositRefunded := coll.DepositAmount.Add(coll.ItemDepositTotal)
 
-		if err := k.deleteCollectionFull(ctx, coll); err != nil {
+		if err := k.deleteCollectionAtomic(ctx, coll); err != nil {
 			sdkCtx.Logger().Error("endblock: failed to delete unendorsed collection",
 				"collection_id", collID, "error", err)
 			pruned++
@@ -721,7 +792,7 @@ func (k Keeper) deleteHiddenTarget(ctx context.Context, sdkCtx sdk.Context, hr t
 			// because no appeal was filed) — deleteCollectionFull's endorser
 			// cleanup branches on that to BURN the endorser's stake instead of
 			// unlocking it. Also the UPHELD-appeal path (appeal_target.go).
-			if err := k.deleteCollectionFull(ctx, coll); err != nil {
+			if err := k.deleteCollectionAtomic(ctx, coll); err != nil {
 				sdkCtx.Logger().Error("endblock: failed to delete hidden collection",
 					"collection_id", hr.TargetId, "error", err)
 			} else {

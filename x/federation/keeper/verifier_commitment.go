@@ -2,8 +2,10 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
@@ -117,4 +119,41 @@ func (k Keeper) settleNoQuorumContent(ctx context.Context, sdkCtx sdk.Context, c
 		sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
 		sdk.NewAttribute(types.AttributeKeyVerifier, verifier),
 	))
+}
+
+// settleRejectedVerification closes the PENDING verification of content
+// that was REJECTED without a challenge finding (a committee reject through
+// MsgModerateContent): the outcome becomes OVERTURNED, the verifier's
+// commitment is released and the challenge-window entry is dropped. No
+// accuracy credit is granted and nothing is slashed (FED-202): the reject
+// is not a jury verdict against the verifier, but the verification no
+// longer stands, so it must not be confirmed as unchallenged either, and
+// restoreStatus refuses to bring the record back to VERIFIED. No-op when
+// the record is missing or already settled.
+func (k Keeper) settleRejectedVerification(ctx context.Context, contentID uint64) error {
+	record, err := k.VerificationRecords.Get(ctx, contentID)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if record.Outcome != types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING {
+		return nil
+	}
+	if record.ChallengeWindowEnds > 0 {
+		if err := k.ChallengeWindow.Remove(ctx, collections.Join(record.ChallengeWindowEnds, contentID)); err != nil {
+			return err
+		}
+	}
+	record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_OVERTURNED
+	k.releaseVerifierCommitment(ctx, &record)
+	if err := k.VerificationRecords.Set(ctx, contentID, record); err != nil {
+		return err
+	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(types.EventTypeVerificationRejected,
+		sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
+		sdk.NewAttribute(types.AttributeKeyVerifier, record.Verifier),
+	))
+	return nil
 }

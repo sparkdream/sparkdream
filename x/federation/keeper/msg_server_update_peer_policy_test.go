@@ -57,7 +57,7 @@ func TestUpdatePeerPolicyRefusesRemovedPeer(t *testing.T) {
 	peer, err := f.keeper.Peers.Get(f.ctx, "removed-peer")
 	require.NoError(t, err)
 	peer.Status = types.PeerStatus_PEER_STATUS_REMOVED
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "removed-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	_, err = ms.UpdatePeerPolicy(f.ctx, &types.MsgUpdatePeerPolicy{
 		Authority: f.authority, PeerId: "removed-peer",

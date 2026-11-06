@@ -31,7 +31,11 @@ func (k msgServer) ClaimEditionRewards(ctx context.Context, msg *types.MsgClaimE
 		if err != nil {
 			return nil, err
 		}
-		b, found, err := k.getBalance(ctx, r.ClassId, r.EditionId, k.balanceHolder(ctx, r.ClassId, r.EditionId, msg.Holder))
+		holder, err := k.balanceHolder(ctx, r.ClassId, r.EditionId, msg.Holder)
+		if err != nil {
+			return nil, err
+		}
+		b, found, err := k.getBalance(ctx, r.ClassId, r.EditionId, holder)
 		if err != nil {
 			return nil, err
 		}

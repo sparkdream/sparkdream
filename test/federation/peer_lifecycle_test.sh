@@ -302,7 +302,19 @@ echo "--- TEST 3: Register Spark Dream IBC peer ---"
 
 # peer_identity is optional, but a supplied one must pass ChainIdentity.Validate()
 # (every name, ticker, denom, symbol and founded_at), else the register is
-# refused with federation ErrInvalidRequest (1502).
+# refused with federation ErrInvalidRequest (1502). expected_chain_id is
+# required for a Spark Dream peer: activation compares it with the chain id
+# of the light client behind ibc_channel_id (FED-106, ErrPeerChainIdMismatch
+# 2405).
+#
+# This single-chain suite has no IBC channels, and MsgResumePeer refuses a
+# Spark Dream peer whose federation (or transfer) channel does not exist or
+# is not OPEN (FED-106 / FED-201). spark.testnet, which the content and
+# identity-link tests activate later, is therefore registered WITHOUT channel
+# ids (checkPeerChannel skips an empty one; IBC sends to it fail best-effort).
+# The channelled registration and the activation refusal are exercised on a
+# second fixture, spark.channelled, below. The multichain suite covers the
+# real channel verification.
 cat > "$PROPOSAL_DIR/register_ibc_peer.json" <<EOF
 {
   "policy_address": "$COMMONS_POLICY",
@@ -313,8 +325,7 @@ cat > "$PROPOSAL_DIR/register_ibc_peer.json" <<EOF
       "peer_id": "spark.testnet",
       "display_name": "Spark Testnet",
       "type": "PEER_TYPE_SPARK_DREAM",
-      "ibc_channel_id": "channel-0",
-      "ibc_transfer_channel_id": "channel-1",
+      "expected_chain_id": "phoenix-1",
       "metadata": "test ibc peer",
       "peer_identity": {
         "chain_human_name": "Phoenix",
@@ -339,31 +350,89 @@ if submit_federation_proposal "$PROPOSAL_DIR/register_ibc_peer.json" "register i
     PEER_DATA=$($BINARY query federation get-peer spark.testnet --output json)
     PEER_TYPE=$(echo "$PEER_DATA" | jq -r '.peer.type // empty')
     IBC_CHAN=$(echo "$PEER_DATA" | jq -r '.peer.ibc_channel_id // empty')
+    EXPECTED_CHAIN=$(echo "$PEER_DATA" | jq -r '.peer.expected_chain_id // empty')
 
-    if [ "$PEER_TYPE" == "PEER_TYPE_SPARK_DREAM" ] && [ "$IBC_CHAN" == "channel-0" ]; then
+    if [ "$PEER_TYPE" == "PEER_TYPE_SPARK_DREAM" ] && [ -z "$IBC_CHAN" ] && [ "$EXPECTED_CHAIN" == "phoenix-1" ]; then
         record_result "Register IBC peer" "PASS"
     else
-        echo "  Unexpected: type=$PEER_TYPE, channel=$IBC_CHAN"
+        echo "  Unexpected: type=$PEER_TYPE, channel=$IBC_CHAN, expected_chain_id=$EXPECTED_CHAIN"
         record_result "Register IBC peer" "FAIL"
     fi
 else
     record_result "Register IBC peer" "FAIL"
 fi
 
-# Voucher metadata is keyed on the ICS-20 transfer channel (channel-1), never
-# on the federation channel (channel-0): SPARK vouchers only arrive on the
-# former. voucher_denom mirrors ibc-go's Denom.IBCDenom().
+# A channelled Spark Dream peer: registration records the channel ids, but no
+# voucher metadata is written yet (FED-201: that happens at activation, the
+# trust point), and activation is refused while channel-0 does not exist on
+# this chain (FED-106). peer_identity is omitted: it is optional, and the
+# voucher symbol it would carry is exactly what must NOT appear before
+# activation.
+cat > "$PROPOSAL_DIR/register_channelled_peer.json" <<EOF
+{
+  "policy_address": "$COMMONS_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgRegisterPeer",
+      "authority": "$COMMONS_POLICY",
+      "peer_id": "spark.channelled",
+      "display_name": "Spark Channelled",
+      "type": "PEER_TYPE_SPARK_DREAM",
+      "ibc_channel_id": "channel-0",
+      "ibc_transfer_channel_id": "channel-1",
+      "expected_chain_id": "phoenix-1",
+      "metadata": "test ibc peer with channel ids"
+    }
+  ],
+  "metadata": "Register channelled test IBC peer"
+}
+EOF
+
+# voucher_denom mirrors ibc-go's Denom.IBCDenom() for the peer's bond denom.
 voucher_denom() {
     echo "ibc/$(printf '%s' "transfer/$1/uspk.phoenix" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')"
 }
-XFER_CHAN=$(echo "$PEER_DATA" | jq -r '.peer.ibc_transfer_channel_id // empty')
-XFER_SYMBOL=$($BINARY q bank denom-metadata "$(voucher_denom channel-1)" --output json 2>/dev/null | jq -r '.metadata.symbol // empty')
-FED_SYMBOL=$($BINARY q bank denom-metadata "$(voucher_denom channel-0)" --output json 2>/dev/null | jq -r '.metadata.symbol // empty')
-if [ "$XFER_CHAN" == "channel-1" ] && [ "$XFER_SYMBOL" == "PSPK.ibc" ] && [ -z "$FED_SYMBOL" ]; then
-    record_result "Voucher metadata keyed on transfer channel" "PASS"
+if submit_federation_proposal "$PROPOSAL_DIR/register_channelled_peer.json" "register channelled ibc peer"; then
+    CH_DATA=$($BINARY query federation get-peer spark.channelled --output json)
+    CH_FED=$(echo "$CH_DATA" | jq -r '.peer.ibc_channel_id // empty')
+    CH_XFER=$(echo "$CH_DATA" | jq -r '.peer.ibc_transfer_channel_id // empty')
+    XFER_SYMBOL=$($BINARY q bank denom-metadata "$(voucher_denom channel-1)" --output json 2>/dev/null | jq -r '.metadata.symbol // empty')
+    FED_SYMBOL=$($BINARY q bank denom-metadata "$(voucher_denom channel-0)" --output json 2>/dev/null | jq -r '.metadata.symbol // empty')
+    if [ "$CH_FED" == "channel-0" ] && [ "$CH_XFER" == "channel-1" ] && [ -z "$XFER_SYMBOL" ] && [ -z "$FED_SYMBOL" ]; then
+        record_result "Channelled peer registered, no voucher metadata before activation" "PASS"
+    else
+        echo "  Unexpected: channel=$CH_FED transfer_channel=$CH_XFER symbol(channel-1)=$XFER_SYMBOL symbol(channel-0)=$FED_SYMBOL"
+        record_result "Channelled peer registered, no voucher metadata before activation" "FAIL"
+    fi
+
+    cat > "$PROPOSAL_DIR/activate_channelled_peer.json" <<EOF
+{
+  "policy_address": "$COMMONS_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgResumePeer",
+      "authority": "$COMMONS_POLICY",
+      "peer_id": "spark.channelled"
+    }
+  ],
+  "metadata": "Activate channelled peer (must be refused: channel-0 does not exist here)"
+}
+EOF
+    # The proposal passes its vote but the inner MsgResumePeer fails
+    # (ErrInvalidRequest: channel does not exist), so the peer stays PENDING.
+    submit_federation_proposal "$PROPOSAL_DIR/activate_channelled_peer.json" "activate channelled ibc peer" || true
+    # proto3 omits the zero enum: a missing status is PEER_STATUS_PENDING.
+    CH_STATUS=$($BINARY query federation get-peer spark.channelled --output json 2>/dev/null | jq -r '.peer.status // "PEER_STATUS_PENDING"')
+    if [ "$CH_STATUS" != "PEER_STATUS_ACTIVE" ]; then
+        echo "  spark.channelled stays $CH_STATUS: activation refused without an OPEN channel"
+        record_result "Activation refused without an OPEN IBC channel" "PASS"
+    else
+        echo "  Unexpected: spark.channelled became ACTIVE with a nonexistent channel"
+        record_result "Activation refused without an OPEN IBC channel" "FAIL"
+    fi
 else
-    echo "  Unexpected: transfer_channel=$XFER_CHAN, symbol(channel-1)=$XFER_SYMBOL, symbol(channel-0)=$FED_SYMBOL"
-    record_result "Voucher metadata keyed on transfer channel" "FAIL"
+    record_result "Channelled peer registered, no voucher metadata before activation" "FAIL"
+    record_result "Activation refused without an OPEN IBC channel" "FAIL"
 fi
 
 # ========================================================================

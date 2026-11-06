@@ -43,6 +43,9 @@ func TestGenesisValidateRecords(t *testing.T) {
 		return gs
 	}
 	require.NoError(t, valid().Validate())
+	pinned := valid()
+	pinned.Peers = append(pinned.Peers, types.Peer{Id: "aurora-1", Type: types.PeerType_PEER_TYPE_SPARK_DREAM, IbcChannelId: "channel-1", ExpectedChainId: "aurora-1"})
+	require.NoError(t, pinned.Validate())
 	attested := valid()
 	attested.IdentityLinks[0].AttestedBy = "op"
 	attested.AttesterRevocationQueue = []types.AttesterRevocation{{Operator: "op", PeerId: "phoenix.example"}}
@@ -53,6 +56,13 @@ func TestGenesisValidateRecords(t *testing.T) {
 		mutate func(*types.GenesisState)
 	}{
 		{"duplicate peer", func(gs *types.GenesisState) { gs.Peers = append(gs.Peers, gs.Peers[0]) }},
+		{"spark dream peer without expected_chain_id", func(gs *types.GenesisState) {
+			gs.Peers = append(gs.Peers, types.Peer{Id: "aurora-1", Type: types.PeerType_PEER_TYPE_SPARK_DREAM, IbcChannelId: "channel-1"})
+		}},
+		{"spark dream peer with malformed expected_chain_id", func(gs *types.GenesisState) {
+			gs.Peers = append(gs.Peers, types.Peer{Id: "aurora-1", Type: types.PeerType_PEER_TYPE_SPARK_DREAM, ExpectedChainId: "aurora 1"})
+		}},
+		{"activitypub peer with expected_chain_id", func(gs *types.GenesisState) { gs.Peers[0].ExpectedChainId = "phoenix-1" }},
 		{"attested_by on an unverified link", func(gs *types.GenesisState) { gs.IdentityLinks[1].AttestedBy = "op" }},
 		{"attester revocation without operator", func(gs *types.GenesisState) {
 			gs.AttesterRevocationQueue = []types.AttesterRevocation{{PeerId: "phoenix.example"}}

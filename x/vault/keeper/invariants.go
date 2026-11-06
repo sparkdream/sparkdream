@@ -16,15 +16,19 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "proposal-indexes", ProposalIndexesInvariant(k))
 }
 
-// VaultIndexesInvariant: VaultByAddress, VaultsBySigner (accepted entries)
-// and VaultInvitesBySigner (unaccepted entries) agree with Vaults; every
-// vault's threshold is reachable and its address derives from its id.
+// VaultIndexesInvariant: VaultByAddress, VaultsBySigner (accepted entries),
+// VaultInvitesBySigner (unaccepted entries) and InviteExpiryQueue
+// (unaccepted entries with an expiry) agree with Vaults; no accepted entry
+// carries an expiry and every unaccepted one that is not its vault's only
+// entry does; every vault's threshold is reachable (signer-less vaults
+// excepted) and its address derives from its id.
 func VaultIndexesInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
 		vaults := 0
 		signerEntries := 0
 		inviteEntries := 0
+		queuedEntries := 0
 		if err := k.Vault.Walk(ctx, nil, func(id uint64, v types.Vault) (bool, error) {
 			vaults++
 			if got, err := k.addressCodec.BytesToString(types.VaultAddress(id)); err != nil || got != v.Address {
@@ -38,14 +42,27 @@ func VaultIndexesInvariant(k Keeper) sdk.Invariant {
 				sum += s.Weight
 				if s.Accepted {
 					signerEntries++
+					if s.InviteExpiresAt != 0 {
+						problems = append(problems, fmt.Sprintf("vault %d accepted signer %s carries an invite expiry", id, s.Address))
+					}
 				} else {
 					inviteEntries++
+					if s.InviteExpiresAt > 0 {
+						queuedEntries++
+						if has, _ := k.InviteExpiryQueue.Has(ctx, collections.Join3(s.InviteExpiresAt, id, s.Address)); !has {
+							problems = append(problems, fmt.Sprintf("vault %d invitee %s missing from InviteExpiryQueue", id, s.Address))
+						}
+					} else if len(v.Signers) > 1 {
+						problems = append(problems, fmt.Sprintf("vault %d invitee %s never expires although it is not the only entry", id, s.Address))
+					}
 				}
 				if has, _ := k.signerIndex(s).Has(ctx, collections.Join(s.Address, id)); !has {
 					problems = append(problems, fmt.Sprintf("vault %d signer %s (accepted=%t) missing from its index", id, s.Address, s.Accepted))
 				}
 			}
-			if v.Threshold == 0 || v.Threshold > sum {
+			// A signer-less vault (its only invitees declined while it held
+			// funds or proposals, §3.4) keeps its threshold; nothing can act.
+			if v.Threshold == 0 || (len(v.Signers) > 0 && v.Threshold > sum) {
 				problems = append(problems, fmt.Sprintf("vault %d threshold %d unreachable (sum %d)", id, v.Threshold, sum))
 			}
 			return false, nil
@@ -95,6 +112,24 @@ func VaultIndexesInvariant(k Keeper) sdk.Invariant {
 		if byInvite != inviteEntries {
 			problems = append(problems, fmt.Sprintf("VaultInvitesBySigner has %d entries, vaults list %d unaccepted signers", byInvite, inviteEntries))
 		}
+		queued := 0
+		if err := k.InviteExpiryQueue.Walk(ctx, nil, func(key collections.Triple[int64, uint64, string]) (bool, error) {
+			queued++
+			v, err := k.Vault.Get(ctx, key.K2())
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("InviteExpiryQueue (%d,%d,%s) dangling", key.K1(), key.K2(), key.K3()))
+				return false, nil
+			}
+			if s, ok := v.SignerEntry(key.K3()); !ok || s.Accepted || s.InviteExpiresAt != key.K1() {
+				problems = append(problems, fmt.Sprintf("InviteExpiryQueue (%d,%d,%s) is not a live unaccepted entry with that expiry", key.K1(), key.K2(), key.K3()))
+			}
+			return false, nil
+		}); err != nil {
+			return fmt.Sprintf("InviteExpiryQueue.Walk failed: %v", err), true
+		}
+		if queued != queuedEntries {
+			problems = append(problems, fmt.Sprintf("InviteExpiryQueue has %d entries, vaults list %d expiring invitees", queued, queuedEntries))
+		}
 		return sdk.FormatInvariant(types.ModuleName, "vault-indexes", fmt.Sprintf("%d problems: %v", len(problems), problems)), len(problems) > 0
 	}
 }
@@ -110,6 +145,12 @@ func ProposalIndexesInvariant(k Keeper) sdk.Invariant {
 		if err := k.VaultProposal.Walk(ctx, nil, func(id uint64, p types.VaultProposal) (bool, error) {
 			if _, err := k.Vault.Get(ctx, p.VaultId); err != nil {
 				problems = append(problems, fmt.Sprintf("proposal %d belongs to missing vault %d", id, p.VaultId))
+			}
+			if has, _ := k.ProposalsByVault.Has(ctx, collections.Join(p.VaultId, id)); !has {
+				problems = append(problems, fmt.Sprintf("proposal %d missing from ProposalsByVault", id))
+			}
+			if has, _ := k.ProposalsByProposer.Has(ctx, collections.Join(p.Proposer, id)); !has {
+				problems = append(problems, fmt.Sprintf("proposal %d missing from ProposalsByProposer", id))
 			}
 			if p.Status == types.ProposalStatus_PROPOSAL_STATUS_PENDING {
 				pending++
@@ -137,6 +178,27 @@ func ProposalIndexesInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("%s has %d entries, want %d", name, n, want))
 			}
 		}
+		byVault, byProposer := 0, 0
+		if err := k.ProposalsByVault.Walk(ctx, nil, func(key collections.Pair[uint64, uint64]) (bool, error) {
+			byVault++
+			if p, err := k.VaultProposal.Get(ctx, key.K2()); err != nil || p.VaultId != key.K1() {
+				problems = append(problems, fmt.Sprintf("ProposalsByVault (%d,%d) dangling", key.K1(), key.K2()))
+			}
+			return false, nil
+		}); err != nil {
+			return fmt.Sprintf("ProposalsByVault.Walk failed: %v", err), true
+		}
+		if err := k.ProposalsByProposer.Walk(ctx, nil, func(key collections.Pair[string, uint64]) (bool, error) {
+			byProposer++
+			if p, err := k.VaultProposal.Get(ctx, key.K2()); err != nil || p.Proposer != key.K1() {
+				problems = append(problems, fmt.Sprintf("ProposalsByProposer (%s,%d) dangling", key.K1(), key.K2()))
+			}
+			return false, nil
+		}); err != nil {
+			return fmt.Sprintf("ProposalsByProposer.Walk failed: %v", err), true
+		}
+		count("ProposalsByVault", byVault, pending+resolved)
+		count("ProposalsByProposer", byProposer, pending+resolved)
 		n := 0
 		if err := k.PendingByVault.Walk(ctx, nil, func(key collections.Pair[uint64, uint64]) (bool, error) {
 			n++

@@ -1,16 +1,18 @@
 // Package datauri is the one data-URI detection rule shared by the chain's
-// media labelling (x/common/types, rules version 2) and the off-chain
+// media labelling (x/common/types, rules version 3) and the off-chain
 // scanners (tools/contentscan). Both sides must agree byte for byte on what
 // counts as a data URI, so the rule lives here once.
 //
 // A body is first normalised the way a browser would read it, then matched:
 //
 //   - HTML character references are decoded once: numeric (&#58; &#x3a;,
-//     with or without the closing semicolon) and the named ones that can
-//     spell a data URI's punctuation (&colon; &semi; &comma; &sol; &Tab;
-//     &NewLine;);
+//     with or without the closing semicolon, any number of digits and
+//     leading zeros, values above U+10FFFF read as U+FFFD) and the named ones
+//     that can spell a data URI's punctuation (&colon; &semi; &comma; &sol;
+//     &Tab; &NewLine;);
 //   - CSS escapes are decoded (\3a , \:), since a style attribute's url()
-//     is read through them;
+//     is read through them, and a backslash before a newline (LF, CR, CRLF
+//     or FF) is a line continuation that reads as nothing;
 //   - ASCII tab, CR and LF are removed (the URL parser strips them anywhere
 //     in a URL, so "da<TAB>ta:" is "data:"). Because removing them also joins
 //     words ("intro\ndata:"), the text is matched a second time with them
@@ -98,7 +100,9 @@ func normalize(s string, asSpace bool) string {
 			}
 		case '\\':
 			if r, n, ok := cssEscape(s[i:]); ok {
-				emit(r)
+				if r != noRune {
+					emit(r)
+				}
 				i += n
 				continue
 			}
@@ -115,19 +119,24 @@ func charRef(s string) (rune, int, bool) {
 		return 0, 0, false
 	}
 	if s[1] == '#' {
-		i, base := 2, 10
+		i, base := 2, uint64(10)
 		if i < len(s) && (s[i] == 'x' || s[i] == 'X') {
-			i, base = 3, 16
+			i, base = 3, uint64(16)
 		}
+		// HTML puts no limit on the digit count (leading zeros included):
+		// read every digit, saturating once the value passes U+10FFFF.
 		start := i
-		for i < len(s) && i-start < 8 && isDigit(s[i], base) {
+		var v uint64
+		for i < len(s) && isDigit(s[i], base) {
+			if v <= utf8.MaxRune {
+				v = v*base + digitVal(s[i])
+			}
 			i++
 		}
 		if i == start {
 			return 0, 0, false
 		}
-		v, err := strconv.ParseUint(s[start:i], base, 32)
-		if err != nil || v > utf8.MaxRune {
+		if v > utf8.MaxRune {
 			v = utf8.RuneError
 		}
 		if i < len(s) && s[i] == ';' {
@@ -145,9 +154,13 @@ func charRef(s string) (rune, int, bool) {
 	return 0, 0, false
 }
 
+// noRune is what cssEscape returns for an escape that reads as nothing.
+const noRune rune = -1
+
 // cssEscape decodes a CSS escape at the start of s: a backslash and 1-6 hex
-// digits (plus one optional following whitespace), or a backslash and any
-// other non-newline character standing for itself.
+// digits (plus one optional following whitespace), a backslash and a newline
+// (LF, CR, CRLF or FF: a string line continuation, returned as noRune), or a
+// backslash and any other character standing for itself.
 func cssEscape(s string) (rune, int, bool) {
 	if len(s) < 2 {
 		return 0, 0, false
@@ -166,14 +179,32 @@ func cssEscape(s string) (rune, int, bool) {
 		}
 		return rune(v), i, true
 	}
-	if s[1] == '\n' || s[1] == '\r' || s[1] == '\f' {
-		return 0, 0, false
+	switch s[1] {
+	case '\n', '\f':
+		return noRune, 2, true
+	case '\r':
+		if len(s) > 2 && s[2] == '\n' {
+			return noRune, 3, true
+		}
+		return noRune, 2, true
 	}
 	r, n := utf8.DecodeRuneInString(s[1:])
 	return r, 1 + n, true
 }
 
-func isDigit(c byte, base int) bool {
+// digitVal is the value of a digit isDigit accepted.
+func digitVal(c byte) uint64 {
+	switch {
+	case c >= '0' && c <= '9':
+		return uint64(c - '0')
+	case c >= 'a' && c <= 'f':
+		return uint64(c-'a') + 10
+	default:
+		return uint64(c-'A') + 10
+	}
+}
+
+func isDigit(c byte, base uint64) bool {
 	switch {
 	case c >= '0' && c <= '9':
 		return true

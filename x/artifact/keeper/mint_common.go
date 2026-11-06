@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // Shared issuance path for MsgMint and MsgIssue (docs/x-artifact-spec.md
@@ -83,8 +84,15 @@ func (k Keeper) mintOne(ctx context.Context, c *types.Class, minter sdk.AccAddre
 		if err != nil {
 			return types.MintResult{}, err
 		}
-		if _, err := k.createToken(ctx, *c, tokenID, recipient, minterStr, meta, schedule, isBlind(*c), deposit, math.ZeroInt()); err != nil {
+		t, err := k.createToken(ctx, *c, tokenID, recipient, minterStr, meta, schedule, isBlind(*c), deposit, math.ZeroInt())
+		if err != nil {
 			return types.MintResult{}, err
+		}
+		if payer := sessionDepositPayer(ctx, minterStr); payer != "" && deposit.IsPositive() {
+			t.DepositPayer = payer
+			if err := k.saveToken(ctx, t); err != nil {
+				return types.MintResult{}, err
+			}
 		}
 		c.Supply++
 		emit(ctx, types.EventMinted, classAttr(c.Id), tokenAttr(tokenID),
@@ -115,6 +123,9 @@ func (k Keeper) mintOne(ctx context.Context, c *types.Class, minter sdk.AccAddre
 		Deposit:    p.TokenDeposit,
 		CreatedAt:  now(ctx),
 		ExpiresAt:  now(ctx) + p.PendingTtl,
+		// Read from the minting context, never the accepting one: the
+		// recipient may accept through its own session key.
+		DepositPayer: sessionDepositPayer(ctx, minterStr),
 	}
 	if err := k.PendingMints.Set(ctx, collections.Join(c.Id, tokenID), pm); err != nil {
 		return types.MintResult{}, err
@@ -127,6 +138,20 @@ func (k Keeper) mintOne(ctx context.Context, c *types.Class, minter sdk.AccAddre
 		sdk.NewAttribute("minter", minterStr), sdk.NewAttribute("to", recipient),
 		sdk.NewAttribute("expires_at", i64(pm.ExpiresAt)), sdk.NewAttribute("inbox_fee", p.InboxFee.String()))
 	return types.MintResult{TokenId: tokenID, Live: false}, nil
+}
+
+// sessionDepositPayer returns payer when the message being handled was
+// dispatched by an x/session key (MsgExecSession), else "". A deposit paid
+// that way records its payer and is refunded to it, not to the holder who
+// burns the token or empties the record (SES-101): a delegated key may
+// mint to any recipient, and without this a leaked game-server key could
+// mint the granter's tokens to itself and burn them for the deposits.
+// payer is the message signer, which x/session rewrote to the granter.
+func sessionDepositPayer(ctx context.Context, payer string) string {
+	if commontypes.SessionExecGranter(ctx) == "" {
+		return ""
+	}
+	return payer
 }
 
 // mintPreconditions checks the shared head of MsgMint and MsgIssue.

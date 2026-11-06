@@ -324,6 +324,16 @@ func (k Keeper) settleBondBlocks(op *types.Operator, currentHeight int64) {
 	op.LastBondBlockUpdateAt = currentHeight
 }
 
+// reportDeposit returns a report's deposit, treating a nil Int
+// (pre-field records, hand-written genesis) as zero so callers can build
+// a coin from it without a nil-pointer panic.
+func reportDeposit(report types.Report) sdkmath.Int {
+	if report.Deposit.IsNil() {
+		return sdkmath.ZeroInt()
+	}
+	return report.Deposit
+}
+
 // pendingWithdraw returns the operator's queued partial withdrawal,
 // treating a nil Int (pre-field records, hand-written genesis) as zero.
 func pendingWithdraw(op types.Operator) sdkmath.Int {
@@ -339,6 +349,25 @@ func pendingWithdraw(op types.Operator) sdkmath.Int {
 func clearPendingWithdrawal(op *types.Operator) {
 	op.PendingWithdrawAmount = sdkmath.ZeroInt()
 	op.WithdrawCompleteAt = 0
+}
+
+// clampPendingWithdrawal keeps a queued partial withdrawal inside the
+// bond after a slash debits the bond mid-wait (§3.5a). The queue may
+// have grown to bond - min_bond before the slash; the invariant
+// 0 <= pending <= bond (PendingWithdrawalSanityInvariant) and genesis
+// validation both require the queue never to exceed the bond. A queue
+// clamped to zero is dropped entirely, so the completion time clears
+// with it. The claim itself still caps at bond - min_bond.
+func clampPendingWithdrawal(op *types.Operator) {
+	pending := pendingWithdraw(*op)
+	if !pending.GT(op.BondAmount) {
+		return
+	}
+	if op.BondAmount.IsPositive() {
+		op.PendingWithdrawAmount = op.BondAmount
+		return
+	}
+	clearPendingWithdrawal(op)
 }
 
 // resolveServiceTypeConfig fetches the per-type config or returns

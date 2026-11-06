@@ -80,6 +80,13 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
+	// DELETED is terminal: a deleted root no longer counts toward its
+	// category (HasPostInCategory), so it leaves the index.
+	if post.ParentId == 0 {
+		if err := k.RootsByCategory.Remove(ctx, collections.Join(post.CategoryId, msg.PostId)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update category index")
+		}
+	}
 
 	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

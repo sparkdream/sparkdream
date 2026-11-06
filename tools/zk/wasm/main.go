@@ -30,7 +30,11 @@
 // (from the op's registration); for a two-field scope path such as collect's
 // "target_type,target_id" it is (target_type << 56) | target_id; for a
 // fallback path such as blog reactions' "reply_id|post_id" it is
-// (1 << 56) | reply_id when reply_id is non-zero, else post_id.
+// (1 << 56) | reply_id when reply_id is non-zero, else post_id. Set
+// "group_tree": true for a PROOF_DOMAIN_GROUP_TREE exec (a secret-ballot vote
+// or poll answer): its rate-limit nullifier is bound to the ballot's scope as
+// well as the epoch (crypto.GroupTreeRateLimitEpoch), so it is unique to the
+// member and the ballot.
 //
 // encrypt input: {"master_public_key_g2": b64, "epoch": "n",
 // "inner_type_url": s, "inner_value": b64, "proof": b64, "nullifier": b64}
@@ -178,6 +182,7 @@ type proveInput struct {
 	Scope          string      `json:"scope"`
 	OwnerSequence  string      `json:"owner_sequence"`
 	RateLimitEpoch string      `json:"rate_limit_epoch"`
+	GroupTree      bool        `json:"group_tree"`
 	InnerTypeURL   string      `json:"inner_type_url"`
 	InnerValue     []byte      `json:"inner_value"`
 }
@@ -263,6 +268,7 @@ func prove(args []js.Value) (any, error) {
 		Domain:         in.Domain,
 		Scope:          scope,
 		RateLimitEpoch: epoch,
+		GroupTree:      in.GroupTree,
 		MessageHash:    msgHash,
 		MerkleRoot:     path.Root,
 		MerkleProof:    path,

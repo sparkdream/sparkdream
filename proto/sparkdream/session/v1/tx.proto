@@ -78,6 +78,18 @@ service Msg {
   // granter. Decline is one-way — the granter must Revoke + CreateGrant
   // to retry.
   rpc DeclineGrant(MsgDeclineGrant) returns (MsgDeclineGrantResponse);
+
+  // AcceptGrant lets the grantee of a PENDING access-class grant (a session
+  // key or sign-in from a granter it has not allowed yet) accept it: the
+  // grant becomes ACTIVE, the granter is added to the grantee's allowed
+  // granters and the granter's deposit is refunded. A session key is also
+  // accepted implicitly by the grantee's first MsgExecSession under it.
+  rpc AcceptGrant(MsgAcceptGrant) returns (MsgAcceptGrantResponse);
+
+  // DisallowGranter removes a granter from the grantee's allowed granters,
+  // so the granter's next access-class grant waits as PENDING again.
+  // Existing grants are untouched (decline them individually).
+  rpc DisallowGranter(MsgDisallowGranter) returns (MsgDisallowGranterResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -121,7 +133,6 @@ message MsgUpdateOperationalParamsResponse {}
 message MsgCreateSession {
   option (cosmos.msg.v1.signer) = "granter";
   option (amino.name) = "sparkdream/x/session/MsgCreateSession";
-
   string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string grantee = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   repeated string allowed_msg_types = 3;
@@ -139,7 +150,6 @@ message MsgCreateSessionResponse {}
 message MsgRevokeSession {
   option (cosmos.msg.v1.signer) = "granter";
   option (amino.name) = "sparkdream/x/session/MsgRevokeSession";
-
   string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string grantee = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 }
@@ -150,9 +160,9 @@ message MsgRevokeSessionResponse {}
 message MsgExecSession {
   option (cosmos.msg.v1.signer) = "grantee";
   option (amino.name) = "sparkdream/x/session/MsgExecSession";
-
   string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string granter = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
   // Inner messages to execute on behalf of the granter (max 10).
   repeated google.protobuf.Any msgs = 3;
 }
@@ -165,22 +175,22 @@ message MsgExecSessionResponse {}
 message MsgCreateGrant {
   option (cosmos.msg.v1.signer) = "granter";
   option (amino.name) = "sparkdream/x/session/MsgCreateGrant";
-
   string granter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   string grantee = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   google.protobuf.Timestamp expires_at = 3 [
     (gogoproto.nullable) = false,
     (gogoproto.stdtime) = true
   ];
+
   // Optional human-readable purpose (256-char cap).
   string note = 4;
 
   oneof payload {
-    SessionKeyPayload session_key = 10 [(amino.oneof_name) = "sparkdream/session/SessionKeyPayload"];
-    RecurringPullPayload recurring_pull = 11 [(amino.oneof_name) = "sparkdream/session/RecurringPullPayload"];
-    SpendingAllowancePayload spending_allowance = 12 [(amino.oneof_name) = "sparkdream/session/SpendingAllowancePayload"];
-    ScheduledOneshotPayload scheduled_oneshot = 13 [(amino.oneof_name) = "sparkdream/session/ScheduledOneshotPayload"];
-    SignInPayload sign_in = 14 [(amino.oneof_name) = "sparkdream/session/SignInPayload"];
+    SessionKeyPayload session_key = 5 [(amino.oneof_name) = "sparkdream/session/SessionKeyPayload"];
+    RecurringPullPayload recurring_pull = 6 [(amino.oneof_name) = "sparkdream/session/RecurringPullPayload"];
+    SpendingAllowancePayload spending_allowance = 7 [(amino.oneof_name) = "sparkdream/session/SpendingAllowancePayload"];
+    ScheduledOneshotPayload scheduled_oneshot = 8 [(amino.oneof_name) = "sparkdream/session/ScheduledOneshotPayload"];
+    SignInPayload sign_in = 9 [(amino.oneof_name) = "sparkdream/session/SignInPayload"];
   }
 }
 
@@ -194,7 +204,6 @@ message MsgCreateGrantResponse {
 message MsgClaimRecurringPull {
   option (cosmos.msg.v1.signer) = "grantee";
   option (amino.name) = "sparkdream/x/session/MsgClaimRecurringPull";
-
   string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 grant_id = 2;
 }
@@ -202,11 +211,14 @@ message MsgClaimRecurringPull {
 message MsgClaimRecurringPullResponse {
   // Sequence number of this claim (1-indexed).
   uint64 claim_number = 1;
+
   // Unix timestamp at which the next claim becomes eligible.
   int64 next_claim_time = 2;
+
   // true when the granter could not cover the period: nothing moved and the
   // grant is now PAUSED_INSUFFICIENT_FUNDS (a later claim resumes it).
   bool paused = 3;
+
   // true when the grant's window had closed: nothing moved and the grant
   // is now COMPLETED.
   bool completed = 4;
@@ -217,7 +229,6 @@ message MsgClaimRecurringPullResponse {
 message MsgPullAllowance {
   option (cosmos.msg.v1.signer) = "grantee";
   option (amino.name) = "sparkdream/x/session/MsgPullAllowance";
-
   string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 grant_id = 2;
   string recipient = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -229,8 +240,10 @@ message MsgPullAllowanceResponse {
   // separately so future variants (e.g., partial fills) keep the wire
   // shape stable.
   cosmos.base.v1beta1.Coin transferred = 1 [(gogoproto.nullable) = false];
+
   // Total spent in the current rolling-window period after this pull.
   cosmos.base.v1beta1.Coin spent_in_period = 2 [(gogoproto.nullable) = false];
+
   // true when the granter could not cover the pull: nothing moved and the
   // grant is now PAUSED_INSUFFICIENT_FUNDS (a later pull resumes it).
   bool paused = 3;
@@ -278,7 +291,6 @@ message MsgRevokeGrantResponse {
 message MsgDeclineGrant {
   option (cosmos.msg.v1.signer) = "grantee";
   option (amino.name) = "sparkdream/x/session/MsgDeclineGrant";
-
   string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 grant_id = 2;
 }
@@ -288,3 +300,26 @@ message MsgDeclineGrantResponse {
   // (empty/zero for non-oneshot grants).
   cosmos.base.v1beta1.Coin refund_amount = 1 [(gogoproto.nullable) = false];
 }
+
+// MsgAcceptGrant accepts a PENDING access-class grant as its grantee.
+message MsgAcceptGrant {
+  option (cosmos.msg.v1.signer) = "grantee";
+  option (amino.name) = "sparkdream/x/session/MsgAcceptGrant";
+  string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 grant_id = 2;
+}
+
+message MsgAcceptGrantResponse {
+  // refund_amount is the pending-grant deposit returned to the granter.
+  cosmos.base.v1beta1.Coin refund_amount = 1 [(gogoproto.nullable) = false];
+}
+
+// MsgDisallowGranter removes granter from the grantee's allowed granters.
+message MsgDisallowGranter {
+  option (cosmos.msg.v1.signer) = "grantee";
+  option (amino.name) = "sparkdream/x/session/MsgDisallowGranter";
+  string grantee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string granter = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+message MsgDisallowGranterResponse {}

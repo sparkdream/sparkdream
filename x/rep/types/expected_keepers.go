@@ -8,6 +8,8 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 // SeasonState is a minimal representation of season data needed by x/rep.
@@ -59,6 +61,19 @@ type CommonsKeeper interface {
 	// Get the group info for a committee
 	GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error)
 
+	// ListCommitteeMembers returns the addresses of every member of the named
+	// committee of a council. Used to assign the Commons Operations Committee
+	// to a budget-backed project proposal's PROJECT_APPROVAL / BUDGET_REVIEW
+	// interim.
+	ListCommitteeMembers(ctx context.Context, council string, committee string) ([]string, error)
+
+	// HasVoted reports whether voter cast a vote (any option) on the
+	// proposal; true for every address on a secret ballot, whose voters
+	// cannot be attributed, and false for an unknown proposal. Used to pay a
+	// project's review interim only to the committee members who voted on
+	// the proposal that approved the project.
+	HasVoted(ctx context.Context, proposalID uint64, voter string) bool
+
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
@@ -79,11 +94,6 @@ type CommonsKeeper interface {
 	// individual committee member. MsgForceMigration requires the Commons HR
 	// committee as a body, so it uses this rather than IsCouncilAuthorized.
 	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
-
-	// MaxLiveVotingPeriodSeconds returns the longest voting period any
-	// registered group policy uses. zk_key_activation_delay may not be
-	// lowered below it (member-key-migration plan, decision 17).
-	MaxLiveVotingPeriodSeconds(ctx context.Context) int64
 }
 
 // SeasonKeeper defines the expected interface for the Season module.
@@ -295,4 +305,23 @@ type StakingKeeper interface {
 // address, so this anchors the funding rate to a number governance cannot move.
 type MintKeeper interface {
 	AnnualProvisions(ctx context.Context) (math.LegacyDec, error)
+}
+
+// BeaconSource is the slice of x/shield x/rep needs to seed jury draws from
+// the TLE randomness beacon (docs/x-shield-spec.md "Randomness beacon").
+// Late-wired in app.go (SetBeaconSource): x/shield already depends on x/rep
+// through SetRepKeeper, so a depinject field here would close a cycle. Unwired
+// (unit tests, or a chain without x/shield) means every draw uses the
+// block-hash seed.
+type BeaconSource interface {
+	// CurrentEpoch is the shield epoch now open.
+	CurrentEpoch(ctx context.Context) uint64
+	// BeaconEpochInterval is the shield epoch length in blocks.
+	BeaconEpochInterval(ctx context.Context) uint64
+	// BeaconStatus reports whether epoch's beacon value is AVAILABLE, still
+	// PENDING, or UNAVAILABLE (will never come).
+	BeaconStatus(ctx context.Context, epoch uint64) shieldtypes.BeaconStatus
+	// BeaconKey is epoch's beacon value (the canonical encoding of its TLE
+	// epoch key) when AVAILABLE.
+	BeaconKey(ctx context.Context, epoch uint64) ([]byte, bool)
 }

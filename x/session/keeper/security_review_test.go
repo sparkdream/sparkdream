@@ -153,9 +153,13 @@ func TestSecurity_GranteeCap(t *testing.T) {
 	ms := keeper.NewMsgServerImpl(f.keeper)
 	now := sdk.UnwrapSDKContext(f.ctx).BlockTime()
 	victim := testAddr("victim", f.addressCodec)
+	// Each granter is allowed by the victim: the cap bounds consented
+	// grants; unconsented ones never reach the class (SES-102).
 	signIn := func(i int) error {
+		granter := testAddr("sybil"+string(rune('a'+i%26))+string(rune('a'+i/26)), f.addressCodec)
+		allowGranter(t, f, victim, granter)
 		_, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
-			Granter: testAddr("sybil"+string(rune('a'+i%26))+string(rune('a'+i/26)), f.addressCodec), Grantee: victim,
+			Granter: granter, Grantee: victim,
 			ExpiresAt: now.Add(time.Hour),
 			Payload:   &types.MsgCreateGrant_SignIn{SignIn: &types.SignInPayload{Service: "login.example.org"}},
 		})
@@ -436,6 +440,7 @@ func TestSecurity_ExecCountCoversBatch(t *testing.T) {
 func selfRevokeKey(t *testing.T, f *fixture, ms types.MsgServer, granter, grantee string, expires time.Time) (uint64, uint64) {
 	t.Helper()
 	now := sdk.UnwrapSDKContext(f.ctx).BlockTime()
+	allowGranter(t, f, grantee, granter)
 	key, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
 		Granter:   granter,
 		Grantee:   grantee,
@@ -552,14 +557,16 @@ func TestSecurity_GrantsByGranteePaginates(t *testing.T) {
 	now := sdk.UnwrapSDKContext(f.ctx).BlockTime()
 	victim := testAddr("victim_key", f.addressCodec)
 
-	// Six spam granters at the per-granter SignIn cap: 120 grants.
+	// Six allowed granters at the per-granter SignIn cap: 120 grants.
 	for g := 0; g < 6; g++ {
 		granter := testAddr(fmt.Sprintf("spam_%d", g), f.addressCodec)
+		allowGranter(t, f, victim, granter)
 		for s := 0; s < types.MaxSignInGrantsPerGranter; s++ {
 			_, err := ms.CreateGrant(f.ctx, signInGrant(granter, victim, fmt.Sprintf("s%d.example", s), now.Add(24*time.Hour)))
 			require.NoError(t, err)
 		}
 	}
+	allowGranter(t, f, victim, testAddr("real_account", f.addressCodec))
 	real, err := ms.CreateGrant(f.ctx, signInGrant(testAddr("real_account", f.addressCodec), victim, "login.example", now.Add(24*time.Hour)))
 	require.NoError(t, err)
 

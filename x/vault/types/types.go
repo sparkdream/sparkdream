@@ -35,6 +35,10 @@ const (
 	MaxVaultsPerSigner = 20
 	// MaxEndBlockerPassItems caps each EndBlocker pass (expiry, retention).
 	MaxEndBlockerPassItems = 50
+	// MaxVaultAddressSkips bounds how many vault ids one MsgCreateVault
+	// skips because their derived address holds an account that cannot
+	// become a vault (VLT-101; see Keeper.claimVaultAddress).
+	MaxVaultAddressSkips = 8
 )
 
 // VaultAddress derives the keyless address of vault id:
@@ -78,10 +82,10 @@ func MessagesHash(msgs []*codectypes.Any) []byte {
 // with a threshold only its invitees can complete, and proposals then cannot
 // execute until enough weight has accepted (MsgAcceptVaultSigner). The
 // accepted flag is set by the keeper, never by these rules.
-// One case stays outside these rules: a RECOVERY or COUNCIL migration that
-// merges two entries into one member (Tally counts that member once) can
-// lower the reachable weight below the threshold afterwards; the owner should
-// rotate one entry out before migrating (docs/x-vault-spec.md §7).
+// One case stays outside these rules: a migration that merges two entries
+// into one member (Tally counts that member once) can lower the reachable
+// weight below the threshold afterwards; the migration hook then clamps the
+// threshold to the reachable weight (docs/x-vault-spec.md §7).
 func ValidateConfig(signers []VaultSigner, threshold uint64, proposalTTL int64, label string) error {
 	if len(signers) == 0 {
 		return fmt.Errorf("%w: at least one signer", ErrInvalidSignerSet)
@@ -107,6 +111,14 @@ func ValidateConfig(signers []VaultSigner, threshold uint64, proposalTTL int64, 
 	if threshold == 0 || threshold > sum {
 		return fmt.Errorf("%w: must be in [1, %d], got %d", ErrInvalidThreshold, sum, threshold)
 	}
+	return ValidateTTLAndLabel(proposalTTL, label)
+}
+
+// ValidateTTLAndLabel is the signer-independent part of ValidateConfig: the
+// proposal TTL within bounds and the label within length. Genesis uses it
+// alone for a signer-less vault (one whose only invitees declined, §3.4),
+// which no message can write but which may be exported.
+func ValidateTTLAndLabel(proposalTTL int64, label string) error {
 	if proposalTTL < MinProposalTTL || proposalTTL > MaxProposalTTL {
 		return fmt.Errorf("%w: must be in [%d, %d] seconds, got %d", ErrInvalidProposalTTL, MinProposalTTL, MaxProposalTTL, proposalTTL)
 	}

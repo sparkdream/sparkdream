@@ -24,6 +24,15 @@ func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams)
 		return nil, err
 	}
 
+	// SVC-203: raising report_contest_window_blocks must not strand an
+	// existing service type below it (its unbonding period is only
+	// checked against the window when the type itself is written).
+	if err := k.ServiceTypes.Walk(ctx, nil, func(_ string, cfg types.ServiceTypeConfig) (bool, error) {
+		return false, cfg.ValidateAgainstParams(req.Params)
+	}); err != nil {
+		return nil, err
+	}
+
 	if err := k.Params.Set(ctx, req.Params); err != nil {
 		return nil, err
 	}

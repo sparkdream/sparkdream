@@ -2,9 +2,10 @@ package keeper
 
 import (
 	"context"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // IterateActiveInitiatives iterates over all initiatives that are in a state where conviction should be updated.

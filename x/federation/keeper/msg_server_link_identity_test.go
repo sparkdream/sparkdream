@@ -18,7 +18,7 @@ func TestLinkIdentity(t *testing.T) {
 
 	peer, _ := f.keeper.Peers.Get(f.ctx, "link-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "link-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	userStr := testAddr(t, f, "link-user")
 
@@ -54,7 +54,7 @@ func TestLinkIdentityDuplicate(t *testing.T) {
 	registerTestPeer(t, f, ms, "dup-link-peer")
 	peer, _ := f.keeper.Peers.Get(f.ctx, "dup-link-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "dup-link-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	userStr := testAddr(t, f, "dup-user")
 	_, err := ms.LinkIdentity(f.ctx, &types.MsgLinkIdentity{
@@ -140,7 +140,7 @@ func TestLinkIdentitySendFailure(t *testing.T) {
 	registerTestPeer(t, f, ms, "bridge-link-peer")
 	peer, _ := f.keeper.Peers.Get(f.ctx, "bridge-link-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "bridge-link-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 	_, err = ms.LinkIdentity(f.ctx, &types.MsgLinkIdentity{Creator: user, PeerId: "bridge-link-peer", RemoteIdentity: "@x@bridge.example"})
 	require.NoError(t, err)
 }

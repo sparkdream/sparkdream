@@ -27,7 +27,7 @@ func (q queryServer) LockedThreads(ctx context.Context, req *types.QueryLockedTh
 			return err == nil && p.ParentId == 0 && p.Locked, nil
 		},
 		func(rootID uint64, _ collections.NoValue) (types.Post, error) {
-			return q.k.Post.Get(ctx, rootID)
+			return q.k.getWithheldPost(ctx, rootID)
 		},
 	)
 	if err != nil {

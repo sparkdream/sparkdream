@@ -684,6 +684,8 @@ func (k Keeper) voidPendingJuryReviewForChallenge(ctx context.Context, challenge
 		if err := k.JuryReview.Set(ctx, target.Id, target); err != nil {
 			return err
 		}
+		// A voided review pays no expert witness.
+		k.settleExpertTestimonies(ctx, target, false)
 		if err := k.UpdateJuryReviewVerdictIndex(ctx, oldVerdict, target.Verdict, target.Id); err != nil {
 			return err
 		}

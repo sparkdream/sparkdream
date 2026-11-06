@@ -117,6 +117,15 @@ func (k msgServer) DeleteGroup(goCtx context.Context, msg *types.MsgDeleteGroup)
 		return nil, errorsmod.Wrap(err, "failed to invalidate pending proposals via version bump")
 	}
 
+	// Cancel the group's open polls (at most MaxOpenPollsPerGroup). Polls
+	// are keyed by group name: kept, a group later registered under the
+	// same name would inherit them, its members could vote on questions
+	// put to the old membership and the old polls would count against its
+	// open-poll cap (CMN-105).
+	if err := k.cancelOpenPollsOf(ctx, msg.GroupName); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to cancel open polls")
+	}
+
 	// Remove all members
 	if err := k.ClearCouncilMembers(ctx, msg.GroupName); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to clear members")

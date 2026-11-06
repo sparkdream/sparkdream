@@ -23,6 +23,10 @@ func TestCreateSession(t *testing.T) {
 	futureExp := sdkCtx.BlockTime().Add(1 * time.Hour)
 	spendLimit := sdk.NewInt64Coin("uspark", 10_000_000)
 
+	// The grantee allows the granter: the sessions below are ACTIVE at
+	// creation and count toward max_sessions_per_granter.
+	allowGranter(t, f, grantee, granter)
+
 	tests := []struct {
 		name        string
 		msg         *types.MsgCreateSession
@@ -30,6 +34,21 @@ func TestCreateSession(t *testing.T) {
 		expectError bool
 		errContains string
 	}{
+		{
+			// SES-203: an empty allowlist could execute nothing, yet the fee
+			// ante would charge the granter for every failing exec. Runs
+			// before "success" so the (granter, grantee) pair is still free.
+			name: "no message types",
+			msg: &types.MsgCreateSession{
+				Granter:         granter,
+				Grantee:         grantee,
+				AllowedMsgTypes: nil,
+				SpendLimit:      spendLimit,
+				Expiration:      futureExp,
+			},
+			expectError: true,
+			errContains: "at least one message type",
+		},
 		{
 			name: "success",
 			msg: &types.MsgCreateSession{
@@ -175,6 +194,18 @@ func TestCreateSession(t *testing.T) {
 			errContains: "exceeds max_expiration",
 		},
 		{
+			name: "no message types",
+			msg: &types.MsgCreateSession{
+				Granter:         testAddr("granter6c", f.addressCodec),
+				Grantee:         testAddr("grantee6c", f.addressCodec),
+				AllowedMsgTypes: nil,
+				SpendLimit:      spendLimit,
+				Expiration:      futureExp,
+			},
+			expectError: true,
+			errContains: "at least one message type",
+		},
+		{
 			name: "broad session past 7 days",
 			msg: &types.MsgCreateSession{
 				Granter:         testAddr("granter6b", f.addressCodec),
@@ -284,6 +315,7 @@ func TestCreateSessionIndexes(t *testing.T) {
 	granter := testAddr("granter", f.addressCodec)
 	grantee := testAddr("grantee", f.addressCodec)
 	futureExp := sdkCtx.BlockTime().Add(1 * time.Hour)
+	allowGranter(t, f, grantee, granter)
 
 	_, err := ms.CreateSession(f.ctx, &types.MsgCreateSession{
 		Granter:         granter,

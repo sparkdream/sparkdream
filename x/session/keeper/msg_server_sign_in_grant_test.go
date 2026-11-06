@@ -31,6 +31,7 @@ func TestCreateGrant_SignIn_HappyPath(t *testing.T) {
 
 	granter := testAddr("granter", f.addressCodec)
 	grantee := testAddr("grantee", f.addressCodec)
+	allowGranter(t, f, grantee, granter)
 	// past the session key's 7-day max_expiration: sign-in grants are
 	// bounded by max_grant_lifetime_seconds only
 	exp := sdkCtx.BlockTime().Add(90 * 24 * time.Hour)
@@ -133,12 +134,16 @@ func TestCreateGrant_SignIn_PerGranterCap(t *testing.T) {
 	granter := testAddr("granter", f.addressCodec)
 	exp := sdkCtx.BlockTime().Add(24 * time.Hour)
 
+	// Every grantee allows the granter, so the grants are active and count.
 	for i := 0; i < types.MaxSignInGrantsPerGranter; i++ {
 		grantee := testAddr(fmt.Sprintf("grantee-%d", i), f.addressCodec)
+		allowGranter(t, f, grantee, granter)
 		_, err := ms.CreateGrant(f.ctx, signInGrant(granter, grantee, "mstdn.sparkdream.io", exp))
 		require.NoError(t, err)
 	}
-	_, err := ms.CreateGrant(f.ctx, signInGrant(granter, testAddr("one-more", f.addressCodec), "mstdn.sparkdream.io", exp))
+	oneMore := testAddr("one-more", f.addressCodec)
+	allowGranter(t, f, oneMore, granter)
+	_, err := ms.CreateGrant(f.ctx, signInGrant(granter, oneMore, "mstdn.sparkdream.io", exp))
 	require.ErrorIs(t, err, types.ErrMaxSignInGrantsExceeded)
 }
 

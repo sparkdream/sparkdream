@@ -176,13 +176,14 @@ SPARK on x/service.
 
 | Msg | Access | Purpose |
 |---|---|---|
-| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`, and for Spark Dream peers optional `peer_identity` (validated with `ChainIdentity.Validate()` when supplied) + `ibc_transfer_channel_id`, which pre-register the peer's SPARK voucher metadata under the transfer channel's trace); lands PENDING |
-| `MsgRemovePeer` | Gov or Council / Ops Committee policy | Tombstone a peer (cursor-based pruning in EndBlocker) |
+| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`, and for Spark Dream peers the required `expected_chain_id` (the chain behind the federation channel, verified at activation), plus optional `peer_identity` (validated with `ChainIdentity.Validate()` when supplied) + `ibc_transfer_channel_id`, which pre-register the peer's SPARK voucher metadata under the transfer channel's trace); lands PENDING. `display_name` ≤ 128 bytes, `metadata` ≤ 4096 bytes, `expected_chain_id` empty for non-IBC peers |
+| `MsgRemovePeer` | Gov or Council / Ops Committee policy | Tombstone a peer (cursor-based pruning in EndBlocker). An ACTIVE peer with bindings is refused; a SUSPENDED one is removed and its bindings pruned |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
-| `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
+| `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote. A Spark Dream peer's federation channel must exist, be OPEN and its Tendermint light client must name the peer's `expected_chain_id` (`ErrPeerChainIdMismatch`, 2405; an unresolvable client is refused too) |
 | `MsgUpdatePeerPolicy` | Ops Committee member, Council policy, or gov | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8), author curation (`allowed_identities` max 256 / `"*"`, `curation` collection: must be ACTIVE, not on Spark Dream peers) |
-| `MsgUpdatePeerInfo` | Ops Committee member, Council policy, or gov | Correct a peer's `display_name` and `metadata` (both replaced; id, type and channels are fixed). Not on REMOVED peers |
+| `MsgUpdatePeerInfo` | Ops Committee member, Council policy, or gov | Correct a peer's `display_name` and `metadata` (both replaced; id, type and channels are fixed) and, on a Spark Dream peer that is not ACTIVE, its `expected_chain_id` (empty keeps it). Not on REMOVED peers |
 | `MsgUpdatePeerController` | gov | Change controller_group for a peer |
+| `MsgRevokeIdentityLink` | Gov or Council / Ops Committee policy | Remove one identity link (e.g. a false attestation of a retired operator) |
 
 ### Bridge Bindings
 

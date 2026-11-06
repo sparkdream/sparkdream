@@ -37,7 +37,7 @@ func (k msgServer) UpdatePeerController(ctx context.Context, msg *types.MsgUpdat
 	}
 
 	peer.ControllerGroup = msg.ControllerGroup
-	if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {
+	if err := k.SetPeer(ctx, peer); err != nil {
 		return nil, err
 	}
 

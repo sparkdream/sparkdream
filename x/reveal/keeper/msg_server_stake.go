@@ -56,6 +56,10 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 	if tranche.Status != types.TrancheStatus_TRANCHE_STATUS_STAKING {
 		return nil, types.ErrTrancheNotStaking
 	}
+	// The EndBlocker cancels the contribution at StakeDeadline (REV-103).
+	if h := sdk.UnwrapSDKContext(ctx).BlockHeight(); tranche.StakeDeadline > 0 && h >= tranche.StakeDeadline {
+		return nil, types.ErrDeadlinePassed.Wrapf("stake deadline %d, height %d", tranche.StakeDeadline, h)
+	}
 
 	// Check minimum stake amount. A stake smaller than the minimum is
 	// allowed only when it fills the tranche exactly.

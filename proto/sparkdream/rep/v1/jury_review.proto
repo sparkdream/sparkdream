@@ -43,6 +43,40 @@ message JuryReview {
   // MaxJuryRedraws so a review cannot redraw forever against a pool that will
   // not answer.
   uint32 redraw_count = 18;
+
+  // Addresses never drawn onto this review: the parties recorded when the
+  // case opened (appellant, action target, hiding sentinel, migration
+  // parties, an external case's accused and accuser) and every juror who
+  // declined or was vacated for silence. SelectJury reads it together with
+  // the parties it derives from the case itself (challenger, initiative
+  // affiliates, content author, expert witnesses), so no redraw can seat a
+  // party or bring back a released juror.
+  repeated string excluded_jurors = 19;
+
+  // Seats waiting for the EndBlocker draw. Jurors are never drawn inside the
+  // transaction that opens or refills a review: the transaction's sender is
+  // an interested party who could otherwise retry until the draw suits them.
+  // DrawPendingJuries seats them in the EndBlocker from the x/shield
+  // randomness beacon (PendingJuryDraw.seed_epoch), or from the block hash
+  // when no beacon is available.
+  uint32 pending_seats = 20;
+
+  // The EXPERT_TESTIMONY interim each invitation opened, parallel to
+  // expert_witnesses (expert_interim_ids[i] pays expert_witnesses[i]). The
+  // payout settles exactly this id when the review reaches its verdict, never
+  // whichever matching interim a walk finds first (REP-E-101).
+  repeated uint64 expert_interim_ids = 21;
+
+  // The seat address of the juror who issued each invitation, parallel to
+  // expert_witnesses. Recorded so that the inviter can never be the one who
+  // endorses it.
+  repeated string expert_inviters = 22;
+
+  // The seat address of the juror who endorsed each invitation, parallel to
+  // expert_witnesses; "" while the invitation is still unendorsed. Only an
+  // endorsed expert may testify, and only an endorsed invitation is paid at
+  // the verdict (REP-E-103: an invitation needs two jurors, never one).
+  repeated string expert_endorsers = 23;
 }
 
 message JurorVote {
@@ -73,4 +107,20 @@ enum Verdict {
   VERDICT_UPHOLD_CHALLENGE = 1;
   VERDICT_REJECT_CHALLENGE = 2;
   VERDICT_INCONCLUSIVE = 3;
+}
+
+// PendingJuryDraw is one queued jury draw: which x/shield beacon epoch seeds
+// it and when it was queued (REP-R-102).
+message PendingJuryDraw {
+  uint64 jury_review_id = 1;
+  // Shield epoch whose beacon key seeds the draw: the epoch after the one
+  // current when the seats were queued, so nobody (the sender, the block
+  // proposer, any validator short of the TLE threshold) knows the seed when
+  // the review opens. 0 means no beacon was available when the seats were
+  // queued: the draw is seeded from the block hash in the next EndBlocker.
+  uint64 seed_epoch = 2;
+  // Height at which the seats were queued. Once the beacon has stayed
+  // pending for JuryBeaconWaitBlocks past it, the draw falls back to the
+  // block hash (event jury_seed_fallback).
+  int64 queued_at_height = 3;
 }

@@ -32,6 +32,9 @@ func GetMaxInvitationCredits(config types.TrustLevelConfig, level types.TrustLev
 // UpdateTrustLevel checks if a member is eligible for a trust level upgrade and updates it.
 // Uses cached CompletedInterimsCount for O(1) lookup instead of walking all interims.
 func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress) error {
+	// Value update: a stored (possibly tombstoned) assignee address resolves
+	// to the member that now carries it (alias.go, REP-E-202).
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return types.ErrMemberNotFound

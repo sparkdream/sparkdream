@@ -2,8 +2,11 @@ package types
 
 import (
 	"fmt"
+	"time"
 
 	"cosmossdk.io/math"
+
+	commontypes "sparkdream/x/common/types"
 )
 
 // RoleRewardPoolCeiling bounds every bonded-role SPARK reward pool cap and the
@@ -15,6 +18,39 @@ import (
 // FundRoleRewardPools: math.Int panics past 256 bits, and a panic in BeginBlock
 // halts the chain. Without a ceiling, a single mistyped operational-params
 // proposal (an extra run of zeros) is a chain-halt bug, not a bad setting.
+// DefaultBudgetReviewThreshold is the requested DREAM budget (micro-DREAM) at
+// or above which a budget-backed project proposal opens a BUDGET_REVIEW interim
+// (COMPLEX) instead of a PROJECT_APPROVAL one (STANDARD): 5,000 DREAM.
+var DefaultBudgetReviewThreshold = math.NewInt(5_000_000_000)
+
+// DefaultMaxProposedProjectsPerCreator is how many budget-backed project
+// proposals one member (across aliases) may hold in PROPOSED at once.
+const DefaultMaxProposedProjectsPerCreator uint32 = 3
+
+// MaxInterimDeadlineEpochs bounds interim_deadline_epochs so the default
+// interim deadline (interim_deadline_epochs * epoch_blocks from now) can
+// never overflow a block height and never outlives a season by orders of
+// magnitude. 3650 epochs is ten years of daily epochs.
+const MaxInterimDeadlineEpochs int64 = 3650
+
+// maxBlockHeight is the largest int64, the type of a block height.
+const maxBlockHeight = int64(^uint64(0) >> 1)
+
+// validateInterimDeadlineEpochs holds interim_deadline_epochs in
+// [1, MaxInterimDeadlineEpochs] and its product with epoch_blocks inside an
+// int64 (REP-E-205): zero made every default-deadline interim fail and every
+// project review expire on the next block, and a huge value wrapped the
+// deadline negative with the same effect.
+func validateInterimDeadlineEpochs(epochs, epochBlocks int64) error {
+	if epochs < 1 || epochs > MaxInterimDeadlineEpochs {
+		return fmt.Errorf("interim_deadline_epochs must be in [1, %d]: %d", MaxInterimDeadlineEpochs, epochs)
+	}
+	if epochBlocks > 0 && epochs > maxBlockHeight/epochBlocks {
+		return fmt.Errorf("interim_deadline_epochs * epoch_blocks (%d * %d) overflows a block height", epochs, epochBlocks)
+	}
+	return nil
+}
+
 func RoleRewardPoolCeiling() math.Int {
 	return math.NewInt(1_000_000_000_000_000_000)
 }
@@ -60,9 +96,8 @@ func DefaultParams() Params {
 		TreasuryFundsRetroPgf: true,                      // retro PGF paid from treasury first
 
 		// Initiative rewards
-		CompleterShare:          math.LegacyNewDecWithPrec(90, 2), // 90%
-		TreasuryShare:           math.LegacyNewDecWithPrec(10, 2), // 10%
-		MinReputationMultiplier: math.LegacyNewDecWithPrec(10, 2), // 10%
+		CompleterShare: math.LegacyNewDecWithPrec(90, 2), // 90%
+		TreasuryShare:  math.LegacyNewDecWithPrec(10, 2), // 10%
 
 		// Initiative tiers (MaxBudget in micro-DREAM: 1 DREAM = 1,000,000 micro-DREAM)
 		ApprenticeTier: TierConfig{
@@ -148,6 +183,14 @@ func DefaultParams() Params {
 		// Tag budgets: one awarder may give at most 25% of a pool per epoch.
 		TagBudgetAwarderEpochCapBps: DefaultTagBudgetAwarderEpochCapBps,
 
+		// A budget-backed project proposal requesting at least this much
+		// DREAM opens a BUDGET_REVIEW (COMPLEX) interim for the Commons
+		// Operations Committee instead of a PROJECT_APPROVAL (STANDARD) one.
+		BudgetReviewThreshold: DefaultBudgetReviewThreshold,
+		// One member may hold at most this many budget-backed proposals in
+		// PROPOSED at once (each opens a paid committee review interim).
+		MaxProposedProjectsPerCreator: DefaultMaxProposedProjectsPerCreator,
+
 		// Challenges (stake in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
 		MinChallengeStake:    math.NewInt(50000000),            // 50 DREAM
 		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
@@ -164,15 +207,9 @@ func DefaultParams() Params {
 		InterimDeadlineEpochs:    7,                                // 7 epochs = ~1 week
 
 		// Rate limits
-		MaxActiveChallengesPerCommittee: 3,
-		MaxNewChallengesPerEpoch:        2,
-		ChallengeQueueMaxSize:           10,
 
 		// Slashing
-		MinorSlashPenalty:    math.LegacyNewDecWithPrec(5, 2),  // 5%
-		ModerateSlashPenalty: math.LegacyNewDecWithPrec(15, 2), // 15%
-		SevereSlashPenalty:   math.LegacyNewDecWithPrec(30, 2), // 30%
-		ZeroingSlashPenalty:  math.LegacyOneDec(),              // 100%
+		SevereSlashPenalty: math.LegacyNewDecWithPrec(30, 2), // 30%
 
 		// Extended staking (project/member/tag)
 		// ProjectStakingApy removed — projects draw from MaxStakingRewardsPerSeason pool
@@ -744,18 +781,9 @@ func (p Params) Validate() error {
 		return fmt.Errorf("default challenge period epochs must be positive: %d", p.DefaultChallengePeriodEpochs)
 	}
 
-	// Slash penalties must each be in [0,1]; >1 over-slashes.
-	if p.MinorSlashPenalty.IsNegative() || p.MinorSlashPenalty.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("minor slash penalty must be in [0,1]: %s", p.MinorSlashPenalty)
-	}
-	if p.ModerateSlashPenalty.IsNegative() || p.ModerateSlashPenalty.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("moderate slash penalty must be in [0,1]: %s", p.ModerateSlashPenalty)
-	}
+	// The slash penalty must be in [0,1]; >1 over-slashes.
 	if p.SevereSlashPenalty.IsNegative() || p.SevereSlashPenalty.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("severe slash penalty must be in [0,1]: %s", p.SevereSlashPenalty)
-	}
-	if p.ZeroingSlashPenalty.IsNegative() || p.ZeroingSlashPenalty.GT(math.LegacyOneDec()) {
-		return fmt.Errorf("zeroing slash penalty must be in [0,1]: %s", p.ZeroingSlashPenalty)
 	}
 
 	if err := validateTransferLimits(p.MaxTipAmount, p.MaxTipsSentPerEpoch, p.MaxGiftPerInvitee,
@@ -984,7 +1012,6 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		TreasuryFundsInterims: true,
 		TreasuryFundsRetroPgf: true,
 		// Reputation
-		MinReputationMultiplier: math.LegacyNewDecWithPrec(10, 2), // 10%
 		// Review periods
 		DefaultReviewPeriodEpochs:    7,
 		DefaultChallengePeriodEpochs: 7,
@@ -1007,9 +1034,6 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		SoloExpertBonusRate:      math.LegacyNewDecWithPrec(50, 2), // 50%
 		InterimDeadlineEpochs:    7,
 		// Rate limits
-		MaxActiveChallengesPerCommittee: 3,
-		MaxNewChallengesPerEpoch:        2,
-		ChallengeQueueMaxSize:           10,
 		// Extended staking
 		ProjectCompletionBonusRate: math.LegacyNewDecWithPrec(5, 2), // 5%
 		MemberStakeRevenueShare:    math.LegacyNewDecWithPrec(5, 2), // 5%
@@ -1171,6 +1195,9 @@ func DefaultRepOperationalParams() RepOperationalParams {
 func (op RepOperationalParams) Validate() error {
 	if op.EpochBlocks <= 0 {
 		return fmt.Errorf("epoch blocks must be positive: %d", op.EpochBlocks)
+	}
+	if err := validateInterimDeadlineEpochs(op.InterimDeadlineEpochs, op.EpochBlocks); err != nil {
+		return err
 	}
 	if op.SeasonDurationEpochs <= 0 {
 		return fmt.Errorf("season duration epochs must be positive: %d", op.SeasonDurationEpochs)
@@ -1555,7 +1582,6 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.TreasuryFundsInterims = op.TreasuryFundsInterims
 	p.TreasuryFundsRetroPgf = op.TreasuryFundsRetroPgf
 	// Reputation
-	p.MinReputationMultiplier = op.MinReputationMultiplier
 	// Review periods
 	p.DefaultReviewPeriodEpochs = op.DefaultReviewPeriodEpochs
 	p.DefaultChallengePeriodEpochs = op.DefaultChallengePeriodEpochs
@@ -1578,9 +1604,6 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.SoloExpertBonusRate = op.SoloExpertBonusRate
 	p.InterimDeadlineEpochs = op.InterimDeadlineEpochs
 	// Rate limits
-	p.MaxActiveChallengesPerCommittee = op.MaxActiveChallengesPerCommittee
-	p.MaxNewChallengesPerEpoch = op.MaxNewChallengesPerEpoch
-	p.ChallengeQueueMaxSize = op.ChallengeQueueMaxSize
 	// Extended staking
 	p.ProjectCompletionBonusRate = op.ProjectCompletionBonusRate
 	p.MemberStakeRevenueShare = op.MemberStakeRevenueShare
@@ -1717,7 +1740,6 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		TreasuryFundsInterims: p.TreasuryFundsInterims,
 		TreasuryFundsRetroPgf: p.TreasuryFundsRetroPgf,
 		// Reputation
-		MinReputationMultiplier: p.MinReputationMultiplier,
 		// Review periods
 		DefaultReviewPeriodEpochs:    p.DefaultReviewPeriodEpochs,
 		DefaultChallengePeriodEpochs: p.DefaultChallengePeriodEpochs,
@@ -1740,9 +1762,6 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		SoloExpertBonusRate:      p.SoloExpertBonusRate,
 		InterimDeadlineEpochs:    p.InterimDeadlineEpochs,
 		// Rate limits
-		MaxActiveChallengesPerCommittee: p.MaxActiveChallengesPerCommittee,
-		MaxNewChallengesPerEpoch:        p.MaxNewChallengesPerEpoch,
-		ChallengeQueueMaxSize:           p.ChallengeQueueMaxSize,
 		// Extended staking
 		ProjectCompletionBonusRate: p.ProjectCompletionBonusRate,
 		MemberStakeRevenueShare:    p.MemberStakeRevenueShare,
@@ -2069,9 +2088,21 @@ func (p Params) validateMigrationParams() error {
 	if p.ZkKeyActivationDelay <= 0 {
 		return fmt.Errorf("zk_key_activation_delay must be positive: %d", p.ZkKeyActivationDelay)
 	}
+	if err := p.validateZkKeyDelayCoversAnonymousActionWindow(); err != nil {
+		return err
+	}
 	if p.TagBudgetAwarderEpochCapBps > 10000 {
 		return fmt.Errorf("tag_budget_awarder_epoch_cap_bps must be at most 10000 (0 = default %d): %d",
 			DefaultTagBudgetAwarderEpochCapBps, p.TagBudgetAwarderEpochCapBps)
+	}
+	if p.BudgetReviewThreshold.IsNil() || p.BudgetReviewThreshold.IsNegative() {
+		return fmt.Errorf("budget_review_threshold cannot be negative: %s", p.BudgetReviewThreshold)
+	}
+	if p.MaxProposedProjectsPerCreator == 0 {
+		return fmt.Errorf("max_proposed_projects_per_creator must be positive")
+	}
+	if err := validateInterimDeadlineEpochs(p.InterimDeadlineEpochs, p.EpochBlocks); err != nil {
+		return err
 	}
 	return nil
 }
@@ -2085,9 +2116,56 @@ func (p Params) TagBudgetAwarderEpochCapBpsOrDefault() uint64 {
 	return p.TagBudgetAwarderEpochCapBps
 }
 
-// ZkKeyActivationDelaySeconds converts the epoch-denominated activation
-// delay to seconds with the chain's block-time assumption, so x/commons can
-// compare it with voting periods.
-func (p Params) ZkKeyActivationDelaySeconds() int64 {
-	return p.ZkKeyActivationDelay * p.EpochBlocks * AssumedBlockTimeSeconds
+// MaxAnonymousActionWindow is the longest window any module may give an
+// anonymous "once per item" action proven against the live member tree
+// (today only x/federation's arbiter vote, arbiter_resolution_window). Zero
+// means no bound (the test build).
+//
+// Why: a member who replaces their ZK key gets a fresh nullifier when the
+// new key activates, zk_key_activation_delay epochs later. If an item's
+// window is still open then, the member acts on it twice. The delay covers
+// every such window, so the second action is impossible; key changes are
+// also once per season. Council secret ballots do not need this: they vote
+// against a snapshot taken when the ballot opens. x/federation refuses an
+// arbiter window above this value; Validate below refuses a delay under it.
+var MaxAnonymousActionWindow = getMaxAnonymousActionWindow()
+
+// assumedBlockSeconds converts the epoch-denominated delay to wall time.
+// Blocks are targeted at 6 s; a slower chain only lengthens the delay.
+const assumedBlockSeconds = 6
+
+// ZkKeyActivationDelayDuration is the delay as wall time at the targeted
+// block time.
+func (p Params) ZkKeyActivationDelayDuration() time.Duration {
+	if p.ZkKeyActivationDelay <= 0 || p.EpochBlocks <= 0 ||
+		p.ZkKeyActivationDelay > 1<<31 || p.EpochBlocks > 1<<31 {
+		return 0
+	}
+	return time.Duration(p.ZkKeyActivationDelay*p.EpochBlocks*assumedBlockSeconds) * time.Second
+}
+
+func (p Params) validateZkKeyDelayCoversAnonymousActionWindow() error {
+	if MaxAnonymousActionWindow == 0 {
+		return nil
+	}
+	if d := p.ZkKeyActivationDelayDuration(); d < MaxAnonymousActionWindow {
+		return fmt.Errorf("zk_key_activation_delay * epoch_blocks (%d * %d blocks = %s at %ds blocks) must cover the anonymous action window %s",
+			p.ZkKeyActivationDelay, p.EpochBlocks, d, assumedBlockSeconds, MaxAnonymousActionWindow)
+	}
+	return nil
+}
+
+// JuryBeaconWaitEpochs is the number of shield epochs a queued jury draw
+// waits for its beacon value before DrawPendingJuries falls back to the
+// block-hash seed (JuryBeaconWaitBlocks = JuryBeaconWaitEpochs x the shield
+// epoch interval). Compiled per build, see params_vals_*.go.
+var JuryBeaconWaitEpochs = getJuryBeaconWaitEpochs()
+
+// JuryBeaconWaitBlocks converts JuryBeaconWaitEpochs to blocks for the given
+// shield epoch interval; never below one epoch's worth of blocks.
+func JuryBeaconWaitBlocks(epochInterval uint64) int64 {
+	if epochInterval == 0 {
+		epochInterval = 1
+	}
+	return commontypes.Saturate[int64](JuryBeaconWaitEpochs * epochInterval)
 }

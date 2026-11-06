@@ -79,6 +79,9 @@ message GenesisState {
   repeated ProposalVoterTreeEntry proposal_voter_trees = 23 [(gogoproto.nullable) = false];
   // poll_voter_trees are the voter snapshots of open secret-ballot polls.
   repeated PollVoterTreeEntry poll_voter_trees = 24 [(gogoproto.nullable) = false];
+  // poll_open_counts are the per-creator poll-opening buckets, so a round
+  // trip does not grant a second daily allowance.
+  repeated PollOpenCount poll_open_counts = 25 [(gogoproto.nullable) = false];
 }
 
 // ProposalVoterTreeEntry pairs a proposal ID with its voter snapshot.

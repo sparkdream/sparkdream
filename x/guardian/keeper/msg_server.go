@@ -2,8 +2,10 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 
 	errorsmod "cosmossdk.io/errors"
@@ -300,12 +302,19 @@ func (ms msgServer) filterMintUpdateParams(ctx context.Context, m *minttypes.Msg
 				cur, bpy)
 		}
 		now := sdk.UnwrapSDKContext(ctx).BlockTime()
-		if last, err := ms.k.LastBlocksPerYearChange.Get(ctx); err == nil {
+		// Fail closed: only a missing record means "never changed". Any
+		// other store error refuses the change rather than waiving the
+		// cooldown.
+		last, err := ms.k.LastBlocksPerYearChange.Get(ctx)
+		switch {
+		case err == nil:
 			if next := time.Unix(last, 0).Add(mintBlocksPerYearChangeCooldown); now.Before(next) {
 				return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
 					"mint.MsgUpdateParams: blocks_per_year may change at most once per %v (next change allowed at %s)",
 					mintBlocksPerYearChangeCooldown, next.UTC().Format(time.RFC3339))
 			}
+		case !errors.Is(err, collections.ErrNotFound):
+			return errorsmod.Wrap(err, "mint.MsgUpdateParams: blocks_per_year cooldown read")
 		}
 		// Written in the proposal's execution context: if the inner update
 		// fails, gov discards this write with it.
@@ -395,10 +404,9 @@ var (
 	communityTaxFloor   = math.LegacyNewDecWithPrec(5, 2)
 	communityTaxCeiling = math.LegacyNewDecWithPrec(25, 2)
 
-	// gov.voting_period floor: 6h is short enough for emergencies, long
-	// enough to prevent same-day surprise proposals.
-	govVotingPeriodFloor          = 6 * time.Hour
-	govExpeditedVotingPeriodFloor = 1 * time.Hour
+	// gov.voting_period / expedited_voting_period floors are per network
+	// (NetworkBounds in network_bounds.go): 6 h / 1 h on testnet and
+	// mainnet, lower on devnet whose genesis ships 1 h / 30 min.
 	// gov.voting_period ceiling: a captured gov could otherwise set
 	// decades and freeze itself (and so guardian) for good. Genesis is
 	// 5 days (mainnet); 28 days leaves room for slow deliberation.
@@ -515,27 +523,28 @@ func (ms msgServer) filterDistrUpdateParams(ctx context.Context, m *distrtypes.M
 	return nil
 }
 
-// filterGovUpdateParams enforces floors on voting_period, expedited_voting_
-// period, quorum, threshold, and veto_threshold, ceilings on both voting
+// filterGovUpdateParams enforces floors on voting_period and expedited_voting_
+// period (per network, NetworkBounds), quorum, threshold, and veto_threshold, ceilings on both voting
 // periods, and a positive native-denom min_deposit / expedited_min_deposit.
 // The floors block degenerate values that would let a hostile majority ram
 // through proposals before the broader community can react; the ceilings
 // stop a captured gov from freezing itself (and guardian) for years.
 func (ms msgServer) filterGovUpdateParams(ctx context.Context, m *govtypesv1.MsgUpdateParams) error {
-	if m.Params.VotingPeriod == nil || *m.Params.VotingPeriod < govVotingPeriodFloor {
+	floors := ms.k.bounds
+	if m.Params.VotingPeriod == nil || *m.Params.VotingPeriod < floors.GovVotingPeriodFloor {
 		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
 			"gov.MsgUpdateParams: voting_period below floor (proposed=%v, floor=%v)",
-			m.Params.VotingPeriod, govVotingPeriodFloor)
+			m.Params.VotingPeriod, floors.GovVotingPeriodFloor)
 	}
 	if *m.Params.VotingPeriod > govVotingPeriodCeiling {
 		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
 			"gov.MsgUpdateParams: voting_period above ceiling (proposed=%v, ceiling=%v)",
 			*m.Params.VotingPeriod, govVotingPeriodCeiling)
 	}
-	if m.Params.ExpeditedVotingPeriod == nil || *m.Params.ExpeditedVotingPeriod < govExpeditedVotingPeriodFloor {
+	if m.Params.ExpeditedVotingPeriod == nil || *m.Params.ExpeditedVotingPeriod < floors.GovExpeditedVotingPeriodFloor {
 		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
 			"gov.MsgUpdateParams: expedited_voting_period below floor (proposed=%v, floor=%v)",
-			m.Params.ExpeditedVotingPeriod, govExpeditedVotingPeriodFloor)
+			m.Params.ExpeditedVotingPeriod, floors.GovExpeditedVotingPeriodFloor)
 	}
 	if *m.Params.ExpeditedVotingPeriod > govExpeditedVotingPeriodCeiling {
 		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,

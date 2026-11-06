@@ -14,12 +14,23 @@ import (
 
 // saveContribution writes a contribution and keeps the deadline index in
 // step with it. Every keeper write of a Contribution goes through here so
-// the EndBlocker only ever visits contributions that are due (REV-11).
+// the EndBlocker only ever visits contributions that are due (REV-11). A
+// save is a fresh start for the deadline walk: the consecutive-failure
+// count is cleared, whether the write comes from a tx, the zeroing hook or
+// a successful EndBlocker step, and whether or not the contribution stays
+// IN_PROGRESS (REV-202). Only the EndBlocker's failure branch, which never
+// saves, advances the count.
 func (k Keeper) saveContribution(ctx context.Context, contrib *types.Contribution) error {
 	if err := k.Contribution.Set(ctx, contrib.Id, *contrib); err != nil {
 		return err
 	}
-	return k.refreshDeadlineIndex(ctx, contrib)
+	if err := k.refreshDeadlineIndex(ctx, contrib); err != nil {
+		return err
+	}
+	if err := k.DeadlineFailures.Remove(ctx, contrib.Id); err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 // refreshDeadlineIndex moves the contribution's deadline-index entry to its
@@ -73,6 +84,19 @@ func (k Keeper) clearDeadlineIndex(ctx context.Context, id uint64) error {
 		return err
 	}
 	return k.ContributionNextDeadline.Remove(ctx, id)
+}
+
+// deferDeadline moves a contribution's deadline-index entry to height `at`,
+// behind every deadline due before then. The next successful save
+// re-indexes it at its real deadline.
+func (k Keeper) deferDeadline(ctx context.Context, id uint64, at int64) error {
+	if err := k.clearDeadlineIndex(ctx, id); err != nil {
+		return err
+	}
+	if err := k.ContributionDeadlines.Set(ctx, collections.Join(at, id)); err != nil {
+		return err
+	}
+	return k.ContributionNextDeadline.Set(ctx, id, at)
 }
 
 // nextContributionDeadline returns the earliest height at which the

@@ -159,6 +159,17 @@ func (gs GenesisState) Validate() error {
 		}
 		proposalCountIndexMap[index] = struct{}{}
 	}
+	tagPruneIndexMap := make(map[string]struct{})
+
+	for _, elem := range gs.TagPruneQueue {
+		if elem.Tag == "" {
+			return fmt.Errorf("tag prune entry with empty tag")
+		}
+		if _, ok := tagPruneIndexMap[elem.Tag]; ok {
+			return fmt.Errorf("duplicated tagPrune: tag=%s", elem.Tag)
+		}
+		tagPruneIndexMap[elem.Tag] = struct{}{}
+	}
 	// --- Enhanced validation: cross-references and status checks ---
 
 	// Build lookup maps for cross-referencing

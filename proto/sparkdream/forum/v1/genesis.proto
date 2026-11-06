@@ -71,6 +71,18 @@ message GenesisState {
   // after posting). Hook-driven, so carried verbatim with the enqueue height;
   // without it an import would leave that content to the lazy TTL-time path.
   repeated PromotionQueueEntry promotion_queue = 23 [(gogoproto.nullable) = false];
+  // Tags x/rep removed from its registry whose references forum is still
+  // stripping from posts, each with the next post id to scan. Not derivable
+  // (the registry no longer knows the tag), so an import without it would
+  // leave the tag on every post not yet scanned.
+  repeated TagPruneEntry tag_prune_queue = 24 [(gogoproto.nullable) = false];
+}
+
+// TagPruneEntry is one in-flight tag prune: the removed tag and the next
+// post id to scan.
+message TagPruneEntry {
+  string tag = 1;
+  uint64 next_post_id = 2;
 }
 
 // PendingStakeSlash is a post whose conviction stakes are still to be

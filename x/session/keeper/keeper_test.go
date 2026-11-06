@@ -157,6 +157,15 @@ func initFixture(t *testing.T) *fixture {
 	}
 }
 
+// allowGranter records grantee's consent for granter (SES-102) so the
+// granter's access-class grants are ACTIVE at creation, as before consent
+// existed. Tests of the pending flow itself live in pending_grant_test.go.
+func allowGranter(t *testing.T, f *fixture, grantee, granter string) {
+	t.Helper()
+	require.NoError(t, f.keeper.AllowedGranters.Set(f.ctx, collections.Join(grantee, granter)))
+	require.NoError(t, f.keeper.AllowedGranteesByGranter.Set(f.ctx, collections.Join(granter, grantee)))
+}
+
 // testAddr generates a deterministic test address from a seed string.
 func testAddr(seed string, codec address.Codec) string {
 	addr := make([]byte, 20)

@@ -20,6 +20,9 @@ func (k msgServer) Verify(ctx context.Context, msg *types.MsgVerify) (*types.Msg
 	if msg.QualityRating < 1 || msg.QualityRating > 5 {
 		return nil, types.ErrInvalidQualityRating.Wrapf("got %d", msg.QualityRating)
 	}
+	if err := types.ValidateFieldLength("comments", msg.Comments, types.MaxCommentsLength); err != nil {
+		return nil, err
+	}
 
 	// Get contribution
 	contrib, err := k.Contribution.Get(ctx, msg.ContributionId)
@@ -46,6 +49,11 @@ func (k msgServer) Verify(ctx context.Context, msg *types.MsgVerify) (*types.Msg
 	// Tranche must be REVEALED
 	if tranche.Status != types.TrancheStatus_TRANCHE_STATUS_REVEALED {
 		return nil, types.ErrTrancheNotRevealed
+	}
+	// The EndBlocker tallies at VerificationDeadline; a vote in that
+	// block or later would land after the tally it is meant for (REV-103).
+	if h := sdk.UnwrapSDKContext(ctx).BlockHeight(); tranche.VerificationDeadline > 0 && h >= tranche.VerificationDeadline {
+		return nil, types.ErrDeadlinePassed.Wrapf("verification deadline %d, height %d", tranche.VerificationDeadline, h)
 	}
 
 	// Check voter hasn't already voted

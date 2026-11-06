@@ -111,6 +111,12 @@ var (
 	// their monitoring client) can find their outstanding summons without
 	// scanning every review ever created.
 	JuryReviewsByJurorKey = collections.NewPrefix("juryreview/by_juror/")
+	// PendingJuryDrawsKey holds, per review with seats waiting for the
+	// EndBlocker draw (JuryReview.pending_seats > 0), the PendingJuryDraw that
+	// names the x/shield beacon epoch seeding it. Exported as
+	// pending_jury_draw_list; a review with pending seats and no entry is
+	// queued with seed_epoch 0 (block-hash seed) at InitGenesis.
+	PendingJuryDrawsKey = collections.NewPrefix("juryreview/pending_draw/")
 
 	// StakesByTarget: (targetType, targetID) -> []stakeID
 	// Enables O(1) lookup of stakes for a specific initiative/project/member
@@ -333,6 +339,20 @@ var (
 	InitiativeCompletionDueKey     = collections.NewPrefix("due/initiative_completion/")
 	ChallengeResponseDueKey        = collections.NewPrefix("due/challenge_response/")
 	ContentChallengeResponseDueKey = collections.NewPrefix("due/content_challenge_response/")
+	// InterimDeadlineDueKey / ProjectExpiryDueKey: the same hint queues for
+	// live (PENDING / IN_PROGRESS) interims at their deadline and PROPOSED
+	// projects at their expiry_block_height (REP-E-201).
+	InterimDeadlineDueKey = collections.NewPrefix("due/interim_deadline/")
+	ProjectExpiryDueKey   = collections.NewPrefix("due/project_expiry/")
+	// InterimsByAssigneeKey: (assignee address, interim id) for every live
+	// interim, so the per-member active cap and a zeroing read one member's
+	// interims instead of the whole pending set (REP-E-201). Maintained by
+	// UpdateInterim and the status-index helpers; rebuilt at InitGenesis.
+	InterimsByAssigneeKey = collections.NewPrefix("interim/by_assignee/")
+	// ProposedProjectsByCreatorKey: (creator address as stored on the
+	// project, project id) for every PROPOSED project, so the per-creator
+	// proposal cap reads one creator's proposals.
+	ProposedProjectsByCreatorKey = collections.NewPrefix("project/proposed_by_creator/")
 	// SubmittedCheckCursorKey: last SUBMITTED initiative id visited by the
 	// capped completion-threshold check. Not exported: it restarts at 0.
 	SubmittedCheckCursorKey = collections.NewPrefix("due/submitted_check_cursor")

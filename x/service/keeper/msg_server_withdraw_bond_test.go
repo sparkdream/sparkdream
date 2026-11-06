@@ -187,6 +187,44 @@ func TestMsgClaimUnbondedBond_PartialWithdrawalCappedBySlash(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrWithdrawExceedsAvailable)
 }
 
+// A slash that lands mid-wait clamps the queued withdrawal to the new
+// bond, so pending_withdraw_amount never exceeds bond_amount (the
+// PendingWithdrawalSanityInvariant and genesis validation both require
+// it; an exported genesis would otherwise fail to import).
+func TestSlashOperator_ClampsPendingWithdrawal(t *testing.T) {
+	f := initFixture(t)
+	f.withdrawFixture(t, math.NewInt(3_000_000))
+
+	_, err := f.msgServer.WithdrawBond(f.ctx, &types.MsgWithdrawBond{
+		Operator: testOperator1, ServiceType: testServiceType, Amount: math.NewInt(2_000_000),
+	})
+	require.NoError(t, err)
+
+	// 80% slash: bond 3_000_000 -> 600_000, below the 2_000_000 queue.
+	_, err = f.keeper.SlashOperator(f.ctx, testOperator1Addr, testServiceType, 8000, 0, keeper.SlashSourceMigration)
+	require.NoError(t, err)
+
+	op := f.getOp(t)
+	require.True(t, op.BondAmount.Equal(math.NewInt(600_000)))
+	require.True(t, op.PendingWithdrawAmount.Equal(math.NewInt(600_000)), "queue clamped to the bond")
+	require.Positive(t, op.WithdrawCompleteAt, "a non-empty queue keeps its completion time")
+	require.Equal(t, types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED, op.Status)
+	_, broken := keeper.PendingWithdrawalSanityInvariant(f.keeper)(f.sdkCtx())
+	require.False(t, broken)
+
+	gs, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.NoError(t, gs.Validate(), "exported genesis imports again")
+
+	// A full slash drops the queue entirely.
+	_, err = f.keeper.SlashOperator(f.ctx, testOperator1Addr, testServiceType, 10000, 0, keeper.SlashSourceMigration)
+	require.NoError(t, err)
+	op = f.getOp(t)
+	require.True(t, op.BondAmount.IsZero())
+	require.True(t, op.PendingWithdrawAmount.IsZero())
+	require.Zero(t, op.WithdrawCompleteAt)
+}
+
 func TestMsgClaimUnbondedBond_PartialWithdrawalOpenReportBlocks(t *testing.T) {
 	f := initFixture(t)
 	f.withdrawFixture(t, math.NewInt(3_000_000))

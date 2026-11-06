@@ -81,6 +81,12 @@ func (k Keeper) claimantEligible(ctx context.Context, claimant string) bool {
 
 // resolveDisputeInternal handles the common dispute resolution logic.
 // Used by both ResolveDispute (authority) and BeginBlock (timeout auto-resolution).
+//
+// Stakes settle through dreamutil's *OrGone operations: a side whose lock
+// x/rep reports as already gone (the party was zeroed) counts as settled
+// instead of failing every resolution for good (NAM-101). That is only the
+// fallback; the zeroing hook (zeroing_hook.go) closes or drops a zeroed
+// party's records first.
 func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Dispute, transferApproved bool) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
@@ -109,7 +115,7 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 			if err := k.transferName(ctx, dispute.Name, k.canonicalMember(ctx, dispute.Claimant)); err != nil {
 				return err
 			}
-			if err := k.dreamOps.SettleStakes(ctx,
+			if err := k.dreamOps.SettleStakesOrGone(ctx,
 				dispute.Claimant, claimantStake,
 				contestOwner, contestAmount,
 			); err != nil {
@@ -118,7 +124,7 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 			outcome = "upheld"
 		} else {
 			// Owner wins: name stays, unlock owner stake, burn claimant stake
-			if err := k.dreamOps.SettleStakes(ctx,
+			if err := k.dreamOps.SettleStakesOrGone(ctx,
 				contestOwner, contestAmount,
 				dispute.Claimant, claimantStake,
 			); err != nil {
@@ -136,7 +142,7 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 		case transferApproved && !k.claimantEligible(ctx, k.canonicalMember(ctx, dispute.Claimant)):
 			// The claimant can no longer hold the name: void the dispute
 			// and return the stake (nobody misbehaved).
-			if err := k.dreamOps.Unlock(ctx, dispute.Claimant, claimantStake); err != nil {
+			if _, err := k.dreamOps.UnlockOrGone(ctx, dispute.Claimant, claimantStake); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "unlock claimant stake: %s", err)
 			}
 			outcome = "voided"
@@ -145,13 +151,13 @@ func (k Keeper) resolveDisputeInternal(ctx context.Context, dispute types.Disput
 			if err := k.transferName(ctx, dispute.Name, k.canonicalMember(ctx, dispute.Claimant)); err != nil {
 				return err
 			}
-			if err := k.dreamOps.Unlock(ctx, dispute.Claimant, claimantStake); err != nil {
+			if _, err := k.dreamOps.UnlockOrGone(ctx, dispute.Claimant, claimantStake); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "unlock claimant stake: %s", err)
 			}
 			outcome = "upheld"
 		default:
 			// Dispute dismissed: name stays, burn claimant stake
-			if err := k.dreamOps.BurnLocked(ctx, dispute.Claimant, claimantStake); err != nil {
+			if _, err := k.dreamOps.BurnLockedOrGone(ctx, dispute.Claimant, claimantStake); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "burn claimant stake: %s", err)
 			}
 		}

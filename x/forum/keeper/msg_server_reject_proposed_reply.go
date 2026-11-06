@@ -62,11 +62,11 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 	}
 
 	// rejected_proposals is a lifetime counter on the proposing sentinel. A
-	// rejection is also an "overturned" accuracy tick: it lowers the sentinel's
-	// rolling-window accuracy (reducing/zeroing rewards) and, on a streak, demotes
-	// the role — the same machinery used for overturned moderation actions. This
-	// is what disarms the re-propose harassment loop: rejection now costs the
-	// proposer, not just the author.
+	// rejection is also an accuracy miss: it lowers the sentinel's
+	// rolling-window accuracy (reducing/zeroing rewards), which is what
+	// disarms the re-propose harassment loop: rejection costs the proposer,
+	// not just the author. It is not a verdict on a contested action, so it
+	// moves no streak, starts no cooldown and never demotes (REP-R-207).
 	if proposedBy != "" {
 		local, lerr := k.SentinelActivity.Get(ctx, proposedBy)
 		if lerr != nil {
@@ -76,11 +76,11 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 		if err := k.SentinelActivity.Set(ctx, proposedBy, local); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
-		// Rep applies the accuracy tick + demotion ratchet; the curation kind
-		// policy deliberately starts NO overturn cooldown (a rejected proposal
-		// must not lock the sentinel out of moderation).
+		// Rep applies the accuracy miss; no overturn cooldown or demotion
+		// ratchet (a rejected proposal must not lock the sentinel out of
+		// moderation).
 		if k.repKeeper != nil {
-			if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, proposedBy, reptypes.ActionKindForumCuration, false); err != nil {
+			if err := k.repKeeper.RecordRoleRejection(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, proposedBy, reptypes.ActionKindForumCuration); err != nil {
 				return nil, err
 			}
 		}

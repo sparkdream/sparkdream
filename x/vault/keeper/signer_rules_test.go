@@ -261,3 +261,121 @@ func TestMigrationHookWalksTarget(t *testing.T) {
 	err = h.BeforeMemberMigration(f.ctx, from, sdk.MustAccAddressFromBech32(bob), reptypes.MigrationPath_MIGRATION_PATH_KEY)
 	require.ErrorIs(t, err, types.ErrInvalidSignerSet)
 }
+
+// VLT-102: a RECOVERY or COUNCIL migration presumes the old key stolen, so
+// the proposals it opened are cancelled and its approvals stop counting.
+// The KEY path keeps both.
+func TestMigrationHookDropsStolenKeyApprovals(t *testing.T) {
+	for _, path := range []reptypes.MigrationPath{
+		reptypes.MigrationPath_MIGRATION_PATH_RECOVERY,
+		reptypes.MigrationPath_MIGRATION_PATH_COUNCIL,
+		reptypes.MigrationPath_MIGRATION_PATH_KEY,
+	} {
+		t.Run(path.String(), func(t *testing.T) {
+			f := initFixture(t)
+			rep := f.withRep()
+			v := create2of3(t, f)
+			byThief := propose(t, f, alice, v.VaultId, anySend(t, v.Address, sink, 10))
+			byBob := propose(t, f, bob, v.VaultId, anySend(t, v.Address, sink, 20))
+			_, err := f.srv.Approve(f.ctx, &types.MsgApprove{Signer: alice, ProposalId: byBob.ProposalId, MessagesHash: byBob.MessagesHash})
+			require.NoError(t, err)
+
+			rep.canonicalOf[alice] = dave
+			rep.tombstoned[alice] = true
+			h := keeper.NewMigrationHooks(&f.keeper)
+			require.NoError(t, h.AfterMemberMigration(f.ctx, sdk.MustAccAddressFromBech32(alice), sdk.MustAccAddressFromBech32(dave), path))
+
+			p, err := f.keeper.VaultProposal.Get(f.ctx, byBob.ProposalId)
+			require.NoError(t, err)
+			if path == reptypes.MigrationPath_MIGRATION_PATH_KEY {
+				require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_PENDING, proposalStatus(t, f, byThief.ProposalId))
+				require.Equal(t, uint64(2), f.keeper.Tally(f.ctx, v, p), "a deliberate move keeps its approvals")
+				return
+			}
+			require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_CANCELLED, proposalStatus(t, f, byThief.ProposalId))
+			require.Equal(t, []string{bob}, p.Approvals)
+			require.Equal(t, uint64(1), f.keeper.Tally(f.ctx, v, p), "the stolen key's approval no longer counts")
+			// The recovered member approves again with the new key.
+			_, err = f.srv.Approve(f.ctx, &types.MsgApprove{Signer: dave, ProposalId: byBob.ProposalId, MessagesHash: byBob.MessagesHash})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// VLT-108: a RECOVERY or COUNCIL migration that merges two accepted entries
+// into one member can leave the threshold out of reach ({A:1, B:1, C:1},
+// threshold 3, A recovered into B). The hook clamps the threshold to the
+// reachable weight, so every distinct person still has to sign and the
+// vault keeps working; the clamp is a config change. A KEY-path merge
+// through an unaccepted entry (the veto only sees accepted ones) gets the
+// same clamp. A vault whose threshold the merged member still reaches is
+// untouched.
+func TestMigrationMergeClampsThreshold(t *testing.T) {
+	for _, path := range []reptypes.MigrationPath{
+		reptypes.MigrationPath_MIGRATION_PATH_RECOVERY,
+		reptypes.MigrationPath_MIGRATION_PATH_KEY,
+	} {
+		t.Run(path.String(), func(t *testing.T) {
+			f := initFixture(t)
+			rep := f.withRep()
+			f.bank.balances[creator] = math.NewInt(1_000_000_000_000)
+			res, err := f.srv.CreateVault(f.ctx, &types.MsgCreateVault{
+				Creator: creator, Signers: signers(map[string]uint64{alice: 1, bob: 1, carol: 1}, alice, bob, carol),
+				Threshold: 3, ProposalTtl: 24 * 3600,
+			})
+			require.NoError(t, err)
+			unanimity := res.VaultId
+			if path == reptypes.MigrationPath_MIGRATION_PATH_KEY {
+				// bob's entry stays an invitation: the KEY veto does not see it.
+				require.NoError(t, accept(t, f, alice, unanimity))
+				require.NoError(t, accept(t, f, carol, unanimity))
+			} else {
+				acceptAll(t, f, unanimity)
+			}
+			// 2-of-{alice, bob, carol}: still reachable after the merge. On the
+			// KEY path bob stays an invitee here too, or the veto refuses.
+			res, err = f.srv.CreateVault(f.ctx, &types.MsgCreateVault{
+				Creator: creator, Signers: signers(map[string]uint64{alice: 1, bob: 1, carol: 1}, alice, bob, carol),
+				Threshold: 2, ProposalTtl: 24 * 3600,
+			})
+			require.NoError(t, err)
+			two, _ := f.keeper.Vault.Get(f.ctx, res.VaultId)
+			require.NoError(t, accept(t, f, alice, two.VaultId))
+			require.NoError(t, accept(t, f, carol, two.VaultId))
+			if path != reptypes.MigrationPath_MIGRATION_PATH_KEY {
+				require.NoError(t, accept(t, f, bob, two.VaultId))
+			}
+			f.bank.balances[two.Address] = math.NewInt(1_000)
+			p := propose(t, f, carol, two.VaultId, anySend(t, two.Address, sink, 1))
+
+			h := keeper.NewMigrationHooks(&f.keeper)
+			from, to := sdk.MustAccAddressFromBech32(alice), sdk.MustAccAddressFromBech32(bob)
+			require.NoError(t, h.BeforeMemberMigration(f.ctx, from, to, path))
+			rep.canonicalOf[alice] = bob
+			rep.tombstoned[alice] = true
+			require.NoError(t, h.AfterMemberMigration(f.ctx, from, to, path))
+
+			u, _ := f.keeper.Vault.Get(f.ctx, unanimity)
+			require.Equal(t, uint64(2), u.Threshold, "clamped to the two people left")
+			require.Equal(t, uint64(2), u.ConfigVersion)
+			require.Len(t, u.Signers, 3, "entries are never re-keyed or removed by a migration")
+			v, _ := f.keeper.Vault.Get(f.ctx, two.VaultId)
+			require.Equal(t, uint64(2), v.Threshold, "2 <= reachable 2: untouched")
+			require.Equal(t, uint64(1), v.ConfigVersion)
+			if path == reptypes.MigrationPath_MIGRATION_PATH_KEY {
+				require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_PENDING, proposalStatus(t, f, p.ProposalId))
+				// bob holds the merged member's accepted entry (alice's); the
+				// unaccepted one under bob is dead weight until it expires.
+				require.ErrorIs(t, accept(t, f, bob, unanimity), types.ErrInvalidSignerSet)
+			}
+			// The unanimity vault acts with the two people who remain.
+			f.bank.balances[u.Address] = math.NewInt(1_000)
+			q := propose(t, f, bob, unanimity, anySend(t, u.Address, sink, 1))
+			_, err = f.srv.Approve(f.ctx, &types.MsgApprove{Signer: carol, ProposalId: q.ProposalId, MessagesHash: q.MessagesHash, Execute: true})
+			require.NoError(t, err)
+			require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_EXECUTED, proposalStatus(t, f, q.ProposalId))
+			msg, broken := keeperVaultInvariant(f)(f.ctx)
+			require.False(t, broken, msg)
+		})
+	}
+}

@@ -48,12 +48,15 @@ func (k msgServer) TransferUnits(ctx context.Context, msg *types.MsgTransferUnit
 		res := types.UnitResult{Recipient: entry.Recipient, Amount: entry.Amount}
 		// Units may sit under a predecessor address of the sender; the
 		// pending record then names that holder so resolution finds them.
-		holder := k.balanceHolder(ctx, c.Id, e.Id, msg.Sender)
+		holder, err := k.balanceHolder(ctx, c.Id, e.Id, msg.Sender)
+		if err != nil {
+			return nil, err
+		}
 		if !c.Flags.NeedsConsent() && k.deliversDirectly(ctx, msg.Sender, entry.Recipient) {
 			if err := k.debit(ctx, &e, holder, entry.Amount, false); err != nil {
 				return nil, err
 			}
-			if err := k.credit(ctx, &e, entry.Recipient, entry.Amount, sender, false, math.Int{}, ""); err != nil {
+			if err := k.credit(ctx, &e, entry.Recipient, entry.Amount, sender, false, math.Int{}, "", ""); err != nil {
 				return nil, err
 			}
 			res.Delivered = true

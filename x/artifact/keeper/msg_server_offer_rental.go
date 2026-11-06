@@ -67,7 +67,7 @@ func (k msgServer) OfferRental(ctx context.Context, msg *types.MsgOfferRental) (
 	o := types.RentalOffer{
 		ClassId:     t.ClassId,
 		TokenId:     t.Id,
-		Owner:       msg.Owner,
+		Owner:       t.Owner, // the stored owner, which a migrated signer acts for (ART-102)
 		User:        msg.User,
 		Price:       msg.Price,
 		Duration:    msg.Duration,

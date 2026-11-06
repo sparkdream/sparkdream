@@ -22,6 +22,11 @@ func (k msgServer) UpdateListing(ctx context.Context, msg *types.MsgUpdateListin
 	if err != nil || !k.canActAs(ctx, msg.Seller, l.Seller) {
 		return nil, types.ErrListingNotFound
 	}
+	// An expired listing the EndBlocker has not pruned yet is gone from the
+	// market; it cannot be revived in place (relist instead).
+	if l.ExpiresAt <= now(ctx) {
+		return nil, types.ErrListingNotFound
+	}
 	if err := k.ListingExpiry.Remove(ctx, collections.Join3(l.ExpiresAt, l.ClassId, l.TokenId)); err != nil {
 		return nil, err
 	}

@@ -78,6 +78,15 @@ var (
 	// Bridge indexes
 	BridgesByPeerKey = collections.NewPrefix("fed/idx/bridges_peer/")
 
+	// PeerByChannelKey: federation channel id (this chain's end) -> peer id,
+	// for every non-REMOVED peer. ActivePeerChannelsKey: (channel id,
+	// peer id) for the federation and transfer channels of every ACTIVE
+	// SPARK_DREAM peer. Both are derived from Peers (rebuilt at
+	// InitGenesis, maintained by SetPeer) so packet handlers and the relay
+	// refund never walk the peer registry.
+	PeerByChannelKey      = collections.NewPrefix("fed/idx/peer_channel/")
+	ActivePeerChannelsKey = collections.NewPrefix("fed/idx/active_peer_channel/")
+
 	// BindingsByOperatorKey: (service_type, address, peer_id) reverse
 	// index for hook-handler lookups. Multi-valued (Phase 1 of the
 	// federation→service migration).

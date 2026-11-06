@@ -12,6 +12,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/session/types"
 )
 
@@ -39,6 +40,25 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 	if sk == nil {
 		return nil, types.ErrSessionNotFound
 	}
+
+	// Get current params for allowlist validation
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1a. Implicit acceptance (SES-102): the grantee's signature on this
+	// exec is its consent to a PENDING key, so accept it first and then run
+	// every check an active key is held to. A refused acceptance (grantee
+	// over its class cap, granter over its session cap, key expired) fails
+	// the exec and leaves the grant pending.
+	if grant.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		grant, _, err = k.acceptPendingGrant(ctx, params, grant)
+		if err != nil {
+			return nil, err
+		}
+		sk = grant.GetSessionKey()
+	}
 	if grant.Status != types.GrantStatus_GRANT_STATUS_ACTIVE {
 		return nil, types.ErrSessionNotFound
 	}
@@ -55,12 +75,6 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 	}
 
 	granterBz, err := k.addressCodec.StringToBytes(msg.Granter)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get current params for allowlist validation
-	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +156,10 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 			return nil, fmt.Errorf("no handler found for %s", typeURL)
 		}
 
-		result, err := handler(sdkCtx, innerMsg)
+		// Tag the inner context as session-dispatched so handlers can
+		// tighten what a delegated key may do (x/artifact refunds mint
+		// deposits paid here to the granter, SES-101).
+		result, err := handler(sdkCtx.WithValue(commontypes.ContextKeySessionExec, msg.Granter), innerMsg)
 		if err != nil {
 			return nil, err // atomic: entire MsgExecSession reverts
 		}

@@ -85,6 +85,14 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrHideRecordNotFound, "rep keeper not wired")
 	}
+	// Mark the record appealed before x/rep opens the case: x/rep reads the
+	// hiding sentinel through RepAppealTarget.GetActionSentinel to keep it
+	// off the jury, and that reports only an appealed record (COL-102). A
+	// failure below reverts the whole transaction, this write included.
+	hideRecord.Appealed = true
+	if err := k.HideRecord.Set(ctx, hideRecord.Id, hideRecord); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update hide record")
+	}
 	appealID, _, err := k.late.repKeeper.CreateGovActionAppeal(ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE,
 		strconv.FormatUint(hideRecord.Id, 10), creatorAddr, "collect hide appeal: "+hideRecord.ReasonText)
 	if err != nil {
@@ -97,7 +105,6 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		return nil, err
 	}
 
-	hideRecord.Appealed = true
 	hideRecord.AppealId = appealID
 	if err := k.HideRecord.Set(ctx, hideRecord.Id, hideRecord); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update hide record")

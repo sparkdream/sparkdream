@@ -129,10 +129,26 @@ func (m *mockBankKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress, de
 
 // mockCommonsKeeper implements types.CommonsKeeper for testing.
 type mockCommonsKeeper struct {
-	IsGroupPolicyAddressFn   func(ctx context.Context, addr string) bool
-	IsGroupPolicyMemberFn    func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
-	GroupPolicyMemberCountFn func(ctx context.Context, policyAddr string) (uint64, error)
-	IsCouncilAuthorizedFn    func(ctx context.Context, addr string, council string, committee string) bool
+	IsGroupPolicyAddressFn       func(ctx context.Context, addr string) bool
+	IsGroupPolicyMemberFn        func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
+	GroupPolicyMemberCountFn     func(ctx context.Context, policyAddr string) (uint64, error)
+	IsCouncilAuthorizedFn        func(ctx context.Context, addr string, council string, committee string) bool
+	IsCouncilOrCommitteePolicyFn func(ctx context.Context, addr string, council string, committee string) bool
+	GroupPolicyMembersFn         func(ctx context.Context, policyAddr string) ([]string, error)
+}
+
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilOrCommitteePolicyFn != nil {
+		return m.IsCouncilOrCommitteePolicyFn(ctx, addr, council, committee)
+	}
+	return false
+}
+
+func (m *mockCommonsKeeper) GroupPolicyMembers(ctx context.Context, policyAddr string) ([]string, error) {
+	if m.GroupPolicyMembersFn != nil {
+		return m.GroupPolicyMembersFn(ctx, policyAddr)
+	}
+	return nil, nil
 }
 
 func (m *mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
@@ -400,7 +416,11 @@ func initFixture(t *testing.T) *fixture {
 	k.SetHooks(hooks)
 	k.SetIdentityKeeper(mockIdentityKeeperService{})
 
-	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {
+	// The fixture's service types use 20-block unbonding periods, which
+	// may not be shorter than the contest window (SVC-104).
+	fixtureParams := types.DefaultParams()
+	fixtureParams.ReportContestWindowBlocks = 20
+	if err := k.Params.Set(ctx, fixtureParams); err != nil {
 		t.Fatalf("failed to set params: %v", err)
 	}
 

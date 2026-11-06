@@ -37,7 +37,52 @@ var (
 	// below DefaultMaxFundingPerDay, so the reserve can't be drained faster
 	// than it is funded.
 	DefaultMaxFeesPerEpoch = math.NewInt(650_000)
+	// DefaultBeaconEnabled: once a DKG has completed, every closed epoch's
+	// TLE key is demanded and reconstructed (the randomness beacon), batch
+	// mode or not. See docs/x-shield-spec.md "Randomness beacon".
+	DefaultBeaconEnabled = true
 )
+
+// Shares of max_fees_per_epoch (compiled, not params: they bound how the one
+// budget param is divided, see docs/x-shield-spec.md "Fee budget").
+const (
+	// IdentityFeeShareDivisor: one identity (rate-limit nullifier) may have
+	// at most max_fees_per_epoch / IdentityFeeShareDivisor paid for it in a
+	// shield epoch, and never less than one max_fee_per_exec. One member can
+	// no longer take the whole budget; it takes IdentityFeeShareDivisor
+	// members acting together.
+	IdentityFeeShareDivisor = 10
+	// GroupTreeFeeReserveDivisor: max_fees_per_epoch / GroupTreeFeeReserveDivisor
+	// is reserved for PROOF_DOMAIN_GROUP_TREE execs (secret-ballot votes and
+	// polls). Other execs stop at the rest, so trust-tree traffic cannot
+	// starve secret-ballot governance.
+	GroupTreeFeeReserveDivisor = 5
+)
+
+// IdentityEpochFeeCap is the most the module pays for one identity's execs in
+// one shield epoch.
+func IdentityEpochFeeCap(p Params) math.Int {
+	share := p.MaxFeesPerEpoch.QuoRaw(IdentityFeeShareDivisor)
+	if !p.MaxFeePerExec.IsNil() && share.LT(p.MaxFeePerExec) {
+		share = p.MaxFeePerExec
+	}
+	return share
+}
+
+// EpochFeeLimit is how far an exec may take the epoch's paid fees: the whole
+// budget for a group-tree exec, the budget less the group-tree reserve for
+// any other (never below one max_fee_per_exec, capped at the budget).
+func EpochFeeLimit(p Params, groupTree bool) math.Int {
+	budget := p.MaxFeesPerEpoch
+	if groupTree {
+		return budget
+	}
+	limit := budget.Sub(budget.QuoRaw(GroupTreeFeeReserveDivisor))
+	if !p.MaxFeePerExec.IsNil() && limit.LT(p.MaxFeePerExec) {
+		limit = math.MinInt(p.MaxFeePerExec, budget)
+	}
+	return limit
+}
 
 // NewParams creates a new Params instance.
 func NewParams() Params {
@@ -63,6 +108,7 @@ func NewParams() Params {
 		MaxFeePerExec:               DefaultMaxFeePerExec,
 		EnableBatchAfterDkg:         DefaultEnableBatchAfterDKG,
 		MaxFeesPerEpoch:             DefaultMaxFeesPerEpoch,
+		BeaconEnabled:               DefaultBeaconEnabled,
 	}
 }
 

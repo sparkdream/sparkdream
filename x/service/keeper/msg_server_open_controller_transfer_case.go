@@ -107,7 +107,11 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 			`{"operator":%q,"service_type":%q,"opener":%q,"proposed_new_controller":%q,"reason":%q}`,
 			msg.Operator, msg.ServiceType, msg.Opener, msg.ProposedNewController, msg.Reason,
 		))
-		parties := []string{msg.Operator, msg.Opener, op.Controller, msg.ProposedNewController}
+		// both groups' members are parties: the current controller's lose
+		// the operator, the proposed one's gain it (SVC-102)
+		parties := []string{msg.Operator, msg.Opener}
+		parties = append(parties, k.groupParties(ctx, op.Controller)...)
+		parties = append(parties, k.groupParties(ctx, msg.ProposedNewController)...)
 		juryCaseID, err = k.repKeeper().CreateSeatedAppeal(ctx, "service.controller_transfer", payload,
 			juryVotingDeadline(currentHeight, params), parties)
 		if err != nil {

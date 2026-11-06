@@ -50,7 +50,7 @@ func pendingPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
 	peer, err := f.keeper.Peers.Get(f.ctx, peerID)
 	require.NoError(t, err)
 	peer.Status = types.PeerStatus_PEER_STATUS_PENDING
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, peerID, peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 }
 
 func TestResumePeerRequiresCommitteePolicy(t *testing.T) {

@@ -63,10 +63,12 @@ var aliasGuardAllowlist = map[string]string{
 	// Re-keyed by the owning module's migration hook, so the stored address
 	// is always the current one.
 	"session/keeper/msg_server_decline_grant.go|msg.Grantee != grant.Grantee":          "session re-keys grants (granter and grantee side) at migration",
+	"session/keeper/msg_server_accept_grant.go|msg.Grantee != grant.Grantee":           "session re-keys grants (granter and grantee side) at migration",
 	"session/keeper/msg_server_pull_allowance.go|grant.Grantee != msg.Grantee":         "session re-keys grants at migration",
 	"session/keeper/msg_server_pull_allowance.go|msg.Recipient == grant.Granter":       "session re-keys grants at migration",
 	"session/keeper/msg_server_retry_scheduled_oneshot.go|msg.Caller != grant.Grantee": "session re-keys grants at migration",
 	"session/keeper/msg_server_retry_scheduled_oneshot.go|msg.Caller != grant.Granter": "session re-keys grants at migration",
+	"session/keeper/msg_server_retry_scheduled_oneshot.go|msg.Caller == grant.Granter": "session re-keys grants at migration",
 	"session/keeper/msg_server_revoke_grant.go|msg.Granter != grant.Granter":           "session re-keys grants at migration",
 	// Existence checks, not gates.
 	"season/keeper/content_validation.go|k.late.repKeeper.IsMember": "a jury content reference must name an existing member record",

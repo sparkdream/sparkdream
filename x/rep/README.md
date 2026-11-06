@@ -161,7 +161,7 @@ Fixed-rate delegated duties:
 | COMPLEX | 400 DREAM |
 | EXPERT | 1,000 DREAM |
 
-Types: JURY_DUTY, EXPERT_TESTIMONY, DISPUTE_MEDIATION, PROJECT_APPROVAL, BUDGET_REVIEW, MODERATION. Solo expert bonus: +50%. 7-epoch deadline. Capped reputation per tag per epoch prevents grinding.
+Types: JURY_DUTY, EXPERT_TESTIMONY, DISPUTE_MEDIATION, PROJECT_APPROVAL, BUDGET_REVIEW, MODERATION. Solo expert bonus: +50%. 7-epoch deadline. Capped reputation per tag per epoch prevents grinding. PROJECT_APPROVAL (STANDARD) and BUDGET_REVIEW (COMPLEX, requested budget >= `budget_review_threshold`) are system-only: a budget-backed `MsgProposeProject` opens one for the Commons Operations Committee members (id on `project.approval_interim_id`), `MsgApproveProjectBudget` pays it, a cancelled or expired proposal ends it unpaid.
 
 ### ZK Trust Tree
 
@@ -186,7 +186,7 @@ Persistent KV-based sparse Merkle tree for `x/shield` ZK proof validation:
 ### Tag Moderation
 
 - `MsgReportTag` files a report against a tag; multiple reporters can cosign. `TagReport` tracks `total_bond`, reporters, and review status.
-- `MsgResolveTagReport` (authority) applies one of several actions: ignore, reserve, ban/remove, or restore. When a tag is removed, x/rep calls `ForumKeeper.PruneTagReferences` to strip the tag name from forum posts that reference it.
+- `MsgResolveTagReport` (authority) applies one of four actions: 0 ignore (reporters' bonds forfeited), 1 remove, 2 reserve, 3 restore (releases a reserved tag back to public use; refused for a tag that is not reserved). Actions 1-3 refund the reporters. A `TagReport` is `under_review` from the first report until it is resolved. When a tag is removed, x/rep calls `ForumKeeper.PruneTagReferences` to strip the tag name from forum posts that reference it.
 
 ### Tag Budgets
 
@@ -496,8 +496,8 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgProposeProject` | Propose project with budget and tags | Any member |
-| `MsgApproveProjectBudget` | Approve and fund project | Policy of the project council or its Operations Committee, or x/gov; a single Operations Committee member only up to `large_project_budget_threshold` |
+| `MsgProposeProject` | Propose project with budget and tags; a budget-backed proposal opens a PROJECT_APPROVAL / BUDGET_REVIEW interim for the Commons Operations Committee | Any member |
+| `MsgApproveProjectBudget` | Approve and fund project; pays the proposal's review interim | Policy of the project council or its Operations Committee, or x/gov; a single Operations Committee member only up to `large_project_budget_threshold` |
 | `MsgCancelProject` | Cancel project with reason. Cascades to open initiatives and releases every project stake — rewards paid, principal returned, denominators shrunk | Policy of the project council or its Operations Committee (executed proposal), or x/gov; the creator only while PROPOSED, or for an ACTIVE permissionless project with no open work |
 | `MsgCompleteProject` | Record an ACTIVE project as COMPLETED: pays the staker completion bonus and releases every project stake. Refused while any initiative is non-terminal or any challenge on one is active (`ErrProjectHasOpenWork`) | Policy of the project council or its Operations Committee (executed proposal), or x/gov — never a single member |
 
@@ -545,8 +545,9 @@ Creator self-assignment is allowed but hardened: a raised external-conviction ra
 | `MsgCreateChallenge` | Challenge initiative work (named or anonymous via x/shield) | Members |
 | `MsgRespondToChallenge` | Respond to prevent auto-uphold | Assignee |
 | `MsgSubmitJurorVote` | Cast jury vote with verdict and confidence (PENDING reviews only; verdict UPHOLD or REJECT, confidence in [0, 1], else `ErrInvalidJurorVote`) | Selected juror |
-| `MsgInviteExpertWitness` | Call an expert witness onto a pending initiative jury review (at most 2 per review); opens an `EXPERT_TESTIMONY` interim paid on testimony. Expert: active ESTABLISHED+, reputation in the initiative's tags, not a party or juror | Seated juror |
-| `MsgSubmitExpertTestimony` | Testify once while the review is PENDING; completes and pays the expert's `EXPERT_TESTIMONY` interim | Invited expert witness |
+| `MsgInviteExpertWitness` | Call an expert witness onto a pending initiative jury review (at most 2 per review, pending invitations included); opens an `EXPERT_TESTIMONY` interim the verdict pays once a second juror endorsed the call and the expert testified. Expert: active ESTABLISHED+, reputation in the initiative's tags, not a party, juror or invitation neighbour of one | Seated juror |
+| `MsgEndorseExpertWitness` | Endorse another juror's pending expert invitation; the endorser must have accepted jury duty or voted and cannot be the inviter. Unendorsed invitations cannot testify and expire unpaid with the verdict | Second seated juror |
+| `MsgSubmitExpertTestimony` | Testify once while the review is PENDING (endorsed invitations only); the verdict completes and pays the expert's `EXPERT_TESTIMONY` interim | Invited expert witness |
 
 Challenges resolve to `UPHELD` or `REJECTED` — or `VOIDED` when the parent
 project is cancelled out from under the dispute: the challenger's stake is
@@ -565,7 +566,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgCreateInterim` | Create delegated work; the creator becomes its sole assignee | Member |
+| `MsgCreateInterim` | Create delegated work; the creator becomes its sole assignee (system-only types refused: ADJUDICATION, JURY_DUTY, EXPERT_TESTIMONY, PROJECT_APPROVAL, BUDGET_REVIEW) | Member |
 | `MsgAssignInterim` | Add an assignee (a share of the budget) | Operations Committee |
 | `MsgSubmitInterimWork` | Submit deliverable | Assignee |
 | `MsgApproveInterim` | Approve completion. Refused on `ADJUDICATION` interims, which carry a verdict a bool cannot express — settle those with `MsgCompleteInterim` | Commons Operations Committee policy (proposal), Commons Council policy or x/gov |
@@ -739,6 +740,8 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `completer_share` | 90% | Initiative reward to completer |
 | `treasury_share` | 10% | Initiative reward to treasury |
 | `trust_level_config` | See trust levels table | Trust level thresholds and invitation credits |
+| `budget_review_threshold` | 5,000 DREAM | Requested DREAM at or above which a budget-backed project proposal opens a BUDGET_REVIEW (COMPLEX) interim for the Commons Operations Committee instead of a PROJECT_APPROVAL (STANDARD) one |
+| `max_proposed_projects_per_creator` | 3 | Budget-backed projects one creator (across their aliases) may hold in PROPOSED at once; the proposal also requires ACTIVE status and burns `project_creation_fee`, so a creator cannot fill the committee's review slots for free |
 
 | `migration_enabled` / `key_path_enabled` | true / true | Member key migration master switch / key-path ("Q-day") switch |
 | `key_migration_delay` / `recovery_migration_delay` / `council_migration_delay` | 7d / 2d / 21d | Accept-to-finalization delay per path (test build: 20s / 10s / 40s) |
@@ -817,9 +820,6 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `min_juror_selection_weight` | LegacyDec | 0.1 | Floor on the responsiveness draw multiplier |
 | `min_jury_seatings_for_weighting` | uint64 | 3 | Seatings before responsiveness applies |
 | `challenge_response_deadline_epochs` | uint64 | 3 | Auto-uphold if no response |
-| `max_active_challenges_per_committee` | uint64 | 3 | Rate limit |
-| `max_new_challenges_per_epoch` | uint64 | 2 | Rate limit |
-| `challenge_queue_max_size` | uint64 | 10 | Queue size limit |
 
 #### Initiative Review
 
@@ -921,10 +921,7 @@ Per-project review is configured by `MsgSetVerificationPolicy`;
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `minor_slash_penalty` | LegacyDec | 5% | Minor infraction |
-| `moderate_slash_penalty` | LegacyDec | 15% | Moderate infraction |
-| `severe_slash_penalty` | LegacyDec | 30% | Severe infraction |
-| `zeroing_slash_penalty` | LegacyDec | 100% | Complete zeroing |
+| `severe_slash_penalty` | LegacyDec | 30% | Reputation slash on a lost challenge and on a demotion (the only graded slash; zeroing burns everything) |
 
 #### Anti-Gaming
 
@@ -933,7 +930,6 @@ Per-project review is configured by `MsgSetVerificationPolicy`;
 | `reputation_decay_rate` | LegacyDec | 0.5% | Per epoch |
 | `max_reputation_gain_per_epoch` | uint64 | 50 | Per tag |
 | `max_tags_per_initiative` | uint64 | 3 | Prevents tag stuffing |
-| `min_reputation_multiplier` | LegacyDec | 10% | Floor for reputation-based calculations |
 
 ## Dependencies
 

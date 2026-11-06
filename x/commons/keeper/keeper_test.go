@@ -165,6 +165,8 @@ func setupCommonsKeeperWithFutarchy(t *testing.T, fk types.FutarchyKeeper) (keep
 		mockUpgradeKeeper{},
 	)
 	k.SetIdentityKeeper(&mockIdentityKeeperCommons{})
+	// Params exist on every chain from genesis; the proposal fee reads them.
+	require.NoError(t, k.Params.Set(ctx, types.DefaultParams()))
 
 	return k, ctx, mockBK, split
 }
@@ -270,6 +272,16 @@ func (m mockAuthKeeper) SetAccount(ctx context.Context, acc sdk.AccountI) {
 // --- Mock Bank Keeper ---
 type mockBankKeeperCommons struct {
 	balance map[string]sdk.Coins
+	// moduleSends records every SendCoinsFromAccountToModule call; a
+	// non-nil moduleSendErr makes the next one fail instead.
+	moduleSends   []moduleSend
+	moduleSendErr error
+}
+
+type moduleSend struct {
+	from   sdk.AccAddress // bytes: the global bech32 prefix varies across tests
+	module string
+	amount sdk.Coins
 }
 
 func (m *mockBankKeeperCommons) GetAllBalances(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -294,6 +306,10 @@ func (m *mockBankKeeperCommons) SendCoinsFromModuleToAccount(ctx context.Context
 }
 
 func (m *mockBankKeeperCommons) SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error {
+	if m.moduleSendErr != nil {
+		return m.moduleSendErr
+	}
+	m.moduleSends = append(m.moduleSends, moduleSend{from: senderAddr, module: recipientModule, amount: amt})
 	return nil
 }
 

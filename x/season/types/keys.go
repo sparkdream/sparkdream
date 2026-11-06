@@ -21,6 +21,12 @@ var ParamsKey = collections.NewPrefix("p_season")
 var (
 	SeasonKey = collections.NewPrefix("season/value/")
 
+	// SeasonHistoryKey holds the full Season record of every completed
+	// season by number (status COMPLETED, final end_block and extension
+	// counters), written at TRANSITION_PHASE_COMPLETE and kept for
+	// snapshot_retention_seasons seasons.
+	SeasonHistoryKey = collections.NewPrefix("season/history/")
+
 	// TransitionAbortsKey counts MsgAbortSeasonTransition per season number
 	// (capped by MaxTransitionAbortsPerSeason).
 	TransitionAbortsKey = collections.NewPrefix("season/aborts/")
@@ -124,3 +130,17 @@ var (
 	// an index on the Guild map (SEA-35). Rebuilt at InitGenesis.
 	GuildActiveCountKey = collections.NewPrefix("guild/activeCount/")
 )
+
+// Staker indexes of the DREAM lock records, so the zeroing hook reads only
+// the zeroed member's records (SEA-101, SEA-104). Derived: maintained by the
+// IndexedMaps and rebuilt by InitGenesis.
+var (
+	NominationStakesByStakerKey           = collections.NewPrefix("nominationStake/byStaker/")
+	DisplayNameReportStakesByReporterKey  = collections.NewPrefix("displayNameReportStake/byReporter/")
+	DisplayNameAppealStakesByAppellantKey = collections.NewPrefix("displayNameAppealStake/byAppellant/")
+)
+
+// PendingVoteQuestProgressKey holds per-member vote counts the vote hook has
+// not yet applied to quest objectives; the season EndBlocker applies and
+// clears them (SEA-103).
+var PendingVoteQuestProgressKey = collections.NewPrefix("memberQuestProgress/pendingVotes/")

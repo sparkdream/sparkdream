@@ -55,7 +55,32 @@ func (k Keeper) nextGrantID(ctx context.Context) (uint64, error) {
 // and (for SESSION_KEY grants) maintains the (granter, grantee) -> id
 // back-compat lookup. Callers are responsible for validating the grant
 // before calling.
+//
+// A PENDING grant (SES-102) is indexed under its granter only: it is never
+// written to a grantee-keyed index consumers walk or the expiration index,
+// counts toward the granter's pending count instead of its active count,
+// and sits on PendingGrantsByDeadline for the EndBlocker pending-expiry
+// pass and on the query-only PendingGrantsByGrantee (SES-202). The
+// session-key pair lookup is granter-keyed and is written for a pending
+// key too: it is how the grantee's first MsgExecSession finds the grant to
+// accept, and it keeps one session key per pair whatever its status.
 func (k Keeper) writeGrant(ctx context.Context, g types.Grant) error {
+	if err := k.writeGrantNoCount(ctx, g); err != nil {
+		return err
+	}
+	if activeStatus(g.Status) {
+		return k.incActiveGrantCount(ctx, g.Granter, g.Type)
+	}
+	if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		return k.incPendingGrantCount(ctx, g.Granter)
+	}
+	return nil
+}
+
+// writeGrantNoCount persists a grant and every secondary index its status
+// calls for, without touching the per-granter counters. InitGenesis uses it
+// directly and recomputes the counters once at the end.
+func (k Keeper) writeGrantNoCount(ctx context.Context, g types.Grant) error {
 	if g.Id == 0 {
 		return fmt.Errorf("grant id must be non-zero")
 	}
@@ -65,6 +90,9 @@ func (k Keeper) writeGrant(ctx context.Context, g types.Grant) error {
 	if g.Status == types.GrantStatus_GRANT_STATUS_UNSPECIFIED {
 		return fmt.Errorf("grant status must be specified")
 	}
+	if g.Status == types.GrantStatus_GRANT_STATUS_PENDING && !types.IsAccessGrantType(g.Type) {
+		return fmt.Errorf("grant %d: %s grants cannot be pending", g.Id, g.Type)
+	}
 
 	if err := k.Grants.Set(ctx, g.Id, g); err != nil {
 		return err
@@ -72,27 +100,29 @@ func (k Keeper) writeGrant(ctx context.Context, g types.Grant) error {
 	if err := k.GrantsByGranter.Set(ctx, collections.Join(g.Granter, g.Id)); err != nil {
 		return err
 	}
-	if err := k.GrantsByGrantee.Set(ctx, collections.Join(g.Grantee, g.Id)); err != nil {
-		return err
-	}
-	if err := k.GrantsByExpiration.Set(ctx, collections.Join(g.ExpiresAt.Unix(), g.Id)); err != nil {
-		return err
-	}
 	if err := k.GrantsByTypeAndGranter.Set(ctx, collections.Join3(int32(g.Type), g.Granter, g.Id)); err != nil {
 		return err
 	}
-
-	if activeStatus(g.Status) {
-		if err := k.incActiveGrantCount(ctx, g.Granter, g.Type); err != nil {
-			return err
-		}
-	}
-
-	// SESSION_KEY back-compat: enforce one-active-per-pair.
+	// SESSION_KEY back-compat: enforce one-per-pair.
 	if g.Type == types.GrantType_GRANT_TYPE_SESSION_KEY {
 		if err := k.SessionKeyByPair.Set(ctx, collections.Join(g.Granter, g.Grantee), g.Id); err != nil {
 			return err
 		}
+	}
+	if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if err := k.PendingGrantsByDeadline.Set(ctx, collections.Join(pendingDeadline(g), g.Id)); err != nil {
+			return err
+		}
+		return k.PendingGrantsByGrantee.Set(ctx, collections.Join(g.Grantee, g.Id))
+	}
+	if err := k.GrantsByGrantee.Set(ctx, collections.Join(g.Grantee, g.Id)); err != nil {
+		return err
+	}
+	if err := k.GrantsByGranteeAndType.Set(ctx, collections.Join3(g.Grantee, int32(g.Type), g.Id)); err != nil {
+		return err
+	}
+	if err := k.GrantsByExpiration.Set(ctx, collections.Join(g.ExpiresAt.Unix(), g.Id)); err != nil {
+		return err
 	}
 	return k.setOneshotTimeIndexes(ctx, g)
 }
@@ -125,12 +155,6 @@ func (k Keeper) removeGrantIndexes(ctx context.Context, g types.Grant) error {
 	if err := k.GrantsByGranter.Remove(ctx, collections.Join(g.Granter, g.Id)); err != nil {
 		return err
 	}
-	if err := k.GrantsByGrantee.Remove(ctx, collections.Join(g.Grantee, g.Id)); err != nil {
-		return err
-	}
-	if err := k.GrantsByExpiration.Remove(ctx, collections.Join(g.ExpiresAt.Unix(), g.Id)); err != nil {
-		return err
-	}
 	if err := k.GrantsByTypeAndGranter.Remove(ctx, collections.Join3(int32(g.Type), g.Granter, g.Id)); err != nil {
 		return err
 	}
@@ -138,6 +162,23 @@ func (k Keeper) removeGrantIndexes(ctx context.Context, g types.Grant) error {
 		if err := k.SessionKeyByPair.Remove(ctx, collections.Join(g.Granter, g.Grantee)); err != nil {
 			return err
 		}
+	}
+	if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		// A pending grant was never on a consumer-walked grantee index, the
+		// expiration index or a oneshot index, and has no spend buckets.
+		if err := k.PendingGrantsByDeadline.Remove(ctx, collections.Join(pendingDeadline(g), g.Id)); err != nil {
+			return err
+		}
+		return k.PendingGrantsByGrantee.Remove(ctx, collections.Join(g.Grantee, g.Id))
+	}
+	if err := k.GrantsByGrantee.Remove(ctx, collections.Join(g.Grantee, g.Id)); err != nil {
+		return err
+	}
+	if err := k.GrantsByGranteeAndType.Remove(ctx, collections.Join3(g.Grantee, int32(g.Type), g.Id)); err != nil {
+		return err
+	}
+	if err := k.GrantsByExpiration.Remove(ctx, collections.Join(g.ExpiresAt.Unix(), g.Id)); err != nil {
+		return err
 	}
 	// A paused oneshot is indexed under (fire_at, id) — fire_at holds the
 	// pause time while paused. Removing a missing key is a no-op, so this
@@ -179,6 +220,11 @@ func (k Keeper) clearEpochSpend(ctx context.Context, id uint64) error {
 func (k Keeper) deleteGrant(ctx context.Context, g types.Grant) error {
 	if activeStatus(g.Status) {
 		if err := k.decActiveGrantCount(ctx, g.Granter, g.Type); err != nil {
+			return err
+		}
+	}
+	if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if err := k.decPendingGrantCount(ctx, g.Granter); err != nil {
 			return err
 		}
 	}
@@ -241,17 +287,26 @@ func (k Keeper) ListGrantsByGrantee(
 	filterType types.GrantType,
 ) ([]types.Grant, error) {
 	var out []types.Grant
-	rng := collections.NewPrefixedPairRange[string, uint64](grantee)
-	err := k.GrantsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
-		g, err := k.Grants.Get(ctx, key.K2())
+	collect := func(id uint64) (bool, error) {
+		g, err := k.Grants.Get(ctx, id)
 		if err != nil {
 			return true, err
 		}
-		if filterType != types.GrantType_GRANT_TYPE_UNSPECIFIED && g.Type != filterType {
-			return false, nil
-		}
 		out = append(out, g)
 		return false, nil
+	}
+	if filterType != types.GrantType_GRANT_TYPE_UNSPECIFIED {
+		// One type: walk only its slice of the typed index, so a filtered
+		// sweep (x/commons) is bounded by that type's grantee cap.
+		rng := collections.NewSuperPrefixedTripleRange[string, int32, uint64](grantee, int32(filterType))
+		err := k.GrantsByGranteeAndType.Walk(ctx, rng, func(key collections.Triple[string, int32, uint64]) (bool, error) {
+			return collect(key.K3())
+		})
+		return out, err
+	}
+	rng := collections.NewPrefixedPairRange[string, uint64](grantee)
+	err := k.GrantsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		return collect(key.K2())
 	})
 	return out, err
 }
@@ -315,18 +370,41 @@ func (k Keeper) checkRecipientNotBlocked(recipient string) error {
 	return nil
 }
 
-// MaxGrantsPerGrantee caps how many grants may name one grantee through
-// MsgCreateGrant (SES-03). Grant creation needs no grantee consent, so
-// without a cap anyone could attach unlimited grants to an address and
-// make every consumer that iterates a grantee's grants (member migration,
-// the x/commons operator-dissolution sweep) do unbounded work. Module
-// accounts (e.g. x/artifact, the grantee of every Harberger tax pull) and
-// grants created by an authorized module are exempt.
+// MaxGrantsPerGrantee caps how many grants of one class may name one
+// grantee (SES-03). Without a cap anyone could attach unlimited grants to
+// an address and make every consumer that iterates a grantee's grants
+// (member migration, the x/commons operator-dissolution sweep) do unbounded
+// work. The cap is per class (granteeCapClass), so payout grants anyone can
+// create for free (a RecurringPull escrows nothing) cannot crowd out the
+// session keys and sign-ins a grantee's owner needs; a grantee's total
+// fan-in is at most twice the cap. The access class is further protected by
+// grantee consent (SES-102, types/pending.go): a session key or sign-in
+// from a granter the grantee has not allowed waits as PENDING outside the
+// grantee indexes and is counted against the cap only when the grantee
+// accepts it, so strangers cannot fill the class at all. Module accounts
+// (e.g. x/artifact, the grantee of every Harberger tax pull) and grants
+// created by an authorized module are exempt.
 const MaxGrantsPerGrantee = 256
 
-// checkGranteeCapacity enforces MaxGrantsPerGrantee. The walk stops at the
-// cap, so it costs O(cap) at most.
-func (k Keeper) checkGranteeCapacity(ctx context.Context, grantee string) error {
+// granteeCapClass returns the grant types that share t's grantee cap:
+// access grants (SESSION_KEY, SIGN_IN) or payout grants (RECURRING_PULL,
+// SPENDING_ALLOWANCE, SCHEDULED_ONESHOT).
+func granteeCapClass(t types.GrantType) []types.GrantType {
+	switch t {
+	case types.GrantType_GRANT_TYPE_SESSION_KEY, types.GrantType_GRANT_TYPE_SIGN_IN:
+		return []types.GrantType{types.GrantType_GRANT_TYPE_SESSION_KEY, types.GrantType_GRANT_TYPE_SIGN_IN}
+	default:
+		return []types.GrantType{
+			types.GrantType_GRANT_TYPE_RECURRING_PULL,
+			types.GrantType_GRANT_TYPE_SPENDING_ALLOWANCE,
+			types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT,
+		}
+	}
+}
+
+// checkGranteeCapacity enforces MaxGrantsPerGrantee for a new grant of
+// type t. The walks stop at the cap, so it costs O(cap) at most.
+func (k Keeper) checkGranteeCapacity(ctx context.Context, grantee string, t types.GrantType) error {
 	addr, err := k.addressCodec.StringToBytes(grantee)
 	if err != nil {
 		return err
@@ -337,16 +415,18 @@ func (k Keeper) checkGranteeCapacity(ctx context.Context, grantee string) error 
 		}
 	}
 	n := 0
-	rng := collections.NewPrefixedPairRange[string, uint64](grantee)
-	err = k.GrantsByGrantee.Walk(ctx, rng, func(collections.Pair[string, uint64]) (bool, error) {
-		n++
-		return n >= MaxGrantsPerGrantee, nil
-	})
-	if err != nil {
-		return err
-	}
-	if n >= MaxGrantsPerGrantee {
-		return errorsmod.Wrapf(types.ErrTooManyGrantsForGrantee, "grantee %s holds %d grants", grantee, n)
+	for _, ct := range granteeCapClass(t) {
+		rng := collections.NewSuperPrefixedTripleRange[string, int32, uint64](grantee, int32(ct))
+		err = k.GrantsByGranteeAndType.Walk(ctx, rng, func(collections.Triple[string, int32, uint64]) (bool, error) {
+			n++
+			return n >= MaxGrantsPerGrantee, nil
+		})
+		if err != nil {
+			return err
+		}
+		if n >= MaxGrantsPerGrantee {
+			return errorsmod.Wrapf(types.ErrTooManyGrantsForGrantee, "grantee %s holds %d %s-class grants", grantee, n, types.GrantTypeEventValue(t))
+		}
 	}
 	return nil
 }

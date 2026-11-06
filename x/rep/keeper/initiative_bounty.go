@@ -232,6 +232,9 @@ func (k Keeper) PayInitiativeBounty(ctx context.Context, initiative types.Initia
 	if err != nil {
 		return math.ZeroInt(), k.RefundInitiativeBounty(ctx, initiative.Id, "no assignee to pay")
 	}
+	// The stored assignee is never re-keyed by migration: pay the member that
+	// now carries it, as the completer mint does (REP-E-106).
+	assignee = k.resolveMember(ctx, assignee)
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return math.ZeroInt(), err

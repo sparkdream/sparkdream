@@ -42,6 +42,9 @@ func (k Keeper) ResolveUnappealedModerationInternal(ctx context.Context, member 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// 1. Load moderation record
+	// The record follows a migrated member (REP-R-101): a resolution
+	// naming the old address reaches it through the alias.
+	member = k.canonical(ctx, member)
 	moderation, err := k.DisplayNameModeration.Get(ctx, member)
 	if err != nil {
 		return types.ErrDisplayNameNotModerated
@@ -71,7 +74,9 @@ func (k Keeper) ResolveUnappealedModerationInternal(ctx context.Context, member 
 	reportChallengeID := fmt.Sprintf("dn:%s:%d", moderation.Member, moderation.ModeratedAt)
 	reportStake, err := k.DisplayNameReportStake.Get(ctx, reportChallengeID)
 	if err == nil {
-		if unlockErr := k.late.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); unlockErr != nil {
+		// A lock already gone (zeroed reporter) settles as returned
+		// (SEA-101).
+		if _, unlockErr := k.late.dreamOps.UnlockOrGone(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); unlockErr != nil {
 			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", unlockErr)
 		}
 		if err := k.DisplayNameReportStake.Remove(ctx, reportChallengeID); err != nil {

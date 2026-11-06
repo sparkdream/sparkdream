@@ -269,7 +269,9 @@ echo ""
 #     wall-clock.
 #   - Lowers x/service Params min_reporter_trust_level to TRUST_LEVEL_NEW
 #     so freshly-invited verifiers can file MsgReportOperator without
-#     a full reputation ladder.
+#     a full reputation ladder, and report_contest_window_blocks to 10
+#     (a per-type unbonding period may not be shorter than it; the
+#     Params message runs first in the proposal).
 # Skipped on re-runs (chain state already tuned).
 # ========================================================================
 GOV_ADDR_SVC=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
@@ -297,6 +299,9 @@ for f in DEC_FIELDS:
             s = s.zfill(19)
         d[f] = (s[:-18].lstrip('0') or '0') + '.' + s[-18:]
 d['min_reporter_trust_level'] = 'TRUST_LEVEL_NEW'
+# a per-type unbonding_period_blocks may not be shorter than the contest
+# window (SVC-104), so the 10-block unbonding below needs it lowered too
+d['report_contest_window_blocks'] = '10'
 json.dump(d, sys.stdout)
 ")
 

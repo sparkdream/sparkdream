@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -144,4 +145,47 @@ func TestMsgServerReportTag(t *testing.T) {
 		require.Contains(t, updated.Reporters, firstStr)
 		require.Contains(t, updated.Reporters, secondStr)
 	})
+}
+
+// REP-R-203: a reserved tag without a Tag row (seeded at genesis, or reserved
+// after its row expired) can be reported, so the restore action that releases
+// the reservation is reachable for it.
+func TestMsgServerReportTag_ReservedTagWithoutRow(t *testing.T) {
+	f := initFixture(t)
+	f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool { return true }
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	authority, _ := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+
+	reporter := sdk.AccAddress([]byte("reserved-reporter-1"))
+	reporterStr, _ := f.addressCodec.BytesToString(reporter)
+	require.NoError(t, f.keeper.Member.Set(f.ctx, reporterStr, types.Member{
+		Address:      reporterStr,
+		Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance: keeper.PtrInt(math.NewInt(10_000_000)),
+		StakedDream:  keeper.PtrInt(math.NewInt(0)),
+	}))
+	require.NoError(t, f.keeper.SetReservedTag(f.ctx, types.ReservedTag{Name: "phoenix", Authority: authority}))
+	exists, err := f.keeper.TagExists(f.ctx, "phoenix")
+	require.NoError(t, err)
+	require.False(t, exists, "precondition: no Tag row")
+
+	_, err = ms.ReportTag(f.ctx, &types.MsgReportTag{Creator: reporterStr, TagName: "phoenix", Reason: "wrongly reserved"})
+	require.NoError(t, err)
+	report, err := f.keeper.TagReport.Get(f.ctx, "phoenix")
+	require.NoError(t, err)
+	require.Equal(t, []string{reporterStr}, report.Reporters)
+
+	// Restore releases the reservation and refunds the bond.
+	_, err = ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{Creator: authority, TagName: "phoenix", Action: 3})
+	require.NoError(t, err)
+	reserved, err := f.keeper.IsReservedTag(f.ctx, "phoenix")
+	require.NoError(t, err)
+	require.False(t, reserved)
+	m, err := f.keeper.GetMember(f.ctx, reporter)
+	require.NoError(t, err)
+	require.True(t, keeper.DerefInt(m.DreamBalance).Equal(math.NewInt(10_000_000)), "bond refunded, got %s", keeper.DerefInt(m.DreamBalance))
+
+	// A tag that is neither a row nor a reservation still cannot be reported.
+	_, err = ms.ReportTag(f.ctx, &types.MsgReportTag{Creator: reporterStr, TagName: "phoenix", Reason: "again"})
+	require.ErrorIs(t, err, types.ErrTagNotFound)
 }

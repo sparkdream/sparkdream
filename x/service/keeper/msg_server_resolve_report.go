@@ -91,6 +91,9 @@ func (k msgServer) ResolveReport(ctx context.Context, msg *types.MsgResolveRepor
 		if msg.SlashBps == 0 {
 			return nil, types.ErrInvalidVerdict.Wrap("ESCALATE_TO_JURY requires slash_bps > 0 (proposed slash)")
 		}
+		if msg.SlashBps > types.MaxSlashBps {
+			return nil, types.ErrInvalidVerdict.Wrapf("ESCALATE_TO_JURY slash_bps %d > %d", msg.SlashBps, types.MaxSlashBps)
+		}
 		return k.handleEscalateToJury(ctx, &report, msg.SlashBps, currentHeight)
 
 	default:
@@ -310,6 +313,11 @@ func (k Keeper) escalateReportToJury(
 	proposedSlashBps uint32,
 	currentHeight int64,
 ) error {
+	// A proposal above 100% would make an ACCEPT confiscate the whole bond
+	// and dissolve the operator (SVC-103).
+	if proposedSlashBps == 0 || proposedSlashBps > types.MaxSlashBps {
+		return types.ErrInvalidVerdict.Wrapf("proposed slash_bps %d must be in (0, %d]", proposedSlashBps, types.MaxSlashBps)
+	}
 	report.Status = types.ReportStatus_REPORT_STATUS_ESCALATED
 	report.ProposedSlashBps = proposedSlashBps
 	report.EscalatedAt = currentHeight

@@ -15,6 +15,17 @@ var (
 	// this cap (100 DREAM). It was 1000 micro-DREAM for the reporter and
 	// uncapped for co-signers (REP-R-15).
 	DefaultMaxMemberReportBond = math.NewInt(100_000_000)
+
+	// DefaultMinJurorSelectionWeight is the floor on the responsiveness
+	// multiplier applied to a juror's selection weight.
+	//
+	// A juror who never answers is drawn less often, never *not at all*: broad
+	// sortition is what makes juries hard to capture, and an address that drops
+	// to zero weight is excluded in all but name — with no way to earn its way
+	// back, since it would never be drawn again to demonstrate otherwise.
+	// A LegacyDec, like the whole jury draw: no floating point in consensus
+	// code (REP-R-107).
+	DefaultMinJurorSelectionWeight = math.LegacyNewDecWithPrec(1, 1)
 )
 
 const (
@@ -90,6 +101,16 @@ const (
 	// every reviewer reads, so it needs a ceiling.
 	MaxDeliverableURILength = 512
 
+	// MinExpertOpinionLength, MaxExpertOpinionLength and
+	// MaxExpertReasoningLength bound an expert's testimony (REP-R-103,
+	// REP-R-105). The floor makes the paid work non-trivial: an empty or
+	// one-word opinion is not testimony. The ceilings matter because the
+	// testimony is stored on the JuryReview, which every later vote, tally and
+	// query decodes. Lengths are bytes of the whitespace-trimmed text.
+	MinExpertOpinionLength   = 64
+	MaxExpertOpinionLength   = 4096
+	MaxExpertReasoningLength = 4096
+
 	// MaxJuryRedraws bounds replacement rounds per review. A pool that will not
 	// answer after this many attempts is a quorum problem no amount of
 	// redrawing fixes, and the review falls through to its deadline tally.
@@ -118,15 +139,6 @@ const (
 	// review falls through to its deadline tally (and from there to the
 	// adjudication terminal path) rather than being decided by a rump.
 	MinSeatedJurors = 3
-
-	// MinJurorSelectionWeight is the floor on the responsiveness multiplier
-	// applied to a juror's selection weight.
-	//
-	// A juror who never answers is drawn less often, never *not at all*: broad
-	// sortition is what makes juries hard to capture, and an address that drops
-	// to zero weight is excluded in all but name — with no way to earn its way
-	// back, since it would never be drawn again to demonstrate otherwise.
-	DefaultMinJurorSelectionWeight = 0.1
 
 	// MinJurySeatingsForWeighting is the number of seatings a juror must have
 	// on record before responsiveness affects their selection weight. Below it

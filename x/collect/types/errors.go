@@ -45,7 +45,6 @@ var (
 	ErrAlreadyCurator                 = errors.Register(ModuleName, 1132, "already registered as curator")
 	ErrInsufficientBond               = errors.Register(ModuleName, 1133, "bond below min curator bond")
 	ErrTrustLevelTooLow               = errors.Register(ModuleName, 1134, "below required trust level")
-	ErrCuratorTooNew                  = errors.Register(ModuleName, 1135, "curator registered less than min age blocks ago")
 	ErrCannotRateOwnCollection        = errors.Register(ModuleName, 1136, "curator is owner/collaborator of collection")
 	ErrAlreadyReviewed                = errors.Register(ModuleName, 1137, "one active review per curator per collection")
 	ErrMaxReviews                     = errors.Register(ModuleName, 1138, "collection at max reviews per collection")

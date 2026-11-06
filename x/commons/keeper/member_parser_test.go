@@ -60,6 +60,14 @@ func TestParseMembers(t *testing.T) {
 			errorContains: "invalid member address",
 		},
 		{
+			// CMN-103: a repeated address would collapse into one seat.
+			name:          "duplicate address",
+			members:       []string{addr1, addr2, addr1},
+			weights:       []string{"1", "1", "1"},
+			expectError:   true,
+			errorContains: "duplicate member address",
+		},
+		{
 			name:        "empty input",
 			members:     []string{},
 			weights:     []string{},

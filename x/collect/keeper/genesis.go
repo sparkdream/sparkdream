@@ -174,15 +174,22 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.HideRecord.Set(ctx, hr.Id, hr); err != nil {
 			return err
 		}
-		// Deleting a collection drops its by-target entries but keeps the
-		// records (deleteCollectionFull); item hides keep theirs.
-		indexTarget := true
+		// Deleting a target (collection or item) drops its by-target
+		// entries but keeps the records.
+		var indexTarget, deferredDelete bool
+		var err error
 		if hr.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION {
-			has, err := k.Collection.Has(ctx, hr.TargetId)
-			if err != nil {
-				return err
-			}
-			indexTarget = has
+			coll, gerr := k.Collection.Get(ctx, hr.TargetId)
+			indexTarget = gerr == nil
+			// A settled unappealed hide whose collection is still HIDDEN is a
+			// delete that failed and awaits its retry (COL-201).
+			deferredDelete = indexTarget && hr.Resolved && !hr.Appealed && !hr.SelfCorrected &&
+				coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN
+		} else {
+			indexTarget, err = k.Item.Has(ctx, hr.TargetId)
+		}
+		if err != nil {
+			return err
 		}
 		if indexTarget {
 			targetKey := HideRecordTargetCompositeKey(hr.TargetType, hr.TargetId)
@@ -195,7 +202,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		// their expiry entry.
 		// Appealed hides are owned by x/rep's appeal and MsgAppealHide
 		// drops their entry, so they stay out.
-		if (!hr.Resolved && !hr.Appealed) || selfCorrectedBondHeld(hr) {
+		if (!hr.Resolved && !hr.Appealed) || selfCorrectedBondHeld(hr) || deferredDelete {
 			if err := k.HideRecordExpiry.Set(ctx, collections.Join(hr.AppealDeadline, hr.Id)); err != nil {
 				return err
 			}

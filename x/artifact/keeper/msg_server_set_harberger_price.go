@@ -4,6 +4,7 @@ import (
 	"context"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -12,8 +13,12 @@ import (
 // SetHarbergerPrice self-assesses a Harberger token's price
 // (docs/x-artifact-spec.md §5.11.1). A positive price needs a RecurringPull
 // from the holder to the artifact module paying at least the tax on it
-// each tax period; setting one also cures a foreclosure. A zero price
-// abandons the token: once its grace period ends anyone may take it free.
+// each tax period; setting one also cures a foreclosure. Time between
+// what is paid through and the grant's first pull is charged up front, at
+// the higher of the price held so far and the new one, and raising the
+// price within the time already paid for costs the difference
+// (types.HarbergerState.ReassessmentCharge). A zero price abandons the
+// token: once its grace period ends anyone may take it free.
 func (k msgServer) SetHarbergerPrice(ctx context.Context, msg *types.MsgSetHarbergerPrice) (*types.MsgSetHarbergerPriceResponse, error) {
 	if _, err := k.decodeAddr("owner", msg.Owner); err != nil {
 		return nil, err
@@ -46,11 +51,32 @@ func (k msgServer) SetHarbergerPrice(ctx context.Context, msg *types.MsgSetHarbe
 	} else if msg.GrantId != 0 {
 		return nil, errorsmod.Wrap(types.ErrInvalidHarbergerGrant, "a zero price takes no tax grant")
 	}
+	// Nothing is held for less than the tax on it: the time the new grant
+	// skips is charged at the higher of the old and new price, and a raise
+	// within the time already paid for costs the difference (ART-101,
+	// ART-201).
+	arrears, paidPrice := t.Harberger.ReassessmentCharge(c.Harberger, msg.Price, nextDue, now(ctx))
+	if arrears.IsPositive() {
+		signer, err := k.decodeAddr("owner", msg.Owner)
+		if err != nil {
+			return nil, err
+		}
+		if err := k.fundCommunityPool(ctx, signer, arrears); err != nil {
+			return nil, err
+		}
+	}
 	if err := k.unindexHarbergerDue(ctx, t); err != nil {
 		return nil, err
 	}
 	h := t.Harberger
+	if arrears.IsPositive() {
+		if h.TaxPaid.IsNil() {
+			h.TaxPaid = math.ZeroInt()
+		}
+		h.TaxPaid = h.TaxPaid.Add(arrears)
+	}
 	h.Price = msg.Price
+	h.PaidPrice = paidPrice
 	h.GrantId = msg.GrantId
 	h.NextDue = nextDue
 	if msg.GrantId != 0 {
@@ -66,6 +92,6 @@ func (k msgServer) SetHarbergerPrice(ctx context.Context, msg *types.MsgSetHarbe
 	emit(ctx, types.EventHarbergerPriceSet, classAttr(c.Id), tokenAttr(t.Id),
 		sdk.NewAttribute("holder", msg.Owner), sdk.NewAttribute("price", msg.Price.String()),
 		sdk.NewAttribute("grant_id", u64(msg.GrantId)), sdk.NewAttribute("tax_per_period", tax.String()),
-		sdk.NewAttribute("next_due", i64(nextDue)))
+		sdk.NewAttribute("next_due", i64(nextDue)), sdk.NewAttribute("arrears", arrears.String()))
 	return &types.MsgSetHarbergerPriceResponse{TaxPerPeriod: tax.String()}, nil
 }

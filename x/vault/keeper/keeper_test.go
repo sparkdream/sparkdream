@@ -18,6 +18,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	commonstypes "sparkdream/x/commons/types"
 	"sparkdream/x/vault/keeper"
 	module "sparkdream/x/vault/module"
 	"sparkdream/x/vault/types"
@@ -158,6 +159,7 @@ func initFixture(t *testing.T) *fixture {
 
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	banktypes.RegisterInterfaces(encCfg.InterfaceRegistry)
+	commonstypes.RegisterInterfaces(encCfg.InterfaceRegistry)
 	addressCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 

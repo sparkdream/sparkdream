@@ -58,6 +58,12 @@ type Keeper struct {
 	// failed-attempt count per contribution.
 	ProjectTransitionQueue    collections.KeySet[collections.Pair[int64, uint64]]
 	ProjectTransitionAttempts collections.Map[uint64, uint32]
+	// DeadlineFailures counts consecutive real (non-transient) failed
+	// deadline steps per contribution; at maxDeadlineFailures the entry is
+	// retried once per x/rep epoch instead of every deadlineRetryBlocks
+	// (poison counter, REV-104/REV-201). Cleared by every save of the
+	// contribution (REV-202). Transient state, not exported.
+	DeadlineFailures collections.Map[uint64, uint32]
 }
 
 func NewKeeper(
@@ -137,6 +143,10 @@ func NewKeeper(
 		),
 		ProjectTransitionAttempts: collections.NewMap(
 			sb, types.ProjectTransitionAttemptsKey, "projectTransitionAttempts",
+			collections.Uint64Key, collections.Uint32Value,
+		),
+		DeadlineFailures: collections.NewMap(
+			sb, types.DeadlineFailuresKey, "deadlineFailures",
 			collections.Uint64Key, collections.Uint32Value,
 		),
 	}

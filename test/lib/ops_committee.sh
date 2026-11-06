@@ -135,3 +135,19 @@ ops_complete_adjudication() {
     ops_committee_exec "$(jq -nc --arg id "$id" --arg d "ADJUDICATION_DECISION_$decision" --arg n "$notes" \
         '{"@type":"/sparkdream.rep.v1.MsgCompleteInterim",interim_id:$id,completion_notes:$n,decision:$d}')" creator
 }
+
+# ops_approve_project_budget <project_id> <budget> <spark> [committee]:
+# approve a project budget through the project council's Operations
+# Committee (default: the Technical one). A committee member cannot approve a
+# project they created on their own (REP-E-105), and the e2e committees seat
+# alice alone, so her projects are approved by proposal.
+ops_approve_project_budget() {
+    local id=$1 budget=$2 spark=$3 committee="${4:-Technical Operations Committee}"
+    local saved=$OPS_COMMITTEE_NAME rc
+    OPS_COMMITTEE_NAME=$committee
+    ops_committee_exec "$(jq -nc --arg id "$id" --arg b "$budget" --arg s "$spark" \
+        '{"@type":"/sparkdream.rep.v1.MsgApproveProjectBudget",project_id:$id,approved_budget:$b,approved_spark:$s}')" approver
+    rc=$?
+    OPS_COMMITTEE_NAME=$saved
+    return $rc
+}

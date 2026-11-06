@@ -110,7 +110,13 @@ func (k Keeper) settleUnappealedHide(ctx context.Context, postID uint64, hr type
 		}
 	}
 	k.releaseSentinelCommit(ctx, hr.Sentinel, hr.CommittedAmount, cause, postID)
-	k.decrementPendingHide(ctx, hr.Sentinel, true)
+	// A hide on an anonymous post could never be appealed (nobody can act as
+	// the shield account), so it earns no unchallenged credit (FRM-102).
+	unchallenged := true
+	if post, err := k.Post.Get(ctx, postID); err == nil && k.isAnonymous(post.Author) {
+		unchallenged = false
+	}
+	k.decrementPendingHide(ctx, hr.Sentinel, unchallenged)
 	k.unindexHideExpiry(ctx, postID, hr)
 	if err := k.HideRecord.Remove(ctx, postID); err != nil {
 		return err

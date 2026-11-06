@@ -247,6 +247,11 @@ service Msg {
 
   // ClearZkPublicKey zeroes the member's ZK key at once (leaked shield secret).
   rpc ClearZkPublicKey(MsgClearZkPublicKey) returns (MsgClearZkPublicKeyResponse);
+
+  // EndorseExpertWitness lets a second juror, who has answered the summons,
+  // endorse another juror's expert invitation; only an endorsed expert may
+  // testify and be paid.
+  rpc EndorseExpertWitness(MsgEndorseExpertWitness) returns (MsgEndorseExpertWitnessResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -360,6 +365,8 @@ message MsgCreateInterim {
   uint64 reference_id = 3;
   string reference_type = 4;
   InterimComplexity complexity = 5;
+  // Block height the work is due by; must be after the current height. 0
+  // = the default, interim_deadline_epochs * epoch_blocks from now.
   int64 deadline = 6;
 }
 
@@ -733,7 +740,10 @@ message MsgSubmitJurorVote {
 // MsgSubmitJurorVoteResponse defines the MsgSubmitJurorVoteResponse message.
 message MsgSubmitJurorVoteResponse {}
 
-// MsgSubmitExpertTestimony defines the MsgSubmitExpertTestimony message.
+// MsgSubmitExpertTestimony records an invited expert's testimony, once, while
+// the review is still PENDING. The opinion is 64..4096 bytes, the reasoning at
+// most 4096. Testifying pays nothing by itself: the verdict pays the expert's
+// EXPERT_TESTIMONY interim.
 message MsgSubmitExpertTestimony {
   option (cosmos.msg.v1.signer) = "expert";
   option (amino.name) = "sparkdream/x/rep/MsgSubmitExpertTestimony";
@@ -749,10 +759,11 @@ message MsgSubmitExpertTestimonyResponse {}
 // MsgInviteExpertWitness lets a juror seated on a pending initiative jury
 // review call an expert witness. The expert must be an active ESTABLISHED+
 // member with reputation in one of the initiative's tags and no stake in the
-// dispute (not the challenger, assignee, initiative creator or a juror). The
-// invitation opens an EXPERT_TESTIMONY interim that pays the expert when they
-// testify and expires with the review. At most MaxExpertWitnessesPerReview
-// experts per review.
+// dispute (not the challenger, assignee, initiative creator or a juror, nor an
+// invitation neighbour of any of them). The invitation opens an
+// EXPERT_TESTIMONY interim, bound to it by id, that the review's verdict pays
+// if the expert testified and expires otherwise. At most
+// MaxExpertWitnessesPerReview experts per review.
 message MsgInviteExpertWitness {
   option (cosmos.msg.v1.signer) = "juror";
   option (amino.name) = "sparkdream/x/rep/MsgInviteExpertWitness";
@@ -839,7 +850,12 @@ message MsgReportTag {
 // MsgReportTagResponse defines the MsgReportTagResponse message.
 message MsgReportTagResponse {}
 
-// MsgResolveTagReport defines the MsgResolveTagReport message.
+// MsgResolveTagReport resolves an open tag report. Authority-only. `action`
+// is 0 ignore (reporters' bonds forfeited), 1 remove, 2 reserve, 3 restore
+// (release a reserved tag back to public use; refused for a tag that is not
+// reserved, works whether or not the tag still has a Tag row). Actions 1-3
+// refund the reporters' bonds. For action 2, reserve_authority is empty or
+// a bech32 address; anything else is refused before the report is touched.
 message MsgResolveTagReport {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/rep/MsgResolveTagReport";
@@ -1429,3 +1445,21 @@ message MsgClearZkPublicKey {
 
 // MsgClearZkPublicKeyResponse defines the MsgClearZkPublicKeyResponse message.
 message MsgClearZkPublicKeyResponse {}
+
+// MsgEndorseExpertWitness endorses a pending expert invitation on a jury
+// review. The signer must be a juror seated on the review who has answered
+// the summons (accepted jury duty or already voted) and is not the juror who
+// invited the expert. Until endorsed, the expert cannot testify and the
+// invitation's EXPERT_TESTIMONY interim is never paid: the review's verdict
+// (or voiding) expires an unendorsed invitation unpaid. One juror alone can
+// therefore never direct expert pay (REP-E-103).
+message MsgEndorseExpertWitness {
+  option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgEndorseExpertWitness";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+  string expert = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgEndorseExpertWitnessResponse defines the MsgEndorseExpertWitnessResponse message.
+message MsgEndorseExpertWitnessResponse {}

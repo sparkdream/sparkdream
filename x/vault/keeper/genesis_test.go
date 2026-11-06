@@ -11,9 +11,12 @@ import (
 
 func genesisVault(id uint64) types.Vault {
 	return types.Vault{
-		VaultId:       id,
-		Address:       types.VaultAddress(id).String(),
-		Signers:       []types.VaultSigner{{Address: addr("phoenix"), Weight: 1}, {Address: addr("aurora"), Weight: 1}},
+		VaultId: id,
+		Address: types.VaultAddress(id).String(),
+		Signers: []types.VaultSigner{
+			{Address: addr("phoenix"), Weight: 1, InviteExpiresAt: 1_700_100_000},
+			{Address: addr("aurora"), Weight: 1, InviteExpiresAt: 1_700_100_000},
+		},
 		Threshold:     2,
 		ConfigVersion: 1,
 		ProposalTtl:   types.MinProposalTTL,

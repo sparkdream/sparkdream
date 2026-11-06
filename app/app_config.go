@@ -243,9 +243,15 @@ var (
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
+						// service before federation: service's EndBlocker fires the
+						// operator hooks (underfunded sweep, escrow release, timeout
+						// escalation) that suspend, unsuspend or prune federation's
+						// BridgeBindings, so federation's own pass then sees the
+						// current state instead of lagging a block behind it.
+						servicemoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
-						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
+						artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{
 						{

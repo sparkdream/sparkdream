@@ -151,7 +151,9 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 			report.ReportId, report.OperatorAddress, report.ServiceType,
 			report.Reporter, report.Reason, report.ProposedSlashBps,
 		))
-		parties := []string{report.OperatorAddress, report.Reporter, op.Controller}
+		// the controller group's members voted the tier-1 slash under
+		// review, so they are parties too (SVC-102)
+		parties := append([]string{report.OperatorAddress, report.Reporter}, k.groupParties(ctx, op.Controller)...)
 		caseID, err := k.repKeeper().CreateSeatedAppeal(ctx, "service.slash", payload,
 			juryVotingDeadline(currentHeight, params), parties)
 		if err != nil {

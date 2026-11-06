@@ -110,7 +110,7 @@ Adding, modifying, or disabling a service type is done via `MsgUpdateServiceType
 - `min_bond > 0` in `uspark`.
 - `unilateral_slash_cap_bps`, `tier1_aggregate_cap_bps` each in `(0, 10000]`.
 - `tier1_aggregate_cap_bps ≥ unilateral_slash_cap_bps` (otherwise one tier-1 slash could exceed the aggregate cap).
-- `unbonding_period_blocks ≥ report_contest_window_blocks` is the intended relationship but is **not** enforced per type (only for `default_unbonding_period_blocks`, §5). It does not need to be: `MsgClaimUnbondedBond` refuses while any tier-1 escrow of the operator is still inside its contest window (§3.5), so an operator slashed just before its unbonding completes cannot claim and be archived before it could contest. The e2e suites rely on short per-type unbonding periods.
+- `unbonding_period_blocks ≥ report_contest_window_blocks` (live params) is enforced by `MsgUpdateServiceTypeConfig` and by `GenesisState.Validate` (`ErrInvalidServiceTypeConfig`; `ServiceTypeConfig.ValidateAgainstParams`), the per-type twin of the `default_unbonding_period_blocks` rule (§5). Otherwise an operator facing a fresh allegation could unbond and claim before a reporter had the full contest window to file. (`MsgClaimUnbondedBond` also refuses while a tier-1 escrow is inside its contest window, §3.5.) `MsgUpdateParams` walks the registered types and refuses a `report_contest_window_blocks` above any type's `unbonding_period_blocks` (SVC-203), so the bound holds from both sides. The e2e suites that use short per-type unbonding periods lower `report_contest_window_blocks` in the same proposal, Params message first.
 - `tier1_cooldown_blocks > 0` (a value of zero would re-enable the drainage attack the cap is designed to prevent).
 - `report_timeout_action ∈ {REPORT_TIMEOUT_ACTION_DISMISS, REPORT_TIMEOUT_ACTION_ESCALATE}`.
 - `elevated_attestation_quorum` is 0 or `≥ attestation_quorum`; `checkpoint_max_lag_blocks ≥ 0`, and `> 0` requires `challenge_default_slash_bps > 0` (the liveness report's proposed slash).
@@ -179,8 +179,8 @@ The controller has no power to seize the operator's bond fully, force operator h
 
 The jury verdict (returned by x/rep via `MsgResolveReportByJury`) is one of:
 
-- **Accept** — slash up to the requested amount; optionally `dissolve = true` to transition the operator directly to `SLASHED` (terminal) regardless of remaining bond. Reporter's deposit is refunded.
-- **Reduce** — slash less than requested; reporter's deposit is refunded.
+- **Accept** — slash the requested amount; optionally `dissolve = true` to transition the operator directly to `SLASHED` (terminal) regardless of remaining bond (committee policy only, §5.2). Reporter's deposit is refunded.
+- **Reduce** — slash less than requested (committee policy only, §5.2); reporter's deposit is refunded.
 - **Reject** — dismiss the report; reporter's deposit is forfeited to community pool.
 
 #### 3.4.2. Slash math
@@ -218,14 +218,15 @@ PENDING --(no resolution within max_pending_blocks, config.report_timeout_action
 PENDING --(operator dissolved)--> CLOSED_OPERATOR_DISSOLVED
 RESOLVED_T1 --(operator contests within report_contest_window)--> ESCALATED
 ESCALATED --(jury verdict)--> RESOLVED_T2
-ESCALATED --(no jury verdict within max_escalated_blocks)--> AUTO_TIMEOUT
+ESCALATED --(unrelayed UPHOLD at max_escalated_blocks)--> RESOLVED_T2 (ACCEPT at proposed slash)
+ESCALATED --(no UPHOLD relayed or tallied within max_escalated_blocks)--> AUTO_TIMEOUT
 ESCALATED --(operator dissolved)--> CLOSED_OPERATOR_DISSOLVED
 ```
 
 - `max_pending_blocks` (default ~30 days) bounds how long a report can sit unresolved. After expiry, the EndBlocker consults the operator's `ServiceTypeConfig.report_timeout_action`:
   - **`DISMISS`** (default): the report auto-dismisses with reporter's deposit **refunded** (not the reporter's fault the controller didn't engage). A `report_auto_dismissed` event is emitted, and a `RefileCooldowns` entry bars **that reporter** from re-filing against the same `(operator, service_type)` within `report_refile_cooldown_blocks` (default ~30 days) — prevents the "file, let it lapse, re-file forever" loop that holds an operator's bond exit hostage (`HasOpenReports` blocks withdrawals and exit while a report is open). The cooldown is per reporter: other members can still report the operator. Auto-dismissed **system** reports (zero deposit: federation challenges and x/service's own liveness reports) record no cooldown, so a lapsed liveness report can never lock members out of reporting the operator it was about. Note that every open report — a liveness report included — blocks the operator's partial withdrawals and exit claims until it resolves or auto-dismisses.
   - **`ESCALATE`**: the report transitions to `ESCALATED` and an x/rep jury case is opened automatically (the proposed slash is `report.proposed_slash_bps` if set, otherwise falls back to `config.challenge_default_slash_bps`). Used by `federation-bridge-*` service types so a silent or captured controller cannot stall a slash past one timeout window. The threat of auto-escalation also disciplines controllers — they have a strict deadline to either resolve or relay the dispute to jury themselves. If neither a usable `proposed_slash_bps` nor `challenge_default_slash_bps` is available, the EndBlocker falls back to `DISMISS` behavior for that report (no slash can be proposed in good faith without one).
-- `max_escalated_blocks` (default ~60 days) bounds how long an ESCALATED report can wait for a jury verdict. If exceeded, the EndBlocker auto-resolves as if the jury had returned REJECT: any contested-T1 escrow returns to operator's bond, reporter/opener deposit is refunded, status becomes `AUTO_TIMEOUT` (distinct from `RESOLVED_T2` so audit can distinguish jury-decided rejections from inability-to-decide). Treats jury inaction as inability-to-convict — consistent with the no-bounty design (reporters shouldn't be punished for x/rep being unable to produce a verdict). The window is intentionally longer than `max_pending_blocks` (juries take time to deliberate).
+- `max_escalated_blocks` (default ~60 days) bounds how long an ESCALATED report can wait for a jury verdict. If exceeded and the jury tallied UPHOLD, the EndBlocker applies it as ACCEPT at the proposed slash (no dissolve; SVC-101). Otherwise the EndBlocker auto-resolves as if the jury had returned REJECT: any contested-T1 escrow returns to operator's bond, reporter/opener deposit is refunded, status becomes `AUTO_TIMEOUT` (distinct from `RESOLVED_T2` so audit can distinguish jury-decided rejections from inability-to-decide). Treats jury inaction as inability-to-convict — consistent with the no-bounty design (reporters shouldn't be punished for x/rep being unable to produce a verdict). The window is intentionally longer than `max_pending_blocks` (juries take time to deliberate).
 - A contested tier-1 slash is **fully reverted** by returning the escrowed slash amount (§3.4.7) to the operator's `bond`; `tier1_slashed_in_window` is decremented. The jury verdict re-applies whatever slash it concludes (from the same escrow if still within window, otherwise from `bond` directly).
 - A report against an `UNBONDING` operator is allowed and **pauses the unbonding clock** until resolved (see §3.5).
 
@@ -340,7 +341,7 @@ An operator that is over-bonded can take SPARK back without leaving the service.
 - Adds `amount` to `pending_withdraw_amount` and resets `withdraw_complete_at = current_height + unbonding_period_blocks` (the same per-type or default period as a full exit). Calls are incremental: a second call grows the queue and restarts the single clock, so the lock only ever lengthens.
 - Moves nothing. The queued SPARK stays in the bond pool, inside `bond_amount`, and remains fully slashable until claimed. Bond-blocks keep accruing on the whole bond, since it is still standing behind the work.
 
-The queued amount is released by the same `MsgClaimUnbondedBond` an exiting operator uses. When the record is not `UNBONDING`, the claim handler treats the call as a partial claim and applies the §3.5 gates: `current_height >= withdraw_complete_at`, no `PENDING`/`ESCALATED` reports, no tier-1 escrow still within its contest window (expired escrows are eagerly released first). The release is additionally capped at `bond - min_bond`, so a slash taken during the wait can never drain the operator below the floor; whatever cannot be released stays queued on the existing clock and a later claim (after a top-up) finishes it. A slash during the wait can also push the operator into `UNDERFUNDED`; the queue survives that, but an `UNDERFUNDED` record cannot claim at all (`ErrOperatorNotActive`) — top up back to `ACTIVE` first, then claim. On success `bond_amount` shrinks by the released amount, the record stays live and `ACTIVE`, no hook fires, and `service.operator_bond_withdrawn` is emitted.
+The queued amount is released by the same `MsgClaimUnbondedBond` an exiting operator uses. When the record is not `UNBONDING`, the claim handler treats the call as a partial claim and applies the §3.5 gates: `current_height >= withdraw_complete_at`, no `PENDING`/`ESCALATED` reports, no tier-1 escrow still within its contest window (expired escrows are eagerly released first). The release is additionally capped at `bond - min_bond`, so a slash taken during the wait can never drain the operator below the floor; whatever cannot be released stays queued on the existing clock and a later claim (after a top-up) finishes it. A slash during the wait also clamps `pending_withdraw_amount` to the new `bond_amount` (a queue clamped to zero is dropped with its clock), so the invariant `0 <= pending_withdraw_amount <= bond_amount` holds on every slash path and an exported genesis always re-imports. A slash during the wait can also push the operator into `UNDERFUNDED`; the queue survives that, but an `UNDERFUNDED` record cannot claim at all (`ErrOperatorNotActive`) — top up back to `ACTIVE` first, then claim. On success `bond_amount` shrinks by the released amount, the record stays live and `ACTIVE`, no hook fires, and `service.operator_bond_withdrawn` is emitted.
 
 Any exit from `ACTIVE` into `UNBONDING` (voluntary `MsgUnbondOperator` or the forced underfunded sweep) or into a terminal status clears the queue: the exit path returns or confiscates the whole bond, so the partial earmark is moot.
 
@@ -376,13 +377,15 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 
 1. **Underfunded sweep.** Iterate `UNDERFUNDED` operators where `current_height >= underfunded_since + underfunded_grace_blocks`. Force-transition to `UNBONDING` with the standard clock. The sweep walks `UnderfundedDue`, keyed by each operator's grace deadline, up to the current height (at most `endblocker_sweep_limit` entries per block), so it reads only operators whose grace has run out; a run of long-grace operators can neither hold a short-grace operator's forced unbonding hostage nor cost the sweep reads.
 2. **Pending report sweep.** Iterate `PENDING` reports where `current_height >= filed_at + max_pending_blocks`. Mark `AUTO_DISMISSED`, refund deposit to reporter, and — for member reports only — record the reporter's refile-cooldown entry.
-3. **Escalated timeout sweep.** Iterate `ESCALATED` reports where `current_height >= escalated_at + max_escalated_blocks`. Mark `AUTO_TIMEOUT`, release any contested-T1 escrow back to bond AND **delete the `Tier1Escrow` row + its release-queue entry** (so sweep 4 doesn't double-process it), refund the reporter/opener deposit. The parallel x/rep `JuryReview` is left in place — x/rep does not expose a cancel API, and an INCONCLUSIVE-or-PENDING JuryReview against an AUTO_TIMEOUT'd report is harmless (the resolver path checks the x/service report's status before applying any verdict). 
+3. **Escalated timeout sweep.** Iterate `ESCALATED` reports where `current_height >= escalated_at + max_escalated_blocks`. If the jury tallied `VERDICT_UPHOLD_CHALLENGE`, apply it as ACCEPT at `proposed_slash_bps` (no dissolve) exactly as `MsgResolveReportByJury` would, `RESOLVED_T2` (SVC-101). Otherwise mark `AUTO_TIMEOUT`, release any contested-T1 escrow back to bond AND **delete the `Tier1Escrow` row + its release-queue entry** (so sweep 4 doesn't double-process it), refund the reporter/opener deposit. The parallel x/rep `JuryReview` is left in place — x/rep does not expose a cancel API, and an INCONCLUSIVE-or-PENDING JuryReview against an AUTO_TIMEOUT'd report is harmless (the resolver path checks the x/service report's status before applying any verdict). 
    **Controller-transfer cases** time out on the same deadline: any `ControllerTransferCases` row with `current_height >= opened_at + max_escalated_blocks` (the deadline handed to x/rep at open) and no finalized verdict is resolved as AUTO_TIMEOUT — the opener's deposit is refunded (the case went unadjudicated through no fault of theirs), the controller is unchanged, the row and its `OpenControllerTransferByOperator` entry are deleted (freeing the "one open case" slot), and `service.controller_transfer_case_finalized { verdict = AUTO_TIMEOUT, deposit_destination = OPENER_REFUNDED }` is emitted. The sweep reads the derived index `ControllerTransferCasesByOpenedAt` `(opened_at, jury_case_id)` in order and stops at the first case not yet due (every case shares `max_escalated_blocks`, so `opened_at` order is due order even after the param changes); it times out up to `endblocker_sweep_limit` per block and never reads undue cases. InitGenesis rebuilds the index. A late `MsgFinalizeControllerTransfer` fails with `ErrControllerTransferCaseNotFound`.
 4. **Tier-1 escrow release sweep.** Iterate `Tier1Escrow` entries where `current_height >= release_at` AND the parent report is in a terminal state (`RESOLVED_T1` finalized after contest window with no contest, `RESOLVED_T2`, or `AUTO_TIMEOUT`). For each entry: transfer escrowed SPARK to community pool via `FundCommunityPool` (unless `AUTO_TIMEOUT` — those return to bond), delete the escrow entry.
 5. **Reporter rate-limit pruning.** Lazy — entries are checked-and-pruned at next `MsgReportOperator` from the same reporter. A small EndBlocker sweep also walks the `(reporter, last_filed_at)` index and prunes expired counters to keep the index bounded.
 6. **Checkpoint liveness sweep.** Iterate `CheckpointDeadlines` entries with `deadline ≤ current_height` (§3.8). For each ACTIVE/UNDERFUNDED operator whose checkpoint height (or registration height) plus the type's `checkpoint_max_lag_blocks` is still behind, file a system report and reschedule one window later; otherwise reschedule or drop.
 6a. **System-report dedup pruning.** Walk `SystemReportDedupExpiry` up to `current_height` (up to `endblocker_sweep_limit`): drop the `SystemReportDedup` entry when its report is no longer PENDING/ESCALATED, otherwise re-queue it one retention (`max_pending_blocks + max_escalated_blocks`) later.
 7. **Unbond completion sweep — NOT performed.** Unbonding completion is **lazy** — the operator must call `MsgClaimUnbondedBond`. This avoids unbounded EndBlocker work and is the same pattern used by x/staking. The `unbond_complete_at` field is informational; nothing happens at that height except that subsequent claim calls succeed.
+
+**Per-record isolation.** Every record a sweep handles runs in its own cache context: if it fails (a store, bank or x/rep error), its writes and events are dropped, the error is logged, the record stays queued and is retried next block, and the other records and sweeps still run. The EndBlocker never returns an error, so one bad record cannot halt the chain (SVC-105). A panic inside a record (a nil late-wired keeper, a negative coin, an x/rep panic while seating a jury) is recovered the same way; only out-of-gas is re-raised, since the block gas meter owns that decision (SVC-202).
 
 **Gas-bounded ordering.** Sweeps iterate in deterministic key order (e.g., by `(underfunded_since, address)` for queue 1, by `(release_at, escrow_id)` for queue 3) and stop after `endblocker_sweep_limit` items. If more records are eligible than the limit allows, the remainder is processed next block. This bounds per-block gas and prevents an operator-spam attack from stalling the chain.
 
@@ -568,7 +571,7 @@ All params are x/gov-mutable. None are hardened at module level. **High-impact p
 - `report_contest_window_blocks` — if lowered to zero, tier-1 slashes are immediately final, eliminating the contest path entirely.
 - `max_system_reports_per_caller_per_window` — if raised, a buggy or compromised allowlisted consumer module can DoS controllers by flooding system reports. If lowered to zero, federation can no longer file challenge-derived slashes (effectively breaks federation's accountability layer until the cap is restored).
 
-To harden, follow the existing immutable-parameter pattern from x/mint: authority = burn address (`sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe`); `MsgUpdateParams` then becomes unreachable via gov and only chain upgrades can modify. Defer hardening until launch experience shows whether governance can be trusted with these levers.
+To harden, follow the x/guardian pattern used for the SDK modules: make the guardian module account the x/service authority and add a per-field filter to its `MsgExec` chain so the chosen fields are rejected (`ErrImmutableField`) or floored, leaving only chain upgrades able to change them. Defer hardening until launch experience shows whether governance can be trusted with these levers.
 
 ---
 
@@ -626,7 +629,7 @@ All signer Msgs MUST carry `option (amino.name) = "sparkdream/x/service/Msg<Name
   | `REDUCE` | `0 < slash_bps < report.proposed_slash_bps`                                | Apply reduced slash; if reducing a contested T1 slash, the difference between escrow amount and new slash returns to bond |
   | `REJECT` | `slash_bps == 0`                                                           | No slash; release any contested-T1 escrow back to bond          |
 
-  Reporter deposit handling per §3.4.6 (refund on ACCEPT/REDUCE, forfeit to community pool on REJECT). If `dissolve == true` (only valid with `ACCEPT`), the operator transitions to `SLASHED` regardless of remaining bond. This message is the **only** path to apply a tier-2 slash; submission by a non-Operations-Committee resolver is rejected with `ErrUnauthorizedCouncilResolver`, and a verdict that doesn't match the underlying JuryReview is rejected with `ErrJuryVerdictMismatch`.
+  Reporter deposit handling per §3.4.6 (refund on ACCEPT/REDUCE, forfeit to community pool on REJECT). If `dissolve == true` (only valid with `ACCEPT`), the operator transitions to `SLASHED` regardless of remaining bond. **Relayer discretion (SVC-101).** A single committee member may relay only what the jury decided: ACCEPT at the proposed slash, or REJECT. `REDUCE` and `dissolve = true` depart from the verdict and need the Operations Committee or Commons Council **policy** address or governance (`IsCouncilOrCommitteePolicy`, `ErrUnauthorizedCouncilResolver` otherwise). The keeper gate is only half of that grant: a policy signs only through an executed x/commons proposal, which must clear the policy's `AllowedMessages`, so `MsgResolveReportByJury` is on both the Commons Council's and the Commons Operations Committee's bootstrap allowlists (SVC-201; `app/committee_allowlist_guard_test.go` pins it). An UPHOLD nobody relays is applied by EndBlocker queue 3 at `escalated_at + max_escalated_blocks` as ACCEPT at `proposed_slash_bps`, without dissolve. `ESCALATE_TO_JURY` (and the pending-timeout escalation) refuse a proposed `slash_bps` above 10000 (`ErrInvalidVerdict`, SVC-103): an ACCEPT of a proposal above 100% would confiscate the whole bond and dissolve. This message is the **only** path to apply a tier-2 slash; submission by a non-Operations-Committee resolver is rejected with `ErrUnauthorizedCouncilResolver`, and a verdict that doesn't match the underlying JuryReview is rejected with `ErrJuryVerdictMismatch`.
 
 ### 5.3. Service type registry (gov-authority)
 
@@ -662,7 +665,7 @@ Transferring an operator's controller without operator unbond+re-register requir
 
 This is the **only** mechanism by which `controller` changes outside of operator unbond+re-register.
 
-**Authority + verdict-integrity model.** The resolver is a human Operations Committee member, NOT the x/rep module account. It is safe for a single member because of the jury cross-check below; x/rep's `MsgResolveGovActionAppeal` has no such cross-check and so takes the committee policy address instead. The committee member observes the jury's verdict off-chain (or via the `Query/JuryReview` RPC) and submits a matching verdict. The on-chain integrity check is the `GetJuryReview` cross-check: if the resolver submits a verdict that doesn't match the jury's tallied result, the message is rejected. This means a single rogue Operations Committee member cannot forge a verdict — they can only at worst delay or refuse to relay a legitimate one, in which case the EndBlocker auto-timeout sweep (§3.6 queue 3) eventually resolves the case as REJECT-equivalent (AUTO_TIMEOUT).
+**Authority + verdict-integrity model.** The resolver is a human Operations Committee member, NOT the x/rep module account. It is safe for a single member because of the jury cross-check below; x/rep's `MsgResolveGovActionAppeal` has no such cross-check and so takes the committee policy address instead. The committee member observes the jury's verdict off-chain (or via the `Query/JuryReview` RPC) and submits a matching verdict. The on-chain integrity check is the `GetJuryReview` cross-check: if the resolver submits a verdict that doesn't match the jury's tallied result, the message is rejected. This means a single rogue Operations Committee member cannot forge a verdict — they can only at worst delay or refuse to relay a legitimate one. Silence changes nothing: at `escalated_at + max_escalated_blocks` the EndBlocker (§3.6 queue 3) applies a tallied UPHOLD as ACCEPT at the proposed slash, and times anything else out as REJECT-equivalent (AUTO_TIMEOUT). Resizing the slash (REDUCE) or dissolving needs the committee policy (§5.2).
 
 **Operator defense surface.** The case carries only the opener's `reason` string. The operator has no first-class on-chain way to argue against a transfer (e.g., "this council has been working fine, the opener has a personal grievance"). Defense happens off-chain via the standard x/rep jury UI — jurors can request additional context from any party before voting. For v1 this is acceptable; if controller-transfer abuse becomes a real issue, a future revision could add `MsgRespondToControllerTransferCase` for structured operator rebuttal.
 
@@ -676,7 +679,8 @@ The case-opening surface is intentionally narrow (operator + ESTABLISHED members
 | Controller            | `Operator.controller` field (typically a council group address) | `MsgResolveReport`                            |
 | Reporter              | Any address meeting `min_reporter_trust_level`                  | `MsgReportOperator`                           |
 | x/gov module          | `authtypes.NewModuleAddress("gov")`                             | `MsgUpdateServiceTypeConfig`                  |
-| Commons Ops Committee | Member of `commons/operations` committee                         | `MsgResolveReportByJury`, `MsgFinalizeControllerTransfer` |
+| Commons Ops Committee | Member of `commons/operations` committee                         | `MsgResolveReportByJury` (ACCEPT at the proposed slash, REJECT), `MsgFinalizeControllerTransfer` |
+| Commons Ops Committee / Commons Council policy | Policy address (an executed proposal; both bootstrap allowlists carry the message) | `MsgResolveReportByJury` with `REDUCE` or `dissolve = true` |
 
 The "jury resolver" is a **Commons Council Operations Committee member**, not the x/rep module account. (x/rep's own `MsgResolveGovActionAppeal` and `MsgResolveMemberReport` now take the committee *policy* address, an executed proposal, because they slash bonds and zero members without a jury cross-check.) The committee member observes the jury's verdict off-chain (or via x/rep's `Query/JuryReview` RPC) and submits a matching verdict on the originating module. The on-chain integrity guarantee is the cross-check against `repKeeper.GetJuryReview(...)` — a resolver cannot forge a verdict the jurors didn't actually reach. The committee acts as a low-trust relayer, not the verdict source.
 
@@ -748,8 +752,12 @@ juryReviewID, err := repKeeper.CreateSeatedAppeal(
 ```
 
 The parties (and every address of the same members) are kept off the
-jury. Members of the controller *group* are not excluded individually —
-only its policy address — a known limitation. The review enters x/rep's
+jury. A controller group's members are parties too (SVC-102): the
+controller's policy address is expanded to its member list
+(`CommonsKeeper.GroupPolicyMembers`) on escalation, on a contested
+tier-1 slash, and for both the current and the proposed controller of
+a controller-transfer case, so the members who voted a slash never sit
+on the jury reviewing it. The review enters x/rep's
 PENDING verdict index, so it is tallied as soon as `RequiredVotes` are in
 or, at the latest, at `deadline` (a below-quorum tally is INCONCLUSIVE).
 For these cases `TallyJuryVotes` records the verdict, charges no-shows and
@@ -807,14 +815,17 @@ x/service's resolver-side handlers enforce two integrity gates:
 
 Together these two gates mean a single rogue Operations Committee
 member cannot forge a verdict the jurors didn't actually reach. The
-committee acts as a low-trust relayer, not the verdict source.
+committee acts as a low-trust relayer, not the verdict source: a member
+relays ACCEPT (at the proposed slash) or REJECT; REDUCE and
+`dissolve = true` need the committee policy (SVC-101).
 
 **Timeout handling.** A jury that does not reach quorum tallies
 INCONCLUSIVE at its voting deadline (half of `max_escalated_blocks`),
 which the resolver relays as REJECT. If no resolver relays any verdict,
-x/service's EndBlocker queue 3 (§3.6) auto-resolves the ESCALATED report
-as `AUTO_TIMEOUT` at `escalated_at + max_escalated_blocks`
-(REJECT-equivalent). x/service does not need to cancel the JuryReview.
+x/service's EndBlocker queue 3 (§3.6) closes the ESCALATED report at
+`escalated_at + max_escalated_blocks`: a tallied UPHOLD is applied as
+ACCEPT at the proposed slash (no dissolve); anything else becomes
+`AUTO_TIMEOUT` (REJECT-equivalent). x/service does not need to cancel the JuryReview.
 
 ### 6.3. x/federation (migration complete)
 
@@ -861,7 +872,7 @@ Operator performance accrues reputation in a dedicated x/rep tag `service-operat
 
 - **Successful unbond completion** with no slashing history: positive reputation grant computed from accrued bond-blocks (see anti-gaming rule below).
 - **Tier-1 slash resolved (final, not contested)**: when the `Tier1Escrow` entry releases to the community pool, a reputation deduction proportional to slash size is sent to `RepKeeper.DeductReputation`.
-- **Tier-2 slash by jury verdict (Accept or Reduce)**: the proportional deduction times `JurySlashReputationMultiplier` (compiled constant, 2), applied at resolution; verdict `Reject` produces no reputation movement. A jury verdict is an adjudicated finding rather than a controller's unilateral call, so it marks the record harder than a tier-1 slash of the same size; the jury's `slash_bps` is also not bounded by `unilateral_slash_cap_bps`.
+- **Tier-2 slash by jury verdict (Accept or Reduce)**: the proportional deduction times `JurySlashReputationMultiplier` (compiled constant, 2), applied at resolution over everything the operator loses: the verdict's slash plus, when the verdict dissolves the operator (`dissolve = true` or an emptied bond), the remaining bond the dissolution confiscates; verdict `Reject` produces no reputation movement. A jury verdict is an adjudicated finding rather than a controller's unilateral call, so it marks the record harder than a tier-1 slash of the same size; the jury's `slash_bps` is also not bounded by `unilateral_slash_cap_bps`.
 
 Deduction formula (same units as the grant):
 

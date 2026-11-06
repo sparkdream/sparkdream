@@ -400,6 +400,47 @@ func (k Keeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, c
 	return has, nil
 }
 
+// ListCommitteeMembers returns the addresses of every member of the named
+// committee of a council, in store (address) order. Unknown council or
+// committee names are an error; a seeded but empty committee returns an empty
+// list. x/rep assigns the Operations Committee's project-review interims to
+// this list.
+func (k Keeper) ListCommitteeMembers(ctx context.Context, council string, committee string) ([]string, error) {
+	groupName := resolveCommitteeName(council, committee)
+	if groupName == "" {
+		return nil, fmt.Errorf("unknown committee '%s' for council '%s'", committee, council)
+	}
+	var members []string
+	rng := collections.NewPrefixedPairRange[string, string](groupName)
+	err := k.Members.Walk(ctx, rng, func(key collections.Pair[string, string], _ types.Member) (bool, error) {
+		members = append(members, key.K2())
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+// HasVoted reports whether voter cast a vote (any option) on the proposal.
+// On a secret ballot the voters cannot be attributed, so every address is
+// reported as having voted: the caller treats the whole body as the
+// deciders. An unknown proposal has no voters. x/rep pays a project's review
+// interim only to the committee members who voted on the proposal that
+// approved it; the caller passes each of the member's recent addresses, since
+// a vote is stored under the address that signed it.
+func (k Keeper) HasVoted(ctx context.Context, proposalID uint64, voter string) bool {
+	proposal, err := k.Proposals.Get(ctx, proposalID)
+	if err != nil {
+		return false
+	}
+	if proposal.SecretBallot {
+		return true
+	}
+	has, err := k.Votes.Has(ctx, collections.Join(proposalID, voter))
+	return err == nil && has
+}
+
 // GetCommitteeGroupInfo returns the group info for a committee
 func (k Keeper) GetCommitteeGroupInfo(ctx context.Context, council string, committee string) (interface{}, error) {
 	groupName := ""
@@ -564,17 +605,26 @@ func (k Keeper) BumpPolicyVersion(ctx context.Context, policyAddr string) (uint6
 	return newVersion, k.PolicyVersion.Set(ctx, policyAddr, newVersion)
 }
 
-// parseMembers converts parallel string arrays into Member structs.
+// parseMembers converts parallel string arrays into Member structs. A
+// repeated address is refused: the store keeps one seat per address, so a
+// duplicate would pass the min_members count and the threshold check (on a
+// double-counted weight) and then collapse into a single seat (CMN-103).
 func (k Keeper) parseMembers(addresses []string, weights []string) ([]types.Member, error) {
 	if len(addresses) != len(weights) {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "member count (%d) does not match weight count (%d)", len(addresses), len(weights))
 	}
 
 	var members []types.Member
+	seen := make(map[string]bool, len(addresses))
 	for i, addr := range addresses {
-		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+		accAddr, err := sdk.AccAddressFromBech32(addr)
+		if err != nil {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidAddress, "invalid member address %s: %s", addr, err)
 		}
+		if seen[string(accAddr)] {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "duplicate member address %s", addr)
+		}
+		seen[string(accAddr)] = true
 		members = append(members, types.Member{
 			Address:  addr,
 			Weight:   weights[i],

@@ -8,6 +8,14 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgDisallowGranter{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAcceptGrant{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgExecSession{},
 	)
 

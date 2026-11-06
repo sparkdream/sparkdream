@@ -9,6 +9,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 
 	"sparkdream/x/artifact/types"
@@ -90,17 +91,28 @@ func (k Keeper) getBalance(ctx context.Context, classID, editionID uint64, owner
 // or lock units from: signer itself when it holds a record in the edition,
 // else the first recent predecessor that does (a balance written before the
 // member migrated its key stays keyed by the old address; nothing is
-// re-keyed). Only addresses signer may act as count. Falls back to signer.
-func (k Keeper) balanceHolder(ctx context.Context, classID, editionID uint64, signer string) string {
-	for _, a := range k.recentAddressesOf(ctx, signer) {
-		if !k.canActAs(ctx, signer, a) {
+// re-keyed). Only addresses signer may act as count. A tombstoned signer
+// acts for nothing, not even its own address (ART-107).
+func (k Keeper) balanceHolder(ctx context.Context, classID, editionID uint64, signer string) (string, error) {
+	if !k.canActAs(ctx, signer, signer) {
+		return "", errorsmod.Wrap(types.ErrNotAuthorized, "a migrated address cannot act; sign with the successor")
+	}
+	return k.unitsHolderOf(ctx, classID, editionID, signer), nil
+}
+
+// unitsHolderOf is balanceHolder's lookup without the signer check, for an
+// issuer naming the holder (MsgRevokeUnits): either address of a migrated
+// holder may be named. Falls back to named.
+func (k Keeper) unitsHolderOf(ctx context.Context, classID, editionID uint64, named string) string {
+	for _, a := range k.recentAddressesOf(ctx, named) {
+		if !k.canActAs(ctx, named, a) {
 			continue
 		}
 		if has, _ := k.Balances.Has(ctx, balanceKey(classID, editionID, a)); has {
 			return a
 		}
 	}
-	return signer
+	return named
 }
 
 // settle folds what a balance accrued into unclaimed. Call it before any
@@ -130,7 +142,11 @@ func (k Keeper) writeBalance(ctx context.Context, e *types.Edition, b types.Bala
 			return err
 		}
 		e.Holders--
-		if err := k.refund(ctx, b.Owner, b.Deposit); err != nil {
+		depositTo := b.Owner
+		if b.DepositPayer != "" {
+			depositTo = b.DepositPayer // paid by a session key (SES-101)
+		}
+		if err := k.refund(ctx, depositTo, b.Deposit); err != nil {
 			return err
 		}
 		return k.refund(ctx, b.Owner, b.Unclaimed)
@@ -145,11 +161,12 @@ func (k Keeper) writeBalance(ctx context.Context, e *types.Edition, b types.Bala
 }
 
 // credit adds free units to to's balance. A new record takes escrow as its
-// deposit when escrowed is set, or collects token_deposit from payer; an
-// escrow that is not needed (the record already exists) is refunded to
-// escrowFrom.
+// deposit when escrowed is set (recording escrowPayer, the session-paid
+// payer of the escrow, if any), or collects token_deposit from payer (the
+// message signer); an escrow that is not needed (the record already
+// exists) is refunded to escrowFrom.
 func (k Keeper) credit(ctx context.Context, e *types.Edition, to string, amount uint64,
-	payer sdk.AccAddress, escrowed bool, escrow math.Int, escrowFrom string,
+	payer sdk.AccAddress, escrowed bool, escrow math.Int, escrowFrom, escrowPayer string,
 ) error {
 	b, found, err := k.getBalance(ctx, e.ClassId, e.Id, to)
 	if err != nil {
@@ -165,6 +182,7 @@ func (k Keeper) credit(ctx context.Context, e *types.Edition, to string, amount 
 		}
 	case escrowed:
 		b.Deposit = escrow
+		b.DepositPayer = escrowPayer
 		b.RewardDebt = e.RewardPerUnit
 	default:
 		dep := k.GetParams(ctx).TokenDeposit
@@ -172,6 +190,12 @@ func (k Keeper) credit(ctx context.Context, e *types.Edition, to string, amount 
 			return err
 		}
 		b.Deposit = dep
+		if commontypes.SessionExecGranter(ctx) != "" {
+			// payer is the signer, rewritten to the granter (SES-101).
+			if b.DepositPayer, err = k.addressCodec.BytesToString(payer); err != nil {
+				return err
+			}
+		}
 		b.RewardDebt = e.RewardPerUnit
 	}
 	if b.Amount, err = types.AddUnits(b.Amount, amount); err != nil {
@@ -300,7 +324,7 @@ func (k Keeper) mintUnitsTo(ctx context.Context, c types.Class, e *types.Edition
 	// Minting to oneself (any of one's own addresses) is always direct, as
 	// on the unique-token path.
 	if k.sameMember(ctx, recipient, minterStr) || (!c.Flags.NeedsConsent() && k.deliversDirectly(ctx, minterStr, recipient)) {
-		if err := k.credit(ctx, e, recipient, amount, minter, false, math.Int{}, ""); err != nil {
+		if err := k.credit(ctx, e, recipient, amount, minter, false, math.Int{}, "", ""); err != nil {
 			return res, err
 		}
 		supply, err := types.AddUnits(e.Supply, amount)
@@ -353,6 +377,8 @@ func (k Keeper) parkUnits(ctx context.Context, kind types.InboxKind, c types.Cla
 		Deposit:   p.TokenDeposit,
 		CreatedAt: now(ctx),
 		ExpiresAt: now(ctx) + p.PendingTtl,
+		// from paid the escrow; recorded when it was a session key.
+		DepositPayer: sessionDepositPayer(ctx, fromStr),
 	}
 	if err := k.PendingUnits.Set(ctx, pu.Id, pu); err != nil {
 		return 0, err
@@ -405,7 +431,7 @@ func (k Keeper) resolvePendingUnits(ctx context.Context, pu types.PendingUnits, 
 		} else if e.Supply, err = types.AddUnits(e.Supply, pu.Amount); err != nil {
 			return err
 		}
-		if err := k.credit(ctx, &e, pu.To, pu.Amount, nil, true, pu.Deposit, pu.From); err != nil {
+		if err := k.credit(ctx, &e, pu.To, pu.Amount, nil, true, pu.Deposit, pu.From, pu.DepositPayer); err != nil {
 			return err
 		}
 		emit(ctx, types.EventUnitsTransferred, classAttr(pu.ClassId), editionAttr(pu.EditionId),

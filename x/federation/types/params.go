@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // federationGenesisParams holds the network-specific parameter values
@@ -248,12 +250,18 @@ var DevnetParamFloors = ParamFloors{
 var TestParamFloors = ParamFloors{RetentionTTL: time.Second}
 
 func (p Params) Validate() error {
-	return p.ValidateWithFloors(activeParamFloors)
+	return p.validateWithBounds(activeParamFloors, reptypes.MaxAnonymousActionWindow)
 }
 
 // ValidateWithFloors runs Validate with the given floors instead of the
-// build's own (tests check every network's genesis against its floors).
+// build's own (tests check every network's genesis against its floors) and
+// without the build's anonymous-action-window ceiling, which is per network
+// too (TestZkKeyDelayOutlastsArbiterWindow checks that one per genesis).
 func (p Params) ValidateWithFloors(floors ParamFloors) error {
+	return p.validateWithBounds(floors, 0)
+}
+
+func (p Params) validateWithBounds(floors ParamFloors, anonWindow time.Duration) error {
 	// --- Required math.Int amounts: non-nil + non-negative ---
 	intFields := map[string]math.Int{
 		"min_verifier_bond":           p.MinVerifierBond,
@@ -428,7 +436,7 @@ func (p Params) ValidateWithFloors(floors ParamFloors) error {
 		{"verifier_demotion_cooldown", p.VerifierDemotionCooldown, floors.VerifierDemotionCooldown, 30 * day},
 		{"verifier_unbond_cooldown", p.VerifierUnbondCooldown, 0, 90 * day},
 		{"verifier_overturn_base_cooldown", p.VerifierOverturnBaseCooldown, floors.VerifierOverturnBaseCooldown, 7 * day},
-		{"arbiter_resolution_window", p.ArbiterResolutionWindow, floors.ArbiterResolutionWindow, 7 * day},
+		{"arbiter_resolution_window", p.ArbiterResolutionWindow, floors.ArbiterResolutionWindow, maxArbiterResolutionWindow(7*day, anonWindow)},
 		{"arbiter_escalation_window", p.ArbiterEscalationWindow, floors.ArbiterEscalationWindow, 7 * day},
 		{"challenge_cooldown", p.ChallengeCooldown, floors.ChallengeCooldown, 30 * day},
 	} {
@@ -484,4 +492,16 @@ func (p Params) ValidateWithFloors(floors ParamFloors) error {
 	// constraints — see commit history / spec §4.13 for the rationale.
 
 	return nil
+}
+
+// maxArbiterResolutionWindow caps the arbiter vote window at the spec
+// ceiling or, when lower, anonWindow (x/rep's MaxAnonymousActionWindow):
+// arbiter votes are anonymous "one per content" actions against the live
+// member tree, so the window must close before a replaced ZK key can
+// activate and vote again. Zero anonWindow means no such bound.
+func maxArbiterResolutionWindow(specCeiling, anonWindow time.Duration) time.Duration {
+	if anonWindow > 0 && anonWindow < specCeiling {
+		return anonWindow
+	}
+	return specCeiling
 }

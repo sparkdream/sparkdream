@@ -86,8 +86,12 @@ const (
 	EventTypeVerifierSlashed            = "verifier_slashed"
 	EventTypeVerifierCooldownApplied    = "verifier_cooldown_applied"
 	EventTypeVerifierCommitmentReleased = "verifier_commitment_released"
-	EventTypeContentUnresolved          = "content_unresolved"
-	EventTypeContentSuperseded          = "content_superseded"
+	// EventTypeVerificationRejected: a PENDING verification settled as
+	// OVERTURNED without accuracy credit because its content was REJECTED
+	// by the committee (FED-202).
+	EventTypeVerificationRejected = "verification_rejected"
+	EventTypeContentUnresolved    = "content_unresolved"
+	EventTypeContentSuperseded    = "content_superseded"
 	// The verifier reward events (verifier_spark_reward_paid,
 	// verifier_dream_reward_paid, verifier_dream_reward_auto_bonded,
 	// verifier_bond_restored) are emitted by x/rep, which owns the
@@ -162,3 +166,7 @@ const (
 	// challenger when peer removal cancels an active dispute ("0" if none).
 	AttributeKeyChallengerRefunded = "challenger_refunded"
 )
+
+// AttributeKeyCounterpartyChainID names the chain behind a peer's
+// federation channel on peer_resumed (FED-106).
+const AttributeKeyCounterpartyChainID = "counterparty_chain_id"

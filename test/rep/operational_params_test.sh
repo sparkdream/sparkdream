@@ -116,7 +116,7 @@ import json, sys
 # Fields that use cosmossdk.io/math.LegacyDec (18 decimal precision)
 DEC_FIELDS = [
     'unstaked_decay_rate', 'transfer_tax_rate',
-    'min_reputation_multiplier', 'referral_reward_rate',
+    'referral_reward_rate',
     'invitation_cost_multiplier',
     'challenger_reward_rate', 'jury_super_majority',
     'min_juror_reputation', 'solo_expert_bonus_rate',
@@ -179,7 +179,7 @@ INITIAL_EPOCH_BLOCKS=$(echo $PARAMS_JSON | jq -r '.params.epoch_blocks')
 # Governance-only fields (should NOT change)
 INITIAL_COMPLETER_SHARE=$(echo $PARAMS_JSON | jq -r '.params.completer_share')
 INITIAL_TREASURY_SHARE=$(echo $PARAMS_JSON | jq -r '.params.treasury_share')
-INITIAL_MINOR_SLASH=$(echo $PARAMS_JSON | jq -r '.params.minor_slash_penalty')
+INITIAL_SEVERE_SLASH=$(echo $PARAMS_JSON | jq -r '.params.severe_slash_penalty')
 
 echo "Operational params (subset):"
 echo "  max_tips_sent_per_epoch: $INITIAL_MAX_TIPS"
@@ -188,7 +188,7 @@ echo "  epoch_blocks:       $INITIAL_EPOCH_BLOCKS"
 echo "Governance-only params:"
 echo "  completer_share:    $INITIAL_COMPLETER_SHARE"
 echo "  treasury_share:     $INITIAL_TREASURY_SHARE"
-echo "  minor_slash_penalty:$INITIAL_MINOR_SLASH"
+echo "  severe_slash_penalty:$INITIAL_SEVERE_SLASH"
 
 if [ -z "$INITIAL_MAX_TIPS" ] || [ "$INITIAL_MAX_TIPS" == "null" ]; then
     echo "  FAIL: Could not query initial parameters"
@@ -214,7 +214,6 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       max_tips_sent_per_epoch,
       max_gift_per_invitee,
       gift_only_to_invitees: (.gift_only_to_invitees // false),
-      min_reputation_multiplier,
       default_review_period_epochs,
       default_challenge_period_epochs,
       min_invitation_stake,
@@ -232,9 +231,6 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       expert_complexity_budget,
       solo_expert_bonus_rate,
       interim_deadline_epochs,
-      max_active_challenges_per_committee,
-      max_new_challenges_per_epoch,
-      challenge_queue_max_size,
       project_completion_bonus_rate,
       member_stake_revenue_share,
       tag_stake_revenue_share,
@@ -536,11 +532,11 @@ echo "--- TEST 4: VERIFY GOVERNANCE-ONLY FIELDS UNCHANGED ---"
 if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     CURRENT_COMPLETER=$(echo $UPDATED_PARAMS | jq -r '.params.completer_share')
     CURRENT_TREASURY=$(echo $UPDATED_PARAMS | jq -r '.params.treasury_share')
-    CURRENT_MINOR_SLASH=$(echo $UPDATED_PARAMS | jq -r '.params.minor_slash_penalty')
+    CURRENT_SEVERE_SLASH=$(echo $UPDATED_PARAMS | jq -r '.params.severe_slash_penalty')
 
     echo "  completer_share:     $CURRENT_COMPLETER (expected: $INITIAL_COMPLETER_SHARE)"
     echo "  treasury_share:      $CURRENT_TREASURY (expected: $INITIAL_TREASURY_SHARE)"
-    echo "  minor_slash_penalty: $CURRENT_MINOR_SLASH (expected: $INITIAL_MINOR_SLASH)"
+    echo "  severe_slash_penalty: $CURRENT_SEVERE_SLASH (expected: $INITIAL_SEVERE_SLASH)"
 
     VERIFY_GOV_OK=true
     if [ "$CURRENT_COMPLETER" != "$INITIAL_COMPLETER_SHARE" ]; then
@@ -551,8 +547,8 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
         echo "  treasury_share was modified by operational update!"
         VERIFY_GOV_OK=false
     fi
-    if [ "$CURRENT_MINOR_SLASH" != "$INITIAL_MINOR_SLASH" ]; then
-        echo "  minor_slash_penalty was modified by operational update!"
+    if [ "$CURRENT_SEVERE_SLASH" != "$INITIAL_SEVERE_SLASH" ]; then
+        echo "  severe_slash_penalty was modified by operational update!"
         VERIFY_GOV_OK=false
     fi
 
@@ -638,7 +634,6 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       max_tips_sent_per_epoch,
       max_gift_per_invitee,
       gift_only_to_invitees: (.gift_only_to_invitees // false),
-      min_reputation_multiplier,
       default_review_period_epochs,
       default_challenge_period_epochs,
       min_invitation_stake,
@@ -656,9 +651,6 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       expert_complexity_budget,
       solo_expert_bonus_rate,
       interim_deadline_epochs,
-      max_active_challenges_per_committee,
-      max_new_challenges_per_epoch,
-      challenge_queue_max_size,
       project_completion_bonus_rate,
       member_stake_revenue_share,
       tag_stake_revenue_share,

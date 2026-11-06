@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/reveal/types"
@@ -13,6 +14,9 @@ import (
 func (k msgServer) Reject(ctx context.Context, msg *types.MsgReject) (*types.MsgRejectResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
+	}
+	if err := types.ValidateFieldLength("reason", msg.Reason, types.MaxReasonLength); err != nil {
+		return nil, err
 	}
 
 	// Reveal rejections must come through a Commons Council vote (or governance).
@@ -50,11 +54,12 @@ func (k msgServer) Reject(ctx context.Context, msg *types.MsgReject) (*types.Msg
 	if err != nil {
 		return nil, err
 	}
-	if contrib.BondRemaining.IsPositive() {
-		if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-			return nil, err
-		}
+	// A bond x/rep reports as gone (zeroed contributor) settles as
+	// returned instead of failing the rejection (REV-102).
+	if _, err := k.unlockOrGone(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
+		return nil, err
 	}
+	contrib.BondRemaining = math.ZeroInt()
 
 	// Remove old status index, update contribution
 	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {

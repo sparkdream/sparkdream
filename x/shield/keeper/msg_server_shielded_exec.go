@@ -664,19 +664,30 @@ func (k Keeper) executeInnerMessage(ctx sdk.Context, params types.Params, innerM
 		return nil, errorsmod.Wrap(types.ErrInvalidInnerMessage, err.Error())
 	}
 
-	// Verify inner message signer is the shield module account.
+	// Verify every inner message signer is the shield module account.
 	// This ensures the inner message was crafted to be executed through the shield,
-	// not a regular message that happened to have the same type URL.
+	// not a regular message that happened to have the same type URL, and that
+	// no second signer's authority rides along on the module's.
 	moduleAddr := k.accountKeeper.GetModuleAddress(types.ModuleName)
 	if legacyMsg, ok := innerMsg.(sdk.LegacyMsg); ok {
 		signers := legacyMsg.GetSigners()
-		if len(signers) == 0 || !signers[0].Equals(moduleAddr) {
+		if len(signers) == 0 {
 			return nil, types.ErrInvalidInnerMessageSigner
+		}
+		for _, s := range signers {
+			if !s.Equals(moduleAddr) {
+				return nil, types.ErrInvalidInnerMessageSigner
+			}
 		}
 	} else if pc, ok := k.cdc.(*codec.ProtoCodec); ok {
 		signerBytes, _, err := pc.GetMsgV1Signers(innerMsg)
-		if err != nil || len(signerBytes) == 0 || !sdk.AccAddress(signerBytes[0]).Equals(moduleAddr) {
+		if err != nil || len(signerBytes) == 0 {
 			return nil, types.ErrInvalidInnerMessageSigner
+		}
+		for _, s := range signerBytes {
+			if !sdk.AccAddress(s).Equals(moduleAddr) {
+				return nil, types.ErrInvalidInnerMessageSigner
+			}
 		}
 	} else {
 		// Neither path could validate the inner signer — fail closed instead of

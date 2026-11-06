@@ -11,12 +11,17 @@ const (
 	EventTypeShieldBatchExpired  = "shield_batch_expired"
 	EventTypeShieldBatchSkipped  = "shield_batch_skipped"
 
-	// Decryption key
+	// Decryption key. shield_decryption_key_available carries source=batch
+	// when the epoch holds pending ops, source=beacon otherwise.
 	EventTypeShieldDecryptionKeyAvailable = "shield_decryption_key_available"
 	EventTypeShieldDecryptionKeyFailed    = "shield_decryption_key_failed"
 
 	// Funding
-	EventTypeShieldFunded        = "shield_funded"
+	EventTypeShieldFunded = "shield_funded"
+	// The post handler returned the unused part of a MsgShieldedExec's
+	// declared fee to the module account (gas used x implied price stays
+	// with the fee collector).
+	EventTypeShieldFeeRefund     = "shield_fee_refund"
 	EventShieldFundingCapReached = "shield_funding_cap_reached"
 
 	// Registration
@@ -61,6 +66,7 @@ const (
 	AttributeKeyCutoffEpoch        = "cutoff_epoch"
 	AttributeKeySharesSubmitted    = "shares_submitted"
 	AttributeKeyThresholdRequired  = "threshold_required"
+	AttributeKeySource             = "source"
 	AttributeKeyAmount             = "amount"
 	AttributeKeyDay                = "day"
 	AttributeKeyNewBalance         = "new_balance"
@@ -77,4 +83,6 @@ const (
 	AttributeKeyDriftPercent       = "drift_percent"
 	AttributeKeyDealer             = "dealer"
 	AttributeKeyComplainer         = "complainer"
+	AttributeKeyGasUsed            = "gas_used"
+	AttributeKeyGasLimit           = "gas_limit"
 )

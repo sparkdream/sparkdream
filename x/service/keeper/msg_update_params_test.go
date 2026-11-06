@@ -69,3 +69,24 @@ func TestMsgUpdateParams(t *testing.T) {
 		})
 	}
 }
+
+// SVC-203: raising report_contest_window_blocks above an existing service
+// type's unbonding_period_blocks is refused; the type's own update and
+// genesis already enforce the same bound (SVC-104).
+func TestMsgUpdateParams_RefusesContestWindowAboveTypeUnbonding(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	authorityStr, err := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+	require.NoError(t, err)
+	cfg := f.seedServiceType(t) // unbonding_period_blocks 20
+
+	params := types.DefaultParams()
+	params.ReportContestWindowBlocks = cfg.UnbondingPeriodBlocks + 1
+	_, err = ms.UpdateParams(f.ctx, &types.MsgUpdateParams{Authority: authorityStr, Params: params})
+	require.ErrorIs(t, err, types.ErrInvalidServiceTypeConfig)
+	require.ErrorContains(t, err, "unbonding_period_blocks")
+
+	params.ReportContestWindowBlocks = cfg.UnbondingPeriodBlocks
+	_, err = ms.UpdateParams(f.ctx, &types.MsgUpdateParams{Authority: authorityStr, Params: params})
+	require.NoError(t, err)
+}

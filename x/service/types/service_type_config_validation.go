@@ -112,3 +112,17 @@ func (c ServiceTypeConfig) Validate() error {
 
 	return nil
 }
+
+// ValidateAgainstParams checks the config against the live module params:
+// a per-type unbonding_period_blocks shorter than report_contest_window_blocks
+// would let an operator facing a fresh allegation unbond and claim before a
+// reporter had the full contest window to file (SVC-104, the per-type twin
+// of the Params.Validate rule on default_unbonding_period_blocks).
+func (c ServiceTypeConfig) ValidateAgainstParams(p Params) error {
+	if c.UnbondingPeriodBlocks < p.ReportContestWindowBlocks {
+		return ErrInvalidServiceTypeConfig.Wrapf(
+			"unbonding_period_blocks %d must be >= report_contest_window_blocks %d",
+			c.UnbondingPeriodBlocks, p.ReportContestWindowBlocks)
+	}
+	return nil
+}

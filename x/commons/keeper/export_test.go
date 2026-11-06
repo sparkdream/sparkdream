@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/commons/types"
@@ -34,4 +35,12 @@ func (k Keeper) CreateTestAccount(ctx context.Context, addr sdk.AccAddress) {
 		SetAccount(context.Context, sdk.AccountI)
 	})
 	ak.SetAccount(ctx, ak.NewAccountWithAddress(ctx, addr))
+}
+
+// ProposalChangesMembership exposes proposalChangesMembership.
+func ProposalChangesMembership(p types.Proposal) bool { return proposalChangesMembership(p) }
+
+// ThresholdMet exposes thresholdMet.
+func ThresholdMet(dp types.DecisionPolicy, changesMembership bool, yes, body math.LegacyDec) bool {
+	return thresholdMet(dp, changesMembership, yes, body)
 }

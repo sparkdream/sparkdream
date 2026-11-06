@@ -50,10 +50,15 @@ ensure_season_horizon() {
         echo "  [ OK ] season horizon: season ends at block $end_block (height $height); no extension needed"
         return 0
     fi
-    if [ "$season_status" != "1" ] && [ "$season_status" != "SEASON_STATUS_ACTIVE" ]; then
-        echo "  [WARN] season horizon: season status $season_status is not ACTIVE; cannot extend"
-        return 0
-    fi
+    # MsgExtendSeason accepts ACTIVE (1) and NOMINATION (5): the nomination
+    # window is still season 1, so extending inside it is valid.
+    case "$season_status" in
+        1|SEASON_STATUS_ACTIVE|5|SEASON_STATUS_NOMINATION) ;;
+        *)
+            echo "  [WARN] season horizon: season status $season_status is not ACTIVE or NOMINATION; cannot extend"
+            return 0
+            ;;
+    esac
 
     local max_epochs denom
     max_epochs=$("$bin" query season params --output json 2>/dev/null | jq -r '.params.max_extension_epochs // "0"')

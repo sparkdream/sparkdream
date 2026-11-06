@@ -2,9 +2,10 @@ package keeper
 
 import (
 	"context"
-	"cosmossdk.io/collections"
 	"errors"
 	"fmt"
+
+	"cosmossdk.io/collections"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -338,7 +339,12 @@ func (k Keeper) onVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID
 	if err := k.MemberProfile.Set(ctx, voterStr, profile); err != nil {
 		return err
 	}
-	return k.OnQuestObjectiveProgress(ctx, voter, types.QuestObjectiveType_QUEST_OBJECTIVE_TYPE_VOTES_CAST, 1)
+	// Vote objectives are applied in the EndBlocker, not here: each open
+	// quest costs a quest read and a progress write, and at the default
+	// quest cap that put the hook alone over a council vote's 200000 gas
+	// (SEA-103). The hook records one key, and only when the voter has an
+	// open quest.
+	return k.addPendingVoteQuestProgress(ctx, voterStr, proposalID)
 }
 
 // onProposalCreated grants the proposer the proposal XP.

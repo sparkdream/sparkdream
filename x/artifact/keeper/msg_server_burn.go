@@ -59,6 +59,7 @@ func (k msgServer) Burn(ctx context.Context, msg *types.MsgBurn) (*types.MsgBurn
 		}
 		emit(ctx, types.EventBurned, classAttr(t.ClassId), tokenAttr(t.Id),
 			sdk.NewAttribute("owner", msg.Owner), sdk.NewAttribute("refund", refund.String()),
+			sdk.NewAttribute("refund_to", depositRefundee(t, msg.Owner)),
 			sdk.NewAttribute("reveal_overdue", boolStr(overdue)))
 	}
 	return &types.MsgBurnResponse{}, nil

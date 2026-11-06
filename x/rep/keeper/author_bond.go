@@ -209,9 +209,24 @@ func (k Keeper) RestoreAuthorBond(
 		return nil
 	}
 
-	// Mint fresh DREAM to the author's free balance to replace what was burned
-	// by SlashAuthorBond. This is the supply-restoration step.
-	if err := k.MintDREAM(ctx, author, amount); err != nil {
+	// An author zeroed since the slash is owed nothing (REP-E-208): the
+	// reversal still succeeds, the bond is simply not restored.
+	if !k.IsActiveMember(ctx, k.resolveMember(ctx, author)) {
+		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+			"author_bond_restore_skipped",
+			sdk.NewAttribute("author", author.String()),
+			sdk.NewAttribute("target_type", targetType.String()),
+			sdk.NewAttribute("target_id", fmt.Sprintf("%d", targetID)),
+			sdk.NewAttribute("reason", "author is not an active member"),
+		))
+		return nil
+	}
+
+	// Reissue to the author's free balance what SlashAuthorBond burned. This
+	// is the supply-restoration step; reissueDREAM skips the epoch mint
+	// ceiling and the referral side-mint, neither of which a restored bond
+	// should touch (REP-E-107).
+	if err := k.reissueDREAM(ctx, author, amount, "author_bond_restore"); err != nil {
 		return fmt.Errorf("restore author bond: mint DREAM: %w", err)
 	}
 

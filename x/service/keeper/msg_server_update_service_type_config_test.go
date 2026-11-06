@@ -93,3 +93,30 @@ func TestMsgUpdateServiceTypeConfig_InvalidConfig(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// SVC-104: a per-type unbonding period shorter than the report contest
+// window is refused, in the handler and in genesis.
+func TestMsgUpdateServiceTypeConfig_UnbondingShorterThanContestWindow(t *testing.T) {
+	f := initFixture(t)
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+
+	cfg := validSimCfg()
+	cfg.UnbondingPeriodBlocks = params.ReportContestWindowBlocks - 1
+	_, err = f.msgServer.UpdateServiceTypeConfig(f.ctx, &types.MsgUpdateServiceTypeConfig{
+		Authority: f.authorityStr,
+		Config:    cfg,
+	})
+	require.ErrorIs(t, err, types.ErrInvalidServiceTypeConfig)
+
+	cfg.UnbondingPeriodBlocks = params.ReportContestWindowBlocks
+	_, err = f.msgServer.UpdateServiceTypeConfig(f.ctx, &types.MsgUpdateServiceTypeConfig{
+		Authority: f.authorityStr,
+		Config:    cfg,
+	})
+	require.NoError(t, err)
+
+	gs := types.DefaultGenesis()
+	gs.ServiceTypes[0].UnbondingPeriodBlocks = gs.Params.ReportContestWindowBlocks - 1
+	require.ErrorContains(t, gs.Validate(), "report_contest_window_blocks")
+}

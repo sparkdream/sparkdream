@@ -48,6 +48,14 @@ type Keeper struct {
 	// VaultInvitesBySigner: (signer, vault_id) of unaccepted entries (listed
 	// by someone else, not yet accepted). Never walked by a tx path.
 	VaultInvitesBySigner collections.KeySet[collections.Pair[string, uint64]]
+	// InviteExpiryQueue: (invite_expires_at, vault_id, signer) of unaccepted
+	// entries with a non-zero expiry; the EndBlocker removes due entries.
+	InviteExpiryQueue collections.KeySet[collections.Triple[int64, uint64, string]]
+	// ProposalsByVault: (vault_id, proposal_id) of every stored proposal,
+	// any status; backs the ProposalsByVault query without a full scan.
+	ProposalsByVault collections.KeySet[collections.Pair[uint64, uint64]]
+	// ProposalsByProposer: (proposer, proposal_id) of every stored proposal.
+	ProposalsByProposer collections.KeySet[collections.Pair[string, uint64]]
 	// PendingByVault: (vault_id, proposal_id) of PENDING proposals.
 	PendingByVault collections.KeySet[collections.Pair[uint64, uint64]]
 	// PendingByProposer: (vault_id, proposer, proposal_id) of PENDING proposals.
@@ -89,6 +97,9 @@ func NewKeeper(
 		VaultByAddress:       collections.NewMap(sb, types.VaultByAddressKey, "vaultByAddress", collections.StringKey, collections.Uint64Value),
 		VaultsBySigner:       collections.NewKeySet(sb, types.VaultsBySignerKey, "vaultsBySigner", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 		VaultInvitesBySigner: collections.NewKeySet(sb, types.VaultInvitesBySignerKey, "vaultInvitesBySigner", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		InviteExpiryQueue:    collections.NewKeySet(sb, types.InviteExpiryQueueKey, "inviteExpiryQueue", collections.TripleKeyCodec(collections.Int64Key, collections.Uint64Key, collections.StringKey)),
+		ProposalsByVault:     collections.NewKeySet(sb, types.ProposalsByVaultKey, "proposalsByVault", collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		ProposalsByProposer:  collections.NewKeySet(sb, types.ProposalsByProposerKey, "proposalsByProposer", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 		PendingByVault:       collections.NewKeySet(sb, types.PendingByVaultKey, "pendingByVault", collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
 		PendingByProposer:    collections.NewKeySet(sb, types.PendingByProposerKey, "pendingByProposer", collections.TripleKeyCodec(collections.Uint64Key, collections.StringKey, collections.Uint64Key)),
 		ExpiryQueue:          collections.NewKeySet(sb, types.ExpiryQueueKey, "expiryQueue", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),

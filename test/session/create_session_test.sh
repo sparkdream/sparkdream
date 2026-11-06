@@ -104,6 +104,55 @@ get_future_expiration() {
     date -u -d "+${HOURS} hours" +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# Grantee consent (x-session-spec §31): a session key from a granter the
+# grantee has not allowed yet is created PENDING, indexed under the granter
+# only, and a granter may hold at most 4 pending grants. The sessions this
+# script creates are never exec'd, so each one is either accepted by its
+# (funded) grantee or revoked by the granter before the next test, or the
+# 5th create would be refused and query_test.sh would not find grantee1's
+# session in sessions-by-grantee.
+pending_grant_id() {
+    local GRANTEE=$1
+    $BINARY query session grants-by-granter "$GRANTER_ADDR" --output json 2>/dev/null \
+        | jq -r --arg g "$GRANTEE" '[.grants[]? | select(.grantee==$g and .status=="GRANT_STATUS_PENDING")][0].id // empty'
+}
+
+accept_pending_session() {
+    local GRANTEE_KEY=$1
+    local GRANTEE_ADDR=$2
+    local ID
+    ID=$(pending_grant_id "$GRANTEE_ADDR")
+    if [ -z "$ID" ]; then
+        echo "  No pending grant for $GRANTEE_ADDR to accept"
+        return 1
+    fi
+    local RES
+    RES=$($BINARY tx session accept-grant "$ID" --from "$GRANTEE_KEY" \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 50000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
+    if submit_tx_and_wait "$RES" && check_tx_success "$TX_RESULT"; then
+        local STATUS
+        STATUS=$($BINARY query session grant "$ID" --output json 2>/dev/null | jq -r '.grant.status // empty')
+        echo "  Grant $ID accepted by the grantee (status=$STATUS)"
+        [ "$STATUS" = "GRANT_STATUS_ACTIVE" ]
+        return $?
+    fi
+    echo "  accept-grant failed: $(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"' 2>/dev/null)"
+    return 1
+}
+
+revoke_pending_session() {
+    local GRANTEE_ADDR=$1
+    local RES
+    RES=$($BINARY tx session revoke-session "$GRANTEE_ADDR" --from session_granter \
+        --chain-id $CHAIN_ID --keyring-backend test --fees 50000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
+    if submit_tx_and_wait "$RES" && check_tx_success "$TX_RESULT"; then
+        echo "  Pending session for $GRANTEE_ADDR revoked (deposit refunded)"
+        return 0
+    fi
+    echo "  revoke-session failed: $(echo "$TX_RESULT" | jq -r '.raw_log // "unknown"' 2>/dev/null)"
+    return 1
+}
+
 # ========================================================================
 # TEST 1: Create session with single message type
 # ========================================================================
@@ -132,6 +181,26 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     if [ "$SESS_GRANTER" = "$GRANTER_ADDR" ] && [ "$SESS_GRANTEE" = "$GRANTEE1_ADDR" ]; then
         echo "  Session created: granter=$SESS_GRANTER, grantee=$SESS_GRANTEE"
         record_result "Create session with single msg type" "PASS"
+        # SES-202: a PENDING grant sits on no grantee-keyed index, so the
+        # grantee discovers its id through pending-grants-for-grantee
+        # (QueryPendingGrantsForGranteeRequest.grantee -> .grants[]).
+        PENDING_ID=$(pending_grant_id "$GRANTEE1_ADDR")
+        PENDING_LISTED=$($BINARY query session pending-grants-for-grantee "$GRANTEE1_ADDR" --output json 2>/dev/null \
+            | jq -r --arg id "$PENDING_ID" --arg g "$GRANTER_ADDR" \
+                '[.grants[]? | select((.id // "0") == $id and .granter == $g and .status == "GRANT_STATUS_PENDING")] | length')
+        if [ -n "$PENDING_ID" ] && [ "$PENDING_LISTED" = "1" ]; then
+            echo "  [ OK ] pending-grants-for-grantee lists pending grant $PENDING_ID for grantee1"
+            record_result "pending-grants-for-grantee lists the PENDING grant" "PASS"
+        else
+            echo "  [FAIL] pending grant id=$PENDING_ID listed=$PENDING_LISTED under pending-grants-for-grantee"
+            record_result "pending-grants-for-grantee lists the PENDING grant" "FAIL"
+        fi
+        # First grant from this granter to grantee1: PENDING until accepted.
+        if accept_pending_session session_grantee1 "$GRANTEE1_ADDR"; then
+            record_result "Grantee accepts pending session (consent)" "PASS"
+        else
+            record_result "Grantee accepts pending session (consent)" "FAIL"
+        fi
     else
         echo "  Session query returned unexpected data"
         record_result "Create session with single msg type" "FAIL"
@@ -168,6 +237,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     if [ "$MSG_TYPES_COUNT" = "3" ] && [ "$MAX_EXEC" = "5" ]; then
         echo "  Session created with 3 msg types, max_exec_count=5"
         record_result "Create session with multiple msg types" "PASS"
+        accept_pending_session session_grantee2 "$GRANTEE2_ADDR" || echo "  (grantee2 accept failed; later tests may hit the pending cap)"
     else
         echo "  Unexpected: msg_types=$MSG_TYPES_COUNT, max_exec=$MAX_EXEC"
         record_result "Create session with multiple msg types" "FAIL"
@@ -405,13 +475,15 @@ fi
 # ========================================================================
 # TEST 8b: Narrow session (1 type) may outlive max_expiration
 # ========================================================================
-# Up to narrow_session_max_expiration (30 days): the daemon-key case.
+# Up to narrow_session_max_expiration (30 days): the daemon-key case. Only
+# the daemon types in x/session's NarrowSessionMsgTypes qualify (SES-103);
+# a single MsgCreatePost key is still held to 7 days.
 echo "--- TEST 8b: Narrow session past 7 days ---"
 
 EXPIRATION=$(get_future_expiration 192)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP4_ADDR" \
-    "/sparkdream.blog.v1.MsgCreatePost" \
+    "/sparkdream.service.v1.MsgSubmitCheckpoint" \
     "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
@@ -426,6 +498,8 @@ TX_RES=$($BINARY tx session create-session \
 if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     echo "  Narrow 8-day session created"
     record_result "Narrow session past 7 days" "PASS"
+    # The unfunded temp grantee cannot accept: free the pending slot.
+    revoke_pending_session "$TEMP4_ADDR" || true
 else
     echo "  TX failed: $(echo "$TX_RESULT" | jq -r '.raw_log // .txhash // "unknown"' 2>/dev/null)"
     record_result "Narrow session past 7 days" "FAIL"
@@ -445,7 +519,7 @@ TEMP4B_ADDR=$($BINARY keys show session_temp4b -a --keyring-backend test)
 EXPIRATION=$(get_future_expiration 744)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP4B_ADDR" \
-    "/sparkdream.blog.v1.MsgCreatePost" \
+    "/sparkdream.service.v1.MsgSubmitCheckpoint" \
     "50000000${BOND_DENOM}" \
     "$EXPIRATION" \
     "100" \
@@ -664,6 +738,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     if [ "$STORED_MAX_EXEC" = "$PARAMS_MAX_EXEC" ]; then
         echo "  Session created with max_exec_count=$STORED_MAX_EXEC (== params cap)"
         record_result "Create session at max_exec_count cap" "PASS"
+        revoke_pending_session "$TEMP9_ADDR" || true
     else
         echo "  Stored max_exec_count=$STORED_MAX_EXEC, expected $PARAMS_MAX_EXEC"
         record_result "Create session at max_exec_count cap" "FAIL"
@@ -674,9 +749,11 @@ else
 fi
 
 # ========================================================================
-# Cleanup: Revoke sessions created by tests 9 and 10 (for test isolation)
+# Cleanup
 # ========================================================================
-# (leave sessions from tests 1 & 2 for query_test.sh and exec_session_test.sh)
+# Sessions from tests 1 & 2 are accepted and left for query_test.sh; the
+# temp-grantee sessions were revoked above so the granter holds no pending
+# grants (cap 4) when exec_session_test.sh creates more.
 
 # ========================================================================
 # Results

@@ -47,7 +47,8 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// 4. Set Disputes
 	for _, elem := range genState.DisputeMap {
-		// SetDispute also rebuilds the PendingDisputes index.
+		// SetDispute also rebuilds the PendingDisputes, ReviewDisputes and
+		// ClaimantDisputes indexes.
 		if err := k.SetDispute(ctx, elem); err != nil {
 			return err
 		}

@@ -409,13 +409,54 @@ func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, m
 	rng := new(collections.Range[collections.Pair[int64, uint64]]).
 		EndExclusive(collections.Join(now+1, uint64(0)))
 
+	params, perr := k.Params.Get(ctx)
+	if perr != nil {
+		return pruned, perr
+	}
+	// held collects windows re-armed below; written after the walk so the
+	// queue is not modified ahead of its own iterator
+	var held []collections.Pair[int64, uint64]
 	err := k.ChallengeWindow.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
 		if pruned >= maxPrune {
 			return true, nil
 		}
 		contentID := key.K2()
 		record, err := k.VerificationRecords.Get(ctx, contentID)
-		if err == nil && record.Outcome == types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING {
+		pending := err == nil && record.Outcome == types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING
+		status, live := k.contentStatus(ctx, contentID)
+		switch {
+		case pending && live && status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_HIDDEN:
+			// FED-104: HIDDEN content (awaiting require_review, or hidden
+			// by a member) cannot be challenged, so its window must not
+			// lapse and free the verifier's bond meanwhile. Hold the
+			// commitment and look again one window later; a restore
+			// restarts the window (ModerateContent), and a prune lets the
+			// next pass release it.
+			record.ChallengeWindowEnds = now + int64(params.ChallengeWindow.Seconds())
+			if err := k.VerificationRecords.Set(ctx, contentID, record); err != nil {
+				// FED-204: keep the queue entry so the hold is retried
+				// next block instead of stranding a PENDING record with
+				// no window entry.
+				sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: VerificationRecords.Set failed", "err", err)
+				pruned++
+				return false, nil
+			}
+			held = append(held, collections.Join(record.ChallengeWindowEnds, contentID))
+		case pending && live && status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_REJECTED:
+			// FED-202: content rejected by the committee while its
+			// verification was still pending (a reject that reached the
+			// record before ModerateContent settled it, or a record from
+			// before that settlement existed). The verification does not
+			// stand: release the commitment with no accuracy credit.
+			record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_OVERTURNED
+			k.releaseVerifierCommitment(ctx, &record)
+			if err := k.VerificationRecords.Set(ctx, contentID, record); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: VerificationRecords.Set failed", "err", err)
+			}
+			sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(types.EventTypeVerificationRejected,
+				sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
+				sdk.NewAttribute(types.AttributeKeyVerifier, record.Verifier)))
+		case pending:
 			record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_CONFIRMED
 			// Release the verifier's committed bond back to available
 			// (sets CommitmentReleased on the record) and bump the
@@ -442,7 +483,22 @@ func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, m
 		pruned++
 		return false, nil
 	})
+	for _, key := range held {
+		if err := k.ChallengeWindow.Set(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: ChallengeWindow.Set failed", "err", err)
+		}
+	}
 	return pruned, err
+}
+
+// contentStatus returns the content record's status and whether the
+// record still exists (a pruned record reports false).
+func (k Keeper) contentStatus(ctx context.Context, contentID uint64) (types.FederatedContentStatus, bool) {
+	content, err := k.Content.Get(ctx, contentID)
+	if err != nil {
+		return 0, false
+	}
+	return content.Status, true
 }
 
 // --- Phase 7 ---
@@ -668,16 +724,12 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 			}
 		}
 		if state.OutboundDone && !state.BridgesDone && pruned < maxPrune {
-			// Peer removal during the federation→service migration:
-			// bond return is owned by x/service (operator must unbond via
-			// service.MsgUnbondOperator first). Per the abandoned-peer
-			// escape hatch in Phase 5 of the migration plan, a peer-
-			// removal gov proposal may bundle MsgReportOperator
-			// (T1_SLASH, dissolve=true) for each active bridge so any
-			// stranded operators get dissolved atomically. By the time
-			// we reach the cleanup walk, all bindings should reference
-			// SLASHED/RETIRED operators whose hooks already cleared
-			// federation state — we just prune any orphaned bindings.
+			// Bindings still present here belong to operators that never
+			// unbonded before a SUSPENDED peer was removed (the
+			// stranded-peer escape hatch, MsgRemovePeer step 2a), or to
+			// operators that reached RETIRED/SLASHED meanwhile. Bond
+			// accounting stays with x/service; federation only drops the
+			// binding, so an operator keeps its bond and unbonds normally.
 			//
 			// Every index goes with the binding, BindingsByOperator
 			// included (leaving it would trip
@@ -725,8 +777,8 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 		}
 		if state.ContentDone && state.LinksDone && state.AttestationsDone &&
 			state.OutboundDone && state.BridgesDone && state.PolicyDone {
-			if err := k.Peers.Remove(ctx, peerID); err != nil {
-				sdkCtx.Logger().Error("processPeerRemovalQueue: Peers.Remove failed", "err", err)
+			if err := k.removePeer(ctx, peerID); err != nil {
+				sdkCtx.Logger().Error("processPeerRemovalQueue: removePeer failed", "err", err)
 			}
 			if err := k.PeerRemovalQueue.Remove(ctx, peerID); err != nil {
 				sdkCtx.Logger().Error("processPeerRemovalQueue: PeerRemovalQueue.Remove failed", "err", err)

@@ -365,15 +365,12 @@ func (h *DKGVoteExtensionHandler) buildDecryptionShareExtension(ctx sdk.Context,
 	// and could open every payload ever sealed to their key sets.
 	h.cleanupRetiredRounds(dkgState.Round)
 
-	// Only produce shares when encrypted batch is enabled
-	params, err := h.keeper.Params.Get(ctx)
-	if err != nil || !params.EncryptedBatchEnabled {
-		return nil, nil
-	}
-
 	// Shares are released for closed epochs only, and only once the
-	// EndBlocker has demanded them (the batch is ready): a key reconstructed
-	// mid-epoch would let anyone read every later submission to that epoch.
+	// EndBlocker has demanded them (the batch is ready, or the beacon asked
+	// for the epoch as it closed): a key reconstructed mid-epoch would let
+	// anyone read every later submission to that epoch. The demand is the
+	// gate, not encrypted_batch_enabled: with batch mode off only beacon
+	// demands exist, and with the beacon off only batch demands do.
 	epoch, needed := h.keeper.NextEpochNeedingShare(ctx, opAddr)
 	if !needed {
 		return nil, nil

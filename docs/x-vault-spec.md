@@ -52,6 +52,10 @@ message VaultSigner {
   // (§3.4). Only accepted entries carry weight, act, and count toward
   // MaxVaultsPerSigner.
   bool accepted = 3;
+  // Chain-set: unix seconds after which an unaccepted entry is removed by
+  // the EndBlocker (listing time + InviteTTL); 0 on an accepted entry and on
+  // a vault's only entry, which never expires (§3.4).
+  int64 invite_expires_at = 4;
 }
 
 enum ProposalStatus {
@@ -90,6 +94,9 @@ message VaultProposal {
 Collections: `Vault[vault_id]`, `VaultProposal[proposal_id]`, `VaultSeq`, `ProposalSeq`,
 `VaultByAddress[address] → vault_id`, `VaultsBySigner[(signer, vault_id)]` (accepted entries),
 `VaultInvitesBySigner[(signer, vault_id)]` (unaccepted entries; never walked by a tx),
+`InviteExpiryQueue[(invite_expires_at, vault_id, signer)]` (unaccepted entries with an expiry),
+`ProposalsByVault[(vault_id, proposal_id)]` and `ProposalsByProposer[(proposer, proposal_id)]` (every stored
+proposal, any status; the two list queries walk them instead of the whole store),
 `PendingByVault[(vault_id, proposal_id)]`, `PendingByProposer[(vault_id, proposer, proposal_id)]`,
 `ExpiryQueue[(expires_at, proposal_id)]`, `RetentionQueue[(resolved_at, proposal_id)]`. Genesis
 carries the two value maps and the two sequences (`vault_seq`, `proposal_seq`); every index and
@@ -114,6 +121,7 @@ capped by them), so they are constants, not params ([x/vault/types/types.go](../
 | `MinProposalTTL` | 1 h (network), 10 s (test build) | `bounds_vals_*.go` |
 | `MaxProposalTTL` | 30 days | |
 | `ProposalRetention` | 7 days (network), 60 s (test build) | resolved proposals stay queryable |
+| `InviteTTL` | 30 days (network), 45 s (test build) | an unaccepted listing waits this long for `MsgAcceptVaultSigner` before the EndBlocker removes it (§3.4) |
 | `MaxLabelLength` / `MaxMemoLength` | 64 / 256 | |
 | `MaxVaultsPerSigner` | 20 | accepted entries only (§3.4): a member (counted across every x/rep alias, distinct vaults) can be an accepted signer of at most this many vaults, which bounds the `VaultsBySigner` prefix of an address and the migration-hook walk (§7). An unaccepted listing never counts, so nobody can fill the cap of someone else |
 | `MaxEndBlockerPassItems` | 50 | per EndBlocker pass |
@@ -137,10 +145,10 @@ must never cast a co-signer's approval, open or execute a proposal, or create a 
 
 | Msg | Signer | Effect |
 |---|---|---|
-| `MsgCreateVault{creator, signers, threshold, proposal_ttl, label}` | anyone | Burns `creation_fee_amount`; validates the config (§3.1); creates the keyless `BaseAccount` (an existing keyless base account at the derived address, left by an early bank send, is accepted; any other account type is refused); emits `vault_created`. The creator need not be a signer; the creator's own entry is accepted, every other entry starts unaccepted (§3.4). |
+| `MsgCreateVault{creator, signers, threshold, proposal_ttl, label}` | anyone | Burns `creation_fee_amount`; validates the config (§3.1); creates the keyless `BaseAccount`; emits `vault_created`. Vault addresses are predictable, so anyone can put an account at the next one first (VLT-101). An existing keyless, unused base account (left by an early bank send) is kept; a keyless, unused vesting account (any of the three SDK vesting msgs) is replaced by a `BaseAccount` with the same account number, so whatever the squatter sent becomes the vault's spendable balance; any other occupant makes the create skip that id and try the next, up to `MaxVaultAddressSkips` (8) skips before `ErrAddressOccupied`. The address therefore always derives from the vault's id, and a skipped id simply never holds a vault. The creator need not be a signer; the creator's own entry is accepted, every other entry starts unaccepted (§3.4). |
 | `MsgAcceptVaultSigner{signer, vault_id}` | the listed address (alias-aware) | Accepts the signer's unaccepted entry (§3.4); emits `vault_signer_accepted`. |
-| `MsgLeaveVault{signer, vault_id}` | a listed address (alias-aware), accepted or not | Removes every entry the signer can act as; declines an invitation the same way. Anti-brick rules in §3.4; emits `vault_signer_left`. |
-| `MsgPropose{signer, vault_id, messages, memo, execute}` | a current accepted signer | Validates every inner message (§4), records the proposer's approval, emits `vault_proposal_created` (with `messages_hash`), and executes at once when `execute` is set and the threshold is already met. Refused when the proposer has `MaxPendingProposalsPerProposer` pending proposals in this vault; a proposal whose only message is `MsgUpdateVault` counts against `MaxPendingUpdateProposalsPerProposer` instead. |
+| `MsgLeaveVault{signer, vault_id}` | a listed address (alias-aware), accepted or not | Removes every entry the signer can act as; declines an invitation the same way. Anti-brick rules for accepted entries, the threshold clamp for declined invitations and the dissolution of a vault whose only invitees decline in §3.4; emits `vault_signer_left` (and `vault_deleted` when the vault is dissolved). |
+| `MsgPropose{signer, vault_id, messages, memo, execute}` | a current accepted signer | Validates every inner message (§4), records the proposer's approval, emits `vault_proposal_created` (with `messages_hash`), and executes at once when `execute` is set and the threshold is already met. If that immediate execution fails, the whole tx fails and **nothing is stored**: no proposal, no approval (all or nothing, §4); the response's `executed` is `false` only when the threshold was not yet met. Refused when the proposer has `MaxPendingProposalsPerProposer` pending proposals in this vault (counted across every x/rep alias of the proposer, §7); a proposal whose only message is `MsgUpdateVault` counts against `MaxPendingUpdateProposalsPerProposer` instead. |
 | `MsgApprove{signer, proposal_id, messages_hash, execute}` | a current accepted signer | `messages_hash` must equal the proposal's (the CLI requires it as an argument, so a hardware wallet shows what is approved rather than a bare id). Optional immediate execute. |
 | `MsgRevokeApproval{signer, proposal_id}` | an approver | Withdraws the approval before execution. |
 | `MsgExecute{signer, proposal_id}` | any current accepted signer | Executes once the tally meets the threshold; the executor pays gas. A failing inner message fails the tx, which reverts everything and leaves the proposal PENDING for a retry until it expires. |
@@ -166,8 +174,9 @@ accepted entries only: a migration target that was listed before the migration b
 so a member can end up above the cap, and then no new listing lands until it is back below. A
 native multisig address is a fine signer. No create or rotation can write an empty signer set or
 an unreachable threshold (`Σ weights` counts unaccepted entries: a threshold only the invitees can
-complete is allowed, and proposals wait until enough weight accepts, §3.4); the one way a vault can
-lose its quorum afterwards is the merge described in §7. Invalid rotations are refused at execution, so a proposal carrying one simply fails and
+complete is allowed, and proposals wait until enough weight accepts, §3.4). Afterwards the signer
+set only shrinks through §3.4 (a declined or expired invitation, an accepted signer leaving) or
+merges through §7, and every one of those clamps a threshold left out of reach. Invalid rotations are refused at execution, so a proposal carrying one simply fails and
 stays pending.
 
 ### 3.2 Tally
@@ -196,8 +205,17 @@ has no weight in `Tally`, cannot propose, approve, revoke or execute, is indexed
 `VaultInvitesBySigner` rather than `VaultsBySigner`, and does not count toward
 `MaxVaultsPerSigner`. So a griefer can neither exhaust a member's cap (keeping them out of real
 vaults) nor make them appear as a signer of a vault they never agreed to: `vaults-by-signer` lists
-accepted vaults, and `--invited` lists the pending listings. The `accepted` flag is chain-set; a
-client value on `MsgCreateVault` / `MsgUpdateVault` is ignored.
+accepted vaults, and `--invited` lists the pending listings. The `accepted` flag and
+`invite_expires_at` are chain-set; a client value on `MsgCreateVault` / `MsgUpdateVault` is ignored.
+
+**Invitations expire.** An unaccepted entry carries `invite_expires_at` = listing time + `InviteTTL`
+(the entry's creation or the `MsgUpdateVault` that added it; a rotation that re-lists an unaccepted
+address restarts its clock) and sits in `InviteExpiryQueue`. The EndBlocker (§5) removes a due
+entry (`vault_invite_expired`) exactly as a decline would, so a listing nobody answers cannot hold a
+vault indefinitely. The one exception is a vault's only entry: removing it would leave no signer, so
+at its expiry the clock is zeroed instead and the listing stays until the address accepts, declines
+(which dissolves a vault nobody accepted, below) or the vault lists someone else. The same rule
+applies at listing time: a one-entry config gets no expiry.
 
 Accepted entries: the creator's own entry at create (alias-aware `CanActAs(creator, entry)`), an
 entry carried over by `MsgUpdateVault` from an accepted entry of the previous config (same address
@@ -212,22 +230,52 @@ already resolves to the same member (one person would count as two signers), and
 `ErrTooManyVaultsForSigner` at the cap. Accepting does not bump `config_version`: the signer set,
 weights and threshold are unchanged, and the entry only counts once its owner approves.
 
-`MsgLeaveVault` removes every entry the signer can act as (after a §7 merge, both). It never
-bricks a vault (`ErrLeaveBelowThreshold`): refused when no entry would remain, when the remaining
-`Σ weights` (accepted or not) would fall below the threshold, and when an accepted entry leaves an
-operational vault (accepted weight ≥ threshold) with accepted weight below the threshold. The
-remedy is for the remaining signers to rotate with `MsgUpdateVault` first (lower the threshold or
-add a replacement). A vault still waiting for its invitees lets an accepted signer go as long as
-the remaining entries can still reach the threshold. Removing an accepted entry bumps
-`config_version` and INVALIDATES the vault's pending proposals, as any change of the operating
-signer set does (§3.3); declining an unaccepted entry does not (it never had weight).
+`MsgLeaveVault` removes every entry the signer can act as (after a §7 merge, both). The last
+**accepted** entry can never leave (`ErrLeaveBelowThreshold`). An accepted entry never bricks a
+vault: its leave is refused when the remaining *reachable weight* (defined below) would fall below
+the threshold, and when it would take an operational vault (accepted weight ≥ threshold) below the
+threshold. The remedy is for the remaining signers to rotate with `MsgUpdateVault` first (lower the
+threshold or add a replacement). A vault still waiting for its invitees lets an accepted signer go
+as long as the remaining entries can still reach the threshold. Because the gate is the same
+reachable weight the clamp uses, an accepted leave never clamps.
 
-Consequence: an invitee whose decline would make the threshold unreachable cannot decline. The
-entry then stays listed with no weight, no actions and no cap use, shown only under `--invited`;
-refusing the decline is preferred over letting a third party brick a vault that may already hold
-funds. Invitations themselves are uncapped per address (a cap would be the same griefing lever as
-before); each costs its creator the burned creation fee or an executed proposal, and the invites
-index is read only by the paginated query.
+**Reachable weight** is the most weight the vault's entries could ever approve with, each member
+counted once: a member holding an accepted entry contributes its largest *accepted* weight (its
+unaccepted entries can never be accepted, see `MsgAcceptVaultSigner` above, so their weight is dead
+even when larger); a member with only unaccepted entries contributes its largest one, since it may
+still accept. It equals `Σ weights` unless a §7 merge happened. Accepted weight never exceeds it.
+
+An **unaccepted** entry may always decline, and its expiry removes it the same way. It never had
+weight, so no signer loses a quorum they held; if the threshold needed it, the threshold is
+**clamped** to the remaining reachable weight. Only a vault that is not operational can need the
+clamp (a threshold above the reachable weight was already out of the accepted signers' reach), and
+the result is the configuration the people who did accept consented to: a 3-of-{A, B, C} whose B
+and C never answer becomes A's 1-of-1. The trade-off is for depositors: funds sent to a vault
+before its threshold is reachable by accepted signers trust a configuration that can still shrink
+to whoever accepted. Clients should show such a vault as *waiting for signers* (accepted weight <
+threshold) and warn before a send.
+
+**A vault nobody accepted dissolves when its last invitee declines.** When the declining entries
+are the vault's only ones (so no accepted signer exists and no signer loses anything), the vault is
+**deleted** (`Vault`, `VaultByAddress`, the signer indexes; `vault_deleted{vault_id, address}`)
+if its address holds no balance and no proposal record references it, so a griefing listing
+(`MsgCreateVault{creator: X, signers: [victim]}`) leaves nothing behind once the victim declines.
+A vault that does hold funds or proposal records is instead kept as a **signer-less record**:
+`signers` is empty, `threshold` unchanged, the balance stays visible at the vault address, and
+nothing can ever act for it (no entry to accept, propose or leave; `MsgUpdateVault` only runs as
+an inner message). Such a record is rescue-only: only a chain upgrade could give it signers. The
+deposit trade-off above applies in the extreme: funds sent to a vault with no accepted signer are
+lost if its invitees all decline. A vault's only entry never *expires* (its clock is zeroed by the
+EndBlocker instead) because expiry is not consent: the listed address decides.
+
+Removing an accepted entry, and any clamp, bumps `config_version` and INVALIDATES the vault's
+pending proposals (`vault_threshold_clamped{vault_id, from, to, reason}`, reason `decline`,
+`invite_expired` or `migration_merge`; `leave` is reserved for an accepted leave, which cannot
+clamp), as any change of the operating signer set does (§3.3); declining an unaccepted entry a
+reachable threshold did not need changes nothing. Invitations themselves are uncapped per address
+(a cap would be the same griefing lever as before); each costs its creator the burned creation fee
+or an executed proposal, lasts at most `InviteTTL`, and the invites index is read only by the
+paginated query.
 
 Both messages are signed by a person, so they are refused as vault inner messages (§4) and are in
 x/session's `ForbiddenAllowlistMsgs` with every other x/vault message.
@@ -243,14 +291,20 @@ x/session's `ForbiddenAllowlistMsgs` with every other x/vault message.
    - `shield.MsgShieldedExec` (anonymous execution);
    - `session.MsgExecSession` (a vault may *grant* session keys but never *exec* as a grantee);
    - every x/vault message except `MsgUpdateVault` and `MsgCancelProposal` (no vault-in-vault
-     recursion; `MsgAcceptVaultSigner` / `MsgLeaveVault` included: a vault is never a signer);
-   - x/commons `MsgSubmitProposal`: its minimum proposal fee is charged only by the commons ante
-     decorator, which inner messages skip.
+     recursion; `MsgAcceptVaultSigner` / `MsgLeaveVault` included: a vault is never a signer).
+   x/commons `MsgSubmitProposal` is allowed: the commons handler charges `proposal_fee` from the
+   proposer (the vault address) to the fee collector whenever the commons ante did not floor it
+   (x-commons-spec §6.1), so a vault's proposal costs what a top-level one costs, and an unfunded
+   vault's submission fails the vault proposal (`ErrInsufficientProposalFee`).
 3. Apply the gnovm ante's no-mix rule to the proposal: gnovm `MsgRun` / `MsgCall` /
    `MsgAddPackage` may be proposed only alone or with each other, never with other messages
-   (`ErrInnerMsgDenied`). The ante-only rule list is `x/common/types.AnteOnlyRuleMsgTypeURLs`.
+   (`ErrInnerMsgDenied`). The gnovm rule list is `x/common/types.GnoVMMsgTypeURLs`.
 4. Run every message through the baseapp msg router inside a `CacheContext`, all or nothing; inner
-   events are re-emitted on the parent context; emit `vault_proposal_executed`.
+   events are re-emitted on the parent context; emit `vault_proposal_executed`. A failed inner
+   message fails the executing tx (`MsgExecute`, `MsgApprove{execute: true}` or
+   `MsgPropose{execute: true}`) and the proposal stays as it was before that tx: still PENDING for
+   execute and approve (the approval is not recorded either), **not stored at all** for propose.
+   The signers re-propose or fix the vault's balance and execute again.
 
 The executor pays the gas. **There is no gas sponsorship for signers.** A session key's fee
 delegation only pays for `MsgExecSession` txs (the ante refuses a tx that mixes it with other
@@ -268,11 +322,15 @@ exemption cannot bloat state. Rotating a signer out invalidates every one of the
 
 ## 5. EndBlocker
 
-Two capped passes (`MaxEndBlockerPassItems` each), the same bounded-pass pattern as x/session:
+Three capped passes (`MaxEndBlockerPassItems` each), the same bounded-pass pattern as x/session:
 
 1. `ExpiryQueue` entries with `expires_at ≤ now`: PENDING → EXPIRED (`vault_proposal_expired`).
 2. `RetentionQueue` entries with `resolved_at ≤ now − ProposalRetention`: the proposal record is
    deleted (`vault_proposal_pruned`); the events carry the audit trail.
+3. `InviteExpiryQueue` entries with `invite_expires_at ≤ now`: the unaccepted entry is removed
+   (`vault_invite_expired`) and a threshold it was needed for is clamped (§3.4); a vault's only
+   entry has its clock zeroed instead. A queue entry that no longer matches a live unaccepted entry
+   with that expiry (accepted, declined or re-listed meanwhile) is dropped as stale.
 
 Approve and execute already refuse a proposal past `expires_at` or with a stale
 `config_version` before the EndBlocker reaches it.
@@ -307,8 +365,15 @@ x/rep alias contract like every module with unbounded state:
 - approvals are recorded and tallied by canonical address, so `A` and `B` cannot both approve;
 - `vaults-by-signer` unions over `AllAddressesOf`.
 
-Signer entries stay as written, `config_version` does not move, pending approvals stay valid. A
-non-member signer has no alias and every helper degrades to equality.
+Signer entries stay as written and `config_version` does not move. On the KEY path pending
+approvals stay valid. The RECOVERY and COUNCIL paths exist because the old key is presumed stolen,
+so there `MigrationHooks.AfterMemberMigration` cancels every pending proposal the old address opened
+(`vault_proposal_cancelled` with `by=migration`) and drops its approvals from the others
+(`vault_approval_revoked` with `by=migration`) in every vault the member signs; the recovered member
+approves again with the new key. Approvals are stored under the approver's canonical address at
+approval time, which for the old key was the old address itself. The walk is bounded by
+`MaxVaultsPerSigner` vaults and their per-proposer pending caps. A non-member signer has no alias
+and every helper degrades to equality.
 
 Every path moves the weight, including a COUNCIL `MsgForceMigration` the signer never asked for:
 the other signers get no say, as with any other member state. On the KEY path x/vault refuses a
@@ -319,20 +384,35 @@ veto: a thief holding the old key could otherwise block the recovery with a vaul
 co-signs with the new one. Only accepted entries are considered (an unaccepted entry has no weight,
 and §3.4 refuses accepting an entry whose member already holds an accepted entry in the vault, so a
 merge through an invitation can never count twice). A merged member is counted once by `Tally`,
-at the largest weight among its entries. §3.1 refuses the same merge at create and update time.
+at the largest weight among its accepted entries. §3.1 refuses the same merge at create and update time.
 Counting the merged member once can leave the threshold out of reach: in {A:1, B:1, C:1} with
-threshold 3, a RECOVERY or COUNCIL migration of `A` into `B` leaves at most 2 reachable weight and
-the vault can no longer act. A signer who holds two entries should rotate one out before migrating.
+threshold 3, a RECOVERY or COUNCIL migration of `A` into `B` leaves at most 2 reachable weight. So
+`AfterMemberMigration` runs the §3.4 clamp on every path over every vault that lists any address of
+the source or the target (accepted or invited): a threshold above the reachable weight (§3.4: each
+member once, at its largest accepted weight when it holds an accepted entry, else its largest
+invited weight) is lowered to it (`vault_threshold_clamped` with reason `migration_merge`,
+`config_version` bump, pending proposals INVALIDATED). The vault above becomes 2-of-{B, C}: every
+distinct person still has to sign, and the vault keeps working. The KEY path needs it too, since
+its veto only sees accepted entries: a source accepted and a target merely invited in the same
+vault merge the same way, and the invitation can then neither be accepted (`ErrInvalidSignerSet`)
+nor count, so it is dead weight until it expires (§3.4). Because the merged member's dead
+invitation is excluded from the reachable weight even when it outweighs the accepted entry
+({A:1 acc, B:3 inv, C:1 acc}, threshold 4, `A → B`: reachable 2, not 4), the clamp fires at once
+and the vault never waits for the invitation to expire. Entries are never removed or re-keyed by a
+migration.
 
 The KEY-path check walks the *target's* vaults, not the source's: the target is a fresh address
 (x/rep's freshness rule) with no aliases and at most `MaxVaultsPerSigner` accepted entries, while the
 source's entries can grow with its alias history. A target that signs no vault costs one empty
 prefix walk; the worst case is `MaxVaultsPerSigner × MaxSigners` canonical lookups.
 
-The per-proposer pending caps count proposals under the proposer's canonical address at the time
-each proposal was opened. After `A → B`, proposals `A` opened before the migration no longer count
-toward `B`'s cap, so `B` can hold up to twice the cap until `A`'s old proposals resolve or expire.
-This stays bounded (one migration per member per cooldown) and is accepted.
+The per-proposer pending caps are counted across every address of the proposer
+(`AllAddressesOf`): a proposal is indexed under the proposer's canonical address at the time it
+was opened, so after `A → B` the proposals `A` opened still count toward `B`'s cap. A migration
+never grants a fresh cap, and the per-vault bound on pending proposals stays
+`MaxSigners × (MaxPendingProposalsPerProposer + MaxPendingUpdateProposalsPerProposer)` whatever the
+signers' alias history. The count costs one bounded prefix walk per alias (at most
+`MaxLifetimeAliases + 1`).
 
 ## 8. Queries and CLI
 
@@ -360,7 +440,11 @@ and `leave-vault [vault-id]`; `update-vault` is not exposed (only reachable as a
 signers}`, `vault_proposal_invalidated{proposal_id}`, `vault_proposal_expired{vault_id,
 proposal_id}`, `vault_proposal_pruned{proposal_id, status}`,
 `vault_signer_accepted{vault_id, signer, accepted_weight, threshold}`,
-`vault_signer_left{vault_id, signer, accepted, config_version}`.
+`vault_signer_left{vault_id, signer, accepted, config_version}`,
+`vault_deleted{vault_id, address}` (a vault nobody accepted whose last invitee declined, §3.4),
+`vault_invite_expired{vault_id, signer, threshold, config_version}`,
+`vault_threshold_clamped{vault_id, from, to, reason}` (reason `decline`, `invite_expired` or
+`migration_merge`; `leave` is reserved for an accepted leave, which cannot clamp).
 
 ## 10. Errors
 
@@ -390,22 +474,28 @@ proposal_id}`, `vault_proposal_pruned{proposal_id, status}`,
 | 1121 | `ErrInvalidMemo` | above `MaxMemoLength` |
 | 1122 | `ErrProposalExpired` | `expires_at` passed (before the EndBlocker marked it) |
 | 1123 | `ErrConfigChanged` | proposal `config_version` is stale (before the EndBlocker/rotation marked it) |
-| 1124 | `ErrAddressOccupied` | the derived address holds a non-base or keyed account |
+| 1124 | `ErrAddressOccupied` | `MsgCreateVault` found `MaxVaultAddressSkips + 1` consecutive derived addresses occupied by accounts a vault cannot take over (keyed, sequenced, or neither a base nor a vesting account; §3) |
 | 1125 | `ErrTooManyVaultsForSigner` | a signer's member (across its x/rep aliases) is already an accepted signer of `MaxVaultsPerSigner` vaults |
 | 1126 | `ErrAlreadyAccepted` | `MsgAcceptVaultSigner` when the signer's entries are all accepted |
-| 1127 | `ErrLeaveBelowThreshold` | `MsgLeaveVault` would empty the vault, make the threshold unreachable, or take an operational vault below it (§3.4) |
+| 1127 | `ErrLeaveBelowThreshold` | `MsgLeaveVault` by the last accepted signer, or an accepted entry's leave would take the remaining reachable weight below the threshold or take an operational vault below it (§3.4; a declined invitation clamps instead, and the last invitee of a vault nobody accepted dissolves it) |
 
 ## 11. Genesis, invariants and tests
 
-Genesis carries the vault and proposal records (each signer's `accepted` flag included); indexes and
-queues are rebuilt from them (accepted entries go to `VaultsBySigner`, unaccepted ones to
-`VaultInvitesBySigner`). It also carries `vault_seq` and `proposal_seq`; each sequence is set to the
+Genesis carries the vault and proposal records (each signer's `accepted` flag and
+`invite_expires_at` included); indexes and queues are rebuilt from them (accepted entries go to
+`VaultsBySigner`, unaccepted ones to `VaultInvitesBySigner` and, with an expiry, to
+`InviteExpiryQueue`). It also carries `vault_seq` and `proposal_seq`; each sequence is set to the
 larger of its exported value and the maximum imported id (pruned proposals can sit above every live
 id, so the maximum alone would reuse ids). `GenesisState.Validate`, re-run by
 `InitGenesis`, refuses: a vault id of 0, an address that is not `VaultAddress(vault_id)` (a genesis
 must never register a user's or a module's account as a vault), two vaults at one address, a
-config that fails §3.1's static rules (a locked threshold, duplicates, TTL out of range), a vault
-`config_version` of 0, and a proposal that references a vault not in the genesis. Every proposal
+config that fails §3.1's static rules (a locked threshold, duplicates, TTL out of range), an
+accepted entry carrying an `invite_expires_at` (or a negative one anywhere), an unaccepted entry
+without one in a vault with more than one entry (the chain always stamps it; without it the
+listing could never expire and a §7 merge-freeze on it would be permanent), a vault
+`config_version` of 0, and a proposal that references a vault not in the genesis. A signer-less
+vault (§3.4) is accepted when its `threshold` is positive and its TTL and label are within bounds;
+it is the only vault record with an empty signer set. Every proposal
 must also be a record the chain could have written: a known, non-UNSPECIFIED status;
 1..`MaxMessagesPerProposal` non-empty messages whose `MessagesHash` equals the stored
 `messages_hash` (`MsgApprove` compares the client's hash with the stored one, so a mismatch would
@@ -419,11 +509,17 @@ x/rep-backed checks (personal address, tombstones) are not re-run at import beca
 not be loaded yet.
 
 
+`proposals-by-vault` pages through the `ProposalsByVault` prefix with ordinary key pagination;
+`proposals-by-proposer` merges the `ProposalsByProposer` prefixes of the member's addresses and
+pages by offset and limit only (a key cannot span several prefixes; `count_total` is honoured).
+
 Invariants (run by `go test ./app -run TestInvariants`): `vault-indexes` (`VaultByAddress`,
-`VaultsBySigner` (accepted entries), `VaultInvitesBySigner` (unaccepted entries) and `Vault` agree; every address derives from its id; every threshold is
-reachable) and `proposal-indexes` (every pending index and the expiry queue point at PENDING
-proposals and agree in count; the retention queue points at resolved ones; every proposal belongs
-to a vault).
+`VaultsBySigner` (accepted entries), `VaultInvitesBySigner` (unaccepted entries), `InviteExpiryQueue`
+(unaccepted entries with an expiry; no accepted entry carries one and every unaccepted entry that is
+not its vault's only one does) and `Vault` agree; every address
+derives from its id; every threshold is reachable, signer-less vaults excepted) and `proposal-indexes` (`ProposalsByVault` and `ProposalsByProposer` cover every stored proposal; every
+pending index and the expiry queue point at PENDING proposals and agree in count; the retention
+queue points at resolved ones; every proposal belongs to a vault).
 
 Unit: [x/vault/keeper/vault_test.go](../x/vault/keeper/vault_test.go) (creation and refusals,
 propose/approve/revoke/execute, cancel by proposer and by the vault, expiry and retention, rotation
@@ -431,8 +527,15 @@ atomicity and invalidation, the anti-lockout caps, the denylist, the alias contr
 trip, queries), [x/vault/keeper/signer_rules_test.go](../x/vault/keeper/signer_rules_test.go)
 (tombstone and alias-duplicate refusal, the per-signer cap and its count across aliases, an
 unconsented listing using neither weight nor cap, the co-signer migration veto and its target-side
-walk), [x/vault/keeper/consent_test.go](../x/vault/keeper/consent_test.go) (accept, leave and
-decline, the anti-brick refusals, alias-aware accept after migration, acceptance through genesis),
+walk, the merge clamp on the RECOVERY and KEY paths),
+[x/vault/keeper/consent_test.go](../x/vault/keeper/consent_test.go) (accept, leave and decline, the
+anti-brick refusals and the decline clamp, invitation expiry in the EndBlocker with and without a
+clamp, the kept last entry, alias-aware accept after migration, acceptance and expiry through
+genesis),
+[x/vault/keeper/review_2026_11_04_test.go](../x/vault/keeper/review_2026_11_04_test.go) (the
+dead-invitee reachable weight after a merge, alias-wide pending caps, the sole invitee's decline
+deleting or orphaning the vault, the reachable-weight leave gate, the never-expiring-invitee
+invariant),
 [x/vault/keeper/genesis_test.go](../x/vault/keeper/genesis_test.go) and
 [x/vault/types/genesis_test.go](../x/vault/types/genesis_test.go) (genesis refusals),
 [x/vault/types/allowlist_guard_test.go](../x/vault/types/allowlist_guard_test.go),

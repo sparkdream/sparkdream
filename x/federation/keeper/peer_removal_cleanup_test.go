@@ -35,7 +35,7 @@ func queuePeerRemoval(t *testing.T, f *fixture, ctx sdk.Context, peerID string) 
 	require.NoError(t, err)
 	peer.Status = types.PeerStatus_PEER_STATUS_REMOVED
 	peer.RemovedAt = ctx.BlockTime().Unix()
-	require.NoError(t, f.keeper.Peers.Set(ctx, peerID, peer))
+	require.NoError(t, f.keeper.SetPeer(ctx, peer))
 	require.NoError(t, f.keeper.PeerRemovalQueue.Set(ctx, peerID, types.PeerRemovalState{RemovedAt: peer.RemovedAt}))
 }
 

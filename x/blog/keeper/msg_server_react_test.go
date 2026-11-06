@@ -635,3 +635,23 @@ func TestCreateReply_AnonymousOnAnonymousPostIsGated(t *testing.T) {
 	_, err = msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(ctx, 3), reply)
 	require.NoError(t, err)
 }
+
+// BLG-101 (documented behaviour): an open reaction and an anonymous one are
+// limited independently (per address, and per member by the shield
+// nullifier), so one member can add one of each and both count.
+// ReactionCounts counts reactions, at most two per member per target.
+func TestReact_OpenAndAnonymousBothCount(t *testing.T) {
+	k, msgServer, ctx, _ := setupMsgServer(t)
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", authtypes.NewModuleAddress("shield"))
+	author := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+
+	postResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{Creator: author, Title: "Phoenix", Body: "b"})
+	require.NoError(t, err)
+
+	_, err = msgServer.React(ctx, &types.MsgReact{Creator: author, PostId: postResp.Id, ReactionType: types.ReactionType_REACTION_TYPE_LIKE})
+	require.NoError(t, err)
+	_, err = msgServer.React(shieldtypes.WithProvenTrustLevel(ctx, 1), &types.MsgReact{Creator: shield, PostId: postResp.Id, ReactionType: types.ReactionType_REACTION_TYPE_LIKE})
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(2), k.GetReactionCounts(ctx, postResp.Id, 0).LikeCount)
+}

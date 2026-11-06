@@ -73,15 +73,20 @@ compiled filter (changing a bound needs a chain upgrade):
 | staking | `bond_denom` locked; `unbonding_time ≥ 7 d`; `max_validators ≥ 20` |
 | slashing | double-sign/downtime fractions above floors; `min_signed_per_window ≥ 0.05`; `downtime_jail_duration ≥ 10 min`; `signed_blocks_window` in `[100, 1M]` |
 | consensus | `block.max_bytes ≥ 200 kB`; `block.max_gas` finite and `≥ 1M` (`-1` refused); evidence age floors and `evidence.max_age_duration ≤ unbonding_time`; `validator.pub_key_types` must include `ed25519` |
-| gov | `voting_period` in `[6 h, 28 d]`; `expedited_voting_period` in `[1 h, 28 d]`; quorum/threshold/veto floors; `min_deposit` and `expedited_min_deposit` must hold a positive bond-denom amount |
+| gov | `voting_period` and `expedited_voting_period` between per-network floors (6 h / 1 h on testnet and mainnet, 30 min / 10 min on devnet, selected by build tag) and 28 d; quorum/threshold/veto floors; `min_deposit` and `expedited_min_deposit` must hold a positive bond-denom amount |
 | distribution | `community_tax` in `[0.05, 0.25]`; `MsgCommunityPoolSpend` hard-rejected |
 | auth | gas-cost floors; `tx_sig_limit ≥ 7` (native multisig) |
+
+Every shipped network genesis is checked against these bounds
+(`TestNetworkGenesisParamsInsideGuardianBounds`), since a value outside a
+bound is one gov could never re-submit.
 
 Gov still holds direct, unguarded authority over x/upgrade, x/evidence, IBC
 core, IBC transfer, the ICA host/controller params (including the ICA host
 `allow_messages` list, which can only narrow the compiled
-`app.ICAHostAllowedMsgs`) and legacy x/params proposals. Upgrade is inherently
-all-powerful; the others are listed in
+`app.ICAHostAllowedMsgs`) and legacy x/params proposals (whose only key
+tables are the IBC subspaces, so a legacy change to a guarded module fails).
+Upgrade is inherently all-powerful; the others are listed in
 [x/guardian/README.md](../x/guardian/README.md#outside-guardian).
 
 ---

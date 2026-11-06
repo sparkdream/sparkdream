@@ -167,3 +167,44 @@ func TestRegisterShieldedOpDomainConflict(t *testing.T) {
 	gen.RegisteredOps = append(gen.RegisteredOps, clash)
 	require.ErrorIs(t, gen.Validate(), types.ErrNullifierDomainConflict)
 }
+
+// TestRegisterShieldedOpInPlaceKeepsScoping (SHD-103): an op alone in its
+// domain can't change its scoping in place (the domain's stored nullifiers
+// were written under the old rule; an EPOCH rescope would let pruning delete
+// them). A new domain is required; settings that don't touch scoping still
+// update in place.
+func TestRegisterShieldedOpInPlaceKeepsScoping(t *testing.T) {
+	f, ms := initMsgServer(t)
+	authority, err := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+	require.NoError(t, err)
+	register := func(reg types.ShieldedOpRegistration) error {
+		_, err := ms.RegisterShieldedOp(f.ctx, &types.MsgRegisterShieldedOp{Authority: authority, Registration: reg})
+		return err
+	}
+	reg := types.ShieldedOpRegistration{
+		MessageTypeUrl:     "/sparkdream.zenith.v1.MsgAlone",
+		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+		NullifierDomain:    97,
+		NullifierScopeType: types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
+		ScopeFieldPath:     "content_id",
+		Active:             true,
+		BatchMode:          types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY,
+	}
+	require.NoError(t, register(reg))
+
+	rescoped := reg
+	rescoped.NullifierScopeType = types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH
+	rescoped.ScopeFieldPath = ""
+	require.ErrorIs(t, register(rescoped), types.ErrNullifierDomainConflict)
+	got, found := f.keeper.GetShieldedOp(f.ctx, reg.MessageTypeUrl)
+	require.True(t, found)
+	require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, got.NullifierScopeType)
+
+	// Same rule under a new domain: allowed (the old domain is retired).
+	rescoped.NullifierDomain = 98
+	require.NoError(t, register(rescoped))
+
+	// A non-scoping change in place is fine.
+	rescoped.MinTrustLevel = 2
+	require.NoError(t, register(rescoped))
+}

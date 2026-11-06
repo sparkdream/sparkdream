@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -107,28 +105,26 @@ func (k Keeper) recomputeRequiredVotes(ctx context.Context, review *types.JuryRe
 	return nil
 }
 
-// refillJurySeats tries to draw replacements back up to seatsWanted for an
-// initiative-challenge review, and returns the addresses seated.
+// queueJurySeatRefill asks the EndBlocker to draw replacements back up to
+// seatsWanted for an initiative-challenge review, and returns how many seats
+// it queued. The draw never runs here: the decline that frees a seat is a
+// juror's own transaction (REP-R-102).
 //
-// Only initiative-challenge juries can be refilled: content and appeal juries
-// are selected by their own routines against targets this review does not
-// carry. A pool too thin to replace is not an error — the review proceeds with
-// whoever remains, at the correspondingly lower quorum, which the floor in
-// TallyJuryVotes keeps from becoming a rump verdict.
-func (k Keeper) refillJurySeats(ctx context.Context, review *types.JuryReview, seatsWanted int, exclude ...string) []string {
-	if review.InitiativeId == 0 || len(review.Jurors) >= seatsWanted {
-		return nil
+// Only initiative-challenge juries are refilled: content and appeal juries
+// keep the seats they were drawn with. A pool too thin to replace is not an
+// error — the review proceeds with whoever remains, at the correspondingly
+// lower quorum, which the floor in TallyJuryVotes keeps from becoming a rump
+// verdict.
+func (k Keeper) queueJurySeatRefill(ctx context.Context, review *types.JuryReview, seatsWanted int) (uint32, error) {
+	if !isInitiativeJury(*review) {
+		return 0, nil
 	}
-	initiative, err := k.GetInitiative(ctx, review.InitiativeId)
-	if err != nil {
-		return nil
+	have := len(review.Jurors) + int(review.PendingSeats)
+	if have >= seatsWanted {
+		return 0, nil
 	}
-	skip := append(append([]string{}, review.Jurors...), exclude...)
-	drawn, err := k.SelectJury(ctx, initiative, commontypes.Saturate[uint32](seatsWanted-len(review.Jurors)), skip...)
-	if err != nil {
-		return nil
-	}
-	return drawn
+	seats := commontypes.Saturate[uint32](seatsWanted - have)
+	return seats, k.queueJuryDraw(ctx, review, seats)
 }
 
 // maxJuryRedraws reads the replacement-round cap, falling back to the shipped
@@ -153,7 +149,7 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 		return err
 	}
 
-	seatsWanted := len(review.Jurors)
+	seatsWanted := len(review.Jurors) + int(review.PendingSeats)
 
 	if err := k.vacateJurySeat(ctx, &review, seat); err != nil {
 		return err
@@ -163,17 +159,13 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 	// with the most review time left to act on. Refill immediately rather than
 	// waiting for the acceptance sweep, which only runs after the acceptance
 	// deadline and cannot vacate at all when jury_size equals MinSeatedJurors.
-	replacements := k.refillJurySeats(ctx, &review, seatsWanted, seat, juror)
-	review.Jurors = append(review.Jurors, replacements...)
-	for _, addr := range replacements {
-		if err := k.JuryReviewsByJuror.Set(ctx, collections.Join(addr, review.Id)); err != nil {
-			return err
-		}
+	// The decliner is never drawn onto this review again (REP-E-102).
+	if err := k.queueJuryDraw(ctx, &review, 0, seat); err != nil {
+		return err
 	}
-	if len(replacements) > 0 {
-		if err := k.RecordJurySeating(ctx, replacements); err != nil {
-			return err
-		}
+	queued, err := k.queueJurySeatRefill(ctx, &review, seatsWanted)
+	if err != nil {
+		return err
 	}
 
 	// The seated list changed either way, so the supermajority threshold has to
@@ -196,7 +188,8 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 		"jury_duty_declined",
 		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", juryReviewID)),
 		sdk.NewAttribute("juror", seat),
-		sdk.NewAttribute("replacements", strings.Join(replacements, ",")),
+		// Replacements are drawn at the end of the block ("jury_seated").
+		sdk.NewAttribute("seats_pending", fmt.Sprintf("%d", queued)),
 		sdk.NewAttribute("seated", fmt.Sprintf("%d", len(review.Jurors))),
 	))
 	return nil
@@ -293,7 +286,7 @@ func (k Keeper) redrawUnansweredSeats(ctx context.Context, juryReviewID uint64) 
 		return k.JuryReview.Set(ctx, review.Id, review)
 	}
 
-	seatsWanted := len(review.Jurors)
+	seatsWanted := len(review.Jurors) + int(review.PendingSeats)
 
 	// Vacate down to MinSeatedJurors and no further. If replacements cannot be
 	// drawn, every vacated seat shrinks the jury — and quorum with it — so an
@@ -337,33 +330,17 @@ func (k Keeper) redrawUnansweredSeats(ctx context.Context, juryReviewID uint64) 
 	}
 	review.Jurors = keep
 
-	// Only initiative-challenge juries can be redrawn: content and appeal
-	// juries are selected by their own routines against targets this one does
-	// not have. Their seats are simply vacated, which lowers quorum rather than
+	// The silent jurors are never drawn onto this review again (REP-E-102),
+	// and the EndBlocker draws their replacements after this sweep. Only
+	// initiative-challenge juries are refilled: content and appeal juries
+	// keep the seats they were drawn with, which lowers quorum rather than
 	// stranding it against absent jurors.
-	replacements := []string{}
-	if review.InitiativeId != 0 {
-		if initiative, iErr := k.GetInitiative(ctx, review.InitiativeId); iErr == nil {
-			exclude := append(append([]string{}, keep...), silent...)
-			drawn, sErr := k.SelectJury(ctx, initiative, commontypes.Saturate[uint32](seatsWanted-len(keep)), exclude...)
-			if sErr == nil {
-				replacements = drawn
-			}
-			// A pool too thin to replace is not an error: the review proceeds
-			// with the jurors who answered, at the correspondingly lower quorum.
-		}
+	if err := k.queueJuryDraw(ctx, &review, 0, silent...); err != nil {
+		return err
 	}
-	review.Jurors = append(review.Jurors, replacements...)
-
-	if len(replacements) > 0 {
-		if err := k.RecordJurySeating(ctx, replacements); err != nil {
-			return err
-		}
-		for _, juror := range replacements {
-			if err := k.JuryReviewsByJuror.Set(ctx, collections.Join(juror, review.Id)); err != nil {
-				return err
-			}
-		}
+	queued, err := k.queueJurySeatRefill(ctx, &review, seatsWanted)
+	if err != nil {
+		return err
 	}
 
 	review.RedrawCount++
@@ -389,7 +366,7 @@ func (k Keeper) redrawUnansweredSeats(ctx context.Context, juryReviewID uint64) 
 		"jury_seats_redrawn",
 		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", review.Id)),
 		sdk.NewAttribute("vacated", fmt.Sprintf("%d", len(silent))),
-		sdk.NewAttribute("replacements", fmt.Sprintf("%d", len(replacements))),
+		sdk.NewAttribute("seats_pending", fmt.Sprintf("%d", queued)),
 		sdk.NewAttribute("seated", fmt.Sprintf("%d", len(review.Jurors))),
 		sdk.NewAttribute("redraw_count", fmt.Sprintf("%d", review.RedrawCount)),
 	))

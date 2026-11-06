@@ -353,6 +353,8 @@ func New(
 	app.CollectKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.ShieldKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.SessionKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	// Forfeited pending-grant deposits go to the community pool (SES-102).
+	app.SessionKeeper.SetDistrKeeper(NewServiceDistributionAdapter(app.DistrKeeper))
 	app.NameKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.ServiceKeeper.SetIdentityKeeper(app.IdentityKeeper)
 
@@ -365,6 +367,9 @@ func New(
 	// x/rep draws one capped daily claim on the community pool in BeginBlock
 	// and divides it across the bonded-role reward pools (sentinel, reviewer).
 	app.RepKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
+	// Jury draws are seeded from x/shield's TLE randomness beacon (block-hash
+	// fallback while no DKG has run). Late-wired: shield already holds rep.
+	app.RepKeeper.SetBeaconSource(app.ShieldKeeper)
 	// Annual provisions size that draw: it is a share of the community pool's
 	// inflation income, not a fixed daily amount and not a share of the pool
 	// balance (which holds the genesis allocation earmarked for the councils).
@@ -386,6 +391,7 @@ func New(
 	app.RepKeeper.AddMemberZeroingHook(revealmodulekeeper.NewZeroingHook(&app.RevealKeeper))
 	app.RepKeeper.AddMemberZeroingHook(seasonmodulekeeper.NewZeroingHook(&app.SeasonKeeper))
 	app.RepKeeper.AddMemberZeroingHook(forummodulekeeper.NewZeroingHook(&app.ForumKeeper))
+	app.RepKeeper.AddMemberZeroingHook(namemodulekeeper.NewZeroingHook(&app.NameKeeper))
 
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).
 	app.SplitKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
@@ -398,6 +404,9 @@ func New(
 	app.ShieldKeeper.SetStakingKeeper(app.StakingKeeper)
 
 	// Wire cross-module keepers into Federation after depinject (leaf module).
+	// Federation writes ibc/... DenomMetadata for peer identities; route it
+	// through the identity guard like every first-party metadata write.
+	app.FederationKeeper.SetBankKeeper(app.BankKeeper)
 	app.FederationKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.FederationKeeper.SetRepKeeper(app.RepKeeper)
 	app.FederationKeeper.SetNameKeeper(app.NameKeeper)
@@ -439,7 +448,7 @@ func New(
 	}))
 	// Harberger tokens pay their tax through x/session RecurringPulls granted
 	// to the artifact module (docs/x-artifact-spec.md §7.24).
-	app.ArtifactKeeper.SetSessionKeeper(NewArtifactSessionAdapter(app.SessionKeeper))
+	app.ArtifactKeeper.SetSessionKeeper(NewArtifactSessionAdapter(app.SessionKeeper, app.BankKeeper))
 	// Renderer state v2 reads the current season and its holder's standing.
 	app.ArtifactKeeper.SetSeasonKeeper(NewArtifactSeasonAdapter(&app.SeasonKeeper))
 	// Artifact hide appeals run through x/rep's moderation-appeal machinery
@@ -592,6 +601,9 @@ func New(
 
 	// relay refunds: the ante marks a tx, the post handler pays it
 	relayMarks := relayrefund.NewMarks()
+	// shield fees: the ante charges the module the declared fee and marks
+	// the tx, the post handler returns what gas used did not cost
+	shieldGas := shieldante.NewShieldGasDecorator(app.ShieldKeeper, app.BankKeeper)
 
 	// Manually define the standard decorators (since NewModuleAnteDecorators doesn't exist)
 	decorators := []sdk.AnteDecorator{
@@ -607,7 +619,7 @@ func New(
 		cosmos_ante.NewValidateMemoDecorator(app.AuthKeeper),
 		cosmos_ante.NewConsumeGasForTxSizeDecorator(app.AuthKeeper),
 		// Shield gas decorator: deducts fees from shield module for MsgShieldedExec txs.
-		shieldante.NewShieldGasDecorator(app.ShieldKeeper, app.BankKeeper),
+		shieldGas,
 		// Session fee decorator: deducts fees from granter for MsgExecSession txs.
 		sessionante.NewSessionFeeDecorator(app.SessionKeeper, app.BankKeeper),
 		// Wrap DeductFeeDecorator to skip fee deduction when shield/session already paid.
@@ -641,7 +653,12 @@ func New(
 
 	// Successful relays between sister Spark Dream chains get their fee back,
 	// so a relayer's hot key only needs a float (app/relayrefund).
-	app.SetPostHandler(sdk.ChainPostDecorators(relayrefund.NewRefundDecorator(app.BankKeeper, relayMarks)))
+	// A shielded exec's unused gas goes back to the shield reserve, so the
+	// epoch fee budget measures gas used, not gas limits declared.
+	app.SetPostHandler(sdk.ChainPostDecorators(
+		relayrefund.NewRefundDecorator(app.BankKeeper, relayMarks),
+		shieldante.NewFeeRefundDecorator(app.ShieldKeeper, app.BankKeeper, shieldGas.FeeMarks()),
+	))
 
 	// -------------------------------------------------------------------------
 	// Wire ABCI++ Vote Extension handlers for DKG automation.

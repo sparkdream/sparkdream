@@ -18,6 +18,9 @@ import (
 type SessionKeeper interface {
 	GetSession(ctx context.Context, granter, grantee string) (sessiontypes.Session, error)
 	UpdateSessionSpent(ctx context.Context, granter, grantee string, feeAmount sdk.Coin) error
+	// CheckSessionAcceptable returns nil for an active key, or for a PENDING
+	// key the grantee's exec would accept; otherwise the acceptance error.
+	CheckSessionAcceptable(ctx context.Context, granter, grantee string) error
 }
 
 // BankKeeper defines the bank interface needed by the ante handler.
@@ -99,6 +102,15 @@ func (d SessionFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate boo
 		}
 		if !session.Expiration.After(blockTime) {
 			return ctx, sessiontypes.ErrSessionExpired
+		}
+		// A PENDING key (spec §31) is accepted by this very exec, and the
+		// granter's spend_limit pays its fee like any other exec's. An
+		// exec whose acceptance the msg server would refuse (grantee class
+		// cap, granter per-type cap) is refused here instead, before any
+		// fee moves, so a pending key cannot bill the granter for execs
+		// that never activate it (SES-203).
+		if err := d.sessionKeeper.CheckSessionAcceptable(ctx, execMsg.Granter, execMsg.Grantee); err != nil {
+			return ctx, err
 		}
 		// A used-up session must not keep landing (fee-free or granter-paid)
 		// txs that only fail in the msg server.

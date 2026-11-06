@@ -60,6 +60,12 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	if msg.ProjectName == "" {
 		return nil, types.ErrEmptyProjectName
 	}
+	if err := types.ValidateFieldLength("project_name", msg.ProjectName, types.MaxProjectNameLength); err != nil {
+		return nil, err
+	}
+	if err := types.ValidateFieldLength("description", msg.Description, types.MaxDescriptionLength); err != nil {
+		return nil, err
+	}
 	if len(msg.Tranches) == 0 {
 		return nil, types.ErrNoTranches
 	}

@@ -42,9 +42,18 @@ port_in_use() {
     fi
 }
 
+# A chain stopped a moment ago (stop_chains.sh, or the previous parallel
+# run's multichain batch) can still hold its listeners for a few seconds;
+# give them up to 30s to go away before calling the ports taken.
 BUSY=""
-for p in 56657 56656 9390 1617 36657 36656 9190 1417; do
-    if port_in_use "$p"; then BUSY="$BUSY $p"; fi
+for wait_i in $(seq 1 30); do
+    BUSY=""
+    for p in 56657 56656 9390 1617 36657 36656 9190 1417; do
+        if port_in_use "$p"; then BUSY="$BUSY $p"; fi
+    done
+    [ -z "$BUSY" ] && break
+    [ "$wait_i" = "1" ] && echo "  port(s) still held by a stopping chain:$BUSY; waiting up to 30s..."
+    sleep 1
 done
 if [ -n "$BUSY" ]; then
     echo "ERROR: port(s) already in use by another process:$BUSY"
@@ -73,14 +82,25 @@ echo "  PID: $PID_B"
 # Wait helper. Uses the `if jq -e ... &>/dev/null` pattern so set -e
 # does not abort us on the first iteration when RPC isn't bound yet
 # (status returns "connection refused" → not valid JSON → jq exits non-zero).
+# Every probe is bounded by `timeout`: under WSL2 a connect to a closed
+# loopback port hangs for minutes instead of being refused, so an unbounded
+# `status` call turns this 60-iteration loop into an hour-long wedge. The
+# chain's PID is checked too: a bind failure kills the process at once, and
+# waiting for its RPC afterwards can never succeed.
 wait_for_rpc() {
-    local NAME=$1; local NODE=$2; local CHAIN_LOG=$3
+    local NAME=$1; local NODE=$2; local CHAIN_LOG=$3; local PID=${4:-}
     echo "Waiting for $NAME RPC at $NODE..."
     local i
     for i in $(seq 1 60); do
-        if $BINARY status --node "$NODE" 2>&1 | jq -e '.sync_info.latest_block_height | tonumber > 1' &>/dev/null; then
+        if [ -n "$PID" ] && ! kill -0 "$PID" 2>/dev/null; then
+            echo "  FAILED: $NAME (pid $PID) exited before serving RPC"
+            echo "  Tail of $CHAIN_LOG:"
+            tail -5 "$CHAIN_LOG" 2>/dev/null || true
+            return 1
+        fi
+        if timeout 5 $BINARY status --node "$NODE" 2>&1 | jq -e '.sync_info.latest_block_height | tonumber > 1' &>/dev/null; then
             local H
-            H=$($BINARY status --node "$NODE" 2>&1 | jq -r '.sync_info.latest_block_height // "0"')
+            H=$(timeout 5 $BINARY status --node "$NODE" 2>&1 | jq -r '.sync_info.latest_block_height // "0"')
             echo "  $NAME ready at height $H"
             return 0
         fi
@@ -114,9 +134,9 @@ wait_for_grpc() {
 }
 
 echo ""
-wait_for_rpc  "chain-a" "tcp://localhost:56657" "$CHAIN_A_HOME/chain.log" || exit 1
+wait_for_rpc  "chain-a" "tcp://localhost:56657" "$CHAIN_A_HOME/chain.log" "$PID_A" || exit 1
 wait_for_grpc "chain-a" 9390 "$CHAIN_A_HOME/chain.log" || exit 1
-wait_for_rpc  "chain-b" "tcp://localhost:36657" "$CHAIN_B_HOME/chain.log" || exit 1
+wait_for_rpc  "chain-b" "tcp://localhost:36657" "$CHAIN_B_HOME/chain.log" "$PID_B" || exit 1
 wait_for_grpc "chain-b" 9190 "$CHAIN_B_HOME/chain.log" || exit 1
 
 echo ""

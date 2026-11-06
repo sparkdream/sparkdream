@@ -140,6 +140,15 @@ func (m *mockRepKeeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amou
 	return nil
 }
 
+// NextEpochStartHeight mirrors x/rep with mockEpochBlocks-block epochs.
+func (m *mockRepKeeper) NextEpochStartHeight(ctx context.Context) (int64, error) {
+	h := sdk.UnwrapSDKContext(ctx).BlockHeight()
+	return (h/mockEpochBlocks + 1) * mockEpochBlocks, nil
+}
+
+// mockEpochBlocks is the mock x/rep epoch length (NextEpochStartHeight).
+const mockEpochBlocks = int64(1000)
+
 func (m *mockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
 	if m.burnDREAMFn != nil {
 		return m.burnDREAMFn(ctx, addr, amount)

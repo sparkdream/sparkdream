@@ -513,9 +513,27 @@ else
         TRUST_ROOT_HEX="0000000000000000000000000000000000000000000000000000000000000001"
     fi
     ensure_shield_reserve
+    # wait_for_epoch_boundary: block until the shield epoch increments, so
+    # the seal + hex conversion + broadcast start with a whole epoch ahead.
+    # The ante refuses a target_epoch that is no longer current (code 21,
+    # refused in CheckTx, so the tx is never indexed), and under four
+    # concurrent suites the gap between the seal check and the broadcast
+    # alone can cross a 10-block epoch.
+    wait_for_epoch_boundary() {
+        local start now k
+        start=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+        for k in $(seq 1 120); do
+            now=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+            [ "$now" != "$start" ] && return 0
+            sleep 0.5
+        done
+        return 1
+    }
     SUBMIT_EPOCH=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
     SUBMITTED=0
     for i in $(seq 1 "$MIN_BATCH"); do
+      for send_attempt in 1 2; do
+        wait_for_epoch_boundary || echo "  [WARN] epoch did not advance within 60s; submitting anyway"
         # Seal against the live epoch: it may roll over between sends, and a
         # payload only opens under the epoch it was sealed to.
         for attempt in 1 2 3; do
@@ -546,8 +564,18 @@ else
             --min-trust-level=0 \
             --from submitter1 --chain-id "$CHAIN_ID" --keyring-backend test \
             --fees 5000${BOND_DENOM} --gas 500000 -y --output json 2>&1)
+        BROADCAST_CODE=$(echo "$TX_RES" | jq -r '.code // "0"' 2>/dev/null)
+        if [ "$BROADCAST_CODE" = "21" ] && [ "$send_attempt" = "1" ]; then
+            echo "  Submission $i: epoch rolled over before the broadcast (code 21); resealing for the next epoch"
+            continue
+        fi
+        break
+      done
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
-        if [ -n "$TXHASH" ]; then
+        if [ "$BROADCAST_CODE" != "0" ]; then
+            # Refused in CheckTx: never indexed, so report the broadcast response.
+            echo "  Submission $i rejected at broadcast (code $BROADCAST_CODE): $(echo "$TX_RES" | jq -r '.raw_log // empty' | head -c 200)"
+        elif [ -n "$TXHASH" ]; then
             sleep 2
             TX_RESULT=$($BINARY query tx "$TXHASH" --output json 2>/dev/null)
             CODE=$(echo "$TX_RESULT" | jq -r '.code // 1')

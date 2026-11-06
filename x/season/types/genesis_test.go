@@ -37,7 +37,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					TotalCount:      42,
 					LastProcessed:   "13",
 					TransitionStart: 26,
-					MaintenanceMode: false,
+					MaintenanceMode: true, // phase 1 = SNAPSHOT, a maintenance phase (SEA-203)
 				}, TransitionRecoveryState: &types.TransitionRecoveryState{LastAttemptBlock: 84,
 					FailedPhase:  66,
 					FailureCount: 5,
@@ -291,6 +291,82 @@ func TestGenesisState_Validate(t *testing.T) {
 					{
 						ChallengeId: "0",
 					},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "season history below the live season",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				Season: &types.Season{Number: 3, EndBlock: 100, Status: types.SeasonStatus_SEASON_STATUS_ACTIVE},
+				SeasonHistoryList: []types.Season{
+					{Number: 1, Status: types.SeasonStatus_SEASON_STATUS_COMPLETED},
+					{Number: 2, Status: types.SeasonStatus_SEASON_STATUS_COMPLETED},
+				},
+			},
+			valid: true,
+		},
+		{
+			desc: "duplicated season history number",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				Season: &types.Season{Number: 3, EndBlock: 100, Status: types.SeasonStatus_SEASON_STATUS_ACTIVE},
+				SeasonHistoryList: []types.Season{
+					{Number: 1, Status: types.SeasonStatus_SEASON_STATUS_COMPLETED},
+					{Number: 1, Status: types.SeasonStatus_SEASON_STATUS_COMPLETED},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "season history not COMPLETED",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				Season: &types.Season{Number: 3, EndBlock: 100, Status: types.SeasonStatus_SEASON_STATUS_ACTIVE},
+				SeasonHistoryList: []types.Season{
+					{Number: 1, Status: types.SeasonStatus_SEASON_STATUS_ENDING},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "season history not below the live season",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				Season: &types.Season{Number: 3, EndBlock: 100, Status: types.SeasonStatus_SEASON_STATUS_ACTIVE},
+				SeasonHistoryList: []types.Season{
+					{Number: 3, Status: types.SeasonStatus_SEASON_STATUS_COMPLETED},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "transition state maintenance flag matches its phase",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				SeasonTransitionState: &types.SeasonTransitionState{
+					Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT, MaintenanceMode: true,
+				},
+			},
+			valid: true,
+		},
+		{
+			desc: "transition state maintenance flag stale for a maintenance phase (SEA-203)",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				SeasonTransitionState: &types.SeasonTransitionState{
+					Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT, MaintenanceMode: false,
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "transition state maintenance flag on outside maintenance (SEA-203)",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				SeasonTransitionState: &types.SeasonTransitionState{
+					Phase: types.TransitionPhase_TRANSITION_PHASE_TITLES, MaintenanceMode: true,
 				},
 			},
 			valid: false,

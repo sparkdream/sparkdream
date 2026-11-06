@@ -297,6 +297,54 @@ else
     record_result "decline and leave" "FAIL"
 fi
 
+# ---------------------------------------------------------------- TEST 10 ---
+echo "--- TEST 10: an unanswered invitation expires (InviteTTL) and the threshold clamps ---"
+# 2-of-{alice, dave}: alice's entry is accepted at create, dave never answers.
+run_tx alice vault create-vault "$ALICE_ADDR:1,$DAVE_ADDR:1" 2 60 "zenith"
+EX_ID=$(event_attr "$TX_RESULT" vault_created vault_id)
+EX_EXPIRES=$($BINARY q vault get-vault "$EX_ID" --output json | jq -r --arg d "$DAVE_ADDR" '.vault.signers[] | select(.address==$d) | .invite_expires_at // "0"')
+EX_ALICE_EXPIRES=$($BINARY q vault get-vault "$EX_ID" --output json | jq -r --arg a "$ALICE_ADDR" '.vault.signers[] | select(.address==$a) | .invite_expires_at // "0"')
+# The test build's InviteTTL is 45 s: poll block time past the expiry, then the EndBlocker.
+expired() { [ "$($BINARY q vault get-vault "$EX_ID" --output json | jq -r '.vault.signers | length')" = "1" ]; }
+wait_until 60 2 expired
+EX_SIGNERS=$($BINARY q vault get-vault "$EX_ID" --output json | jq -r '.vault.signers | length')
+EX_THR=$($BINARY q vault get-vault "$EX_ID" --output json | jq -r '.vault.threshold')
+EX_VER=$($BINARY q vault get-vault "$EX_ID" --output json | jq -r '.vault.config_version')
+EX_DAVE_INVITED=$($BINARY q vault vaults-by-signer "$DAVE_ADDR" --invited --output json | jq -r --arg id "$EX_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+if [ -n "$EX_ID" ] && [ "$EX_EXPIRES" != "0" ] && [ "$EX_ALICE_EXPIRES" = "0" ] && [ "$EX_SIGNERS" = "1" ] && [ "$EX_THR" = "1" ] && [ "$EX_VER" = "2" ] && [ "$EX_DAVE_INVITED" = "0" ]; then
+    echo "  dave's invitation to vault #$EX_ID expired at $EX_EXPIRES; threshold 2 -> 1, config_version 2, alice can act alone"
+    record_result "invite expiry clamps threshold" "PASS"
+else
+    echo "  vault=$EX_ID dave_expires=$EX_EXPIRES alice_expires=$EX_ALICE_EXPIRES signers=$EX_SIGNERS thr=$EX_THR ver=$EX_VER dave_invited=$EX_DAVE_INVITED"
+    record_result "invite expiry clamps threshold" "FAIL"
+fi
+
+# ---------------------------------------------------------------- TEST 11 ---
+echo "--- TEST 11: a vault whose only entry is an unaccepted stranger dissolves when they decline ---"
+# The creator need not be a signer (spec 3.4): alice lists bob alone, so the
+# vault has no accepted signer. Bob's decline (leave-vault on an unaccepted
+# entry) leaves no signer behind; with no balance and no proposal record the
+# vault is deleted outright (vault_deleted) instead of lingering signer-less.
+run_tx alice vault create-vault "$BOB_ADDR:1" 1 60 "stray listing"
+SL_ID=$(event_attr "$TX_RESULT" vault_created vault_id)
+SL_ADDR=$(event_attr "$TX_RESULT" vault_created address)
+SL_ACC=$($BINARY q vault get-vault "$SL_ID" --output json 2>/dev/null | jq -r '[.vault.signers[]? | select(.accepted // false)] | length')
+SL_BOB_INVITED=$($BINARY q vault vaults-by-signer "$BOB_ADDR" --invited --output json | jq -r --arg id "$SL_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+run_tx bob vault leave-vault "$SL_ID"
+SL_DECLINED=$(tx_ok "$TX_RESULT" && echo yes || echo no)
+SL_DELETED_ID=$(event_attr "$TX_RESULT" vault_deleted vault_id)
+SL_GONE=$(! $BINARY q vault get-vault "$SL_ID" --output json > /dev/null 2>&1 && echo yes || echo no)
+SL_BYADDR_GONE=$(! $BINARY q vault vault-by-address "$SL_ADDR" --output json > /dev/null 2>&1 && echo yes || echo no)
+SL_BOB_AFTER=$($BINARY q vault vaults-by-signer "$BOB_ADDR" --invited --output json | jq -r --arg id "$SL_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+if [ -n "$SL_ID" ] && [ "$SL_ACC" = "0" ] && [ "$SL_BOB_INVITED" = "1" ] && [ "$SL_DECLINED" = yes ] \
+   && [ "$SL_DELETED_ID" = "$SL_ID" ] && [ "$SL_GONE" = yes ] && [ "$SL_BYADDR_GONE" = yes ] && [ "$SL_BOB_AFTER" = "0" ]; then
+    echo "  [ OK ] bob declined vault #$SL_ID (no accepted signer); vault_deleted emitted, get-vault and vault-by-address report not found"
+    record_result "sole unaccepted entry declines, vault deleted" "PASS"
+else
+    echo "  [FAIL] vault=$SL_ID accepted=$SL_ACC bob_invited=$SL_BOB_INVITED declined=$SL_DECLINED deleted_event=$SL_DELETED_ID gone=$SL_GONE by_addr_gone=$SL_BYADDR_GONE bob_after=$SL_BOB_AFTER log=$(tx_log "$TX_RESULT")"
+    record_result "sole unaccepted entry declines, vault deleted" "FAIL"
+fi
+
 rm -rf "$WORK"
 echo "============================================"
 echo "X/VAULT TEST RESULTS"

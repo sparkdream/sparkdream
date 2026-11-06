@@ -61,6 +61,12 @@ var (
 	DefaultAllowedDenoms                 = []string{}
 	DefaultMaxGrantLifetimeSeconds int64 = 31_536_000 // 1 year
 
+	// DefaultPendingGrantDeposit is the SPARK (bond-denom micro-units) a
+	// granter escrows on an access-class grant to a grantee that has not
+	// allowed it (SES-102): 1 SPARK. Refunded on accept / decline / revoke,
+	// forfeited on expiry.
+	DefaultPendingGrantDeposit uint64 = 1_000_000
+
 	// DefaultAuthorizedGrantCreators is the genesis-default allowlist
 	// for the module-bypass entrypoints (CreateGrantOnBehalfOf,
 	// RevokeGrantInternal, DeclineGrantInternal,
@@ -232,13 +238,17 @@ var (
 		// MsgUpdateToken edits metadata of a token the granter owns: no
 		// funds move. MsgMint is closer to the line: each minted token
 		// takes the class's deposit (0.1 SPARK) from the granter, which a
-		// session's fee-only SpendLimit does not cap — but the deposit is
-		// refunded when the token is burned, the key can only mint into
-		// classes the granter owns and only to the minter's own class
-		// supply, and the exposure is bounded by the granter's spendable
-		// balance until the grant is revoked. MsgCreateClass is
-		// deliberately excluded: it burns SPARK irreversibly, and a class
-		// is created once by the account's own key.
+		// session's fee-only SpendLimit does not cap. The deposit is not
+		// lost: a token minted through MsgExecSession records the granter
+		// as deposit_payer, and burning, revoking or expiring it refunds
+		// the granter, never the holder (SES-101; without this a leaked
+		// key could mint to itself and burn for the granter's SPARK). The
+		// key can only mint into classes the granter owns or mints for.
+		// What a leaked key can still do is lock deposits in tokens and
+		// burn inbox fees until the grant is revoked, bounded by the
+		// granter's spendable balance. MsgCreateClass is deliberately
+		// excluded: it burns SPARK irreversibly, and a class is created
+		// once by the account's own key.
 		"/sparkdream.artifact.v1.MsgMint",
 		"/sparkdream.artifact.v1.MsgUpdateToken",
 		// MsgRedeem marks a ticket as used: the venue's door scanner runs
@@ -247,8 +257,9 @@ var (
 		"/sparkdream.artifact.v1.MsgRedeem",
 		// MsgIssue (one metadata to many recipients) and MsgMintUnits
 		// (edition units) are MsgMint's siblings with the same exposure:
-		// refundable per-token / per-balance-record deposits from the
-		// granter, only into classes the granter owns or mints for.
+		// per-token / per-balance-record deposits from the granter that
+		// refund to the granter (deposit_payer), only into classes the
+		// granter owns or mints for.
 		// MsgCreateEdition stays out: its fee is burned irreversibly.
 		"/sparkdream.artifact.v1.MsgIssue",
 		"/sparkdream.artifact.v1.MsgMintUnits",
@@ -324,9 +335,11 @@ var ForbiddenAllowlistMsgs = func() map[string]bool {
 	for _, url := range federationtypes.NonDelegableMsgTypeURLs() {
 		m[url] = true
 	}
-	// Messages guarded by an ante-only rule (commons proposal-fee floor,
-	// gnovm no-mix): session exec and oneshot Exec dispatch through the
-	// router and would skip the rule.
+	// Messages guarded by an ante rule (commons proposal-fee floor, gnovm
+	// no-mix): session exec and oneshot Exec dispatch through the router
+	// and would skip the rule. Commons now charges a nested submission in
+	// the handler, but a session key submitting proposals stays forbidden
+	// by policy (no commons message is session-delegable).
 	for _, url := range commontypes.AnteOnlyRuleMsgTypeURLs() {
 		m[url] = true
 	}
@@ -373,6 +386,7 @@ func NewParams(
 		MaxEndblockerDispatchesPerPass: DefaultMaxEndblockerDispatchesPerPass,
 		AllowedDenoms:                  append([]string(nil), DefaultAllowedDenoms...),
 		MaxGrantLifetimeSeconds:        DefaultMaxGrantLifetimeSeconds,
+		PendingGrantDeposit:            DefaultPendingGrantDeposit,
 	}
 }
 
@@ -411,9 +425,11 @@ const (
 	MaxParamExecCount                   uint64 = 1_000_000
 	MaxParamOneshotExecGas              uint64 = 5_000_000
 	MaxParamEndblockerDispatchesPerPass uint32 = 1_000
-	MaxParamPendingOneshotsPerGranter   uint32 = 1_000
-	MaxParamPausedOneshotsPerGranter    uint32 = 200
-	MaxParamGrantLifetimeSeconds        int64  = 5 * 31_536_000 // 5 years
+	// MaxParamPendingGrantDeposit caps pending_grant_deposit at 1000 SPARK.
+	MaxParamPendingGrantDeposit       uint64 = 1_000_000_000
+	MaxParamPendingOneshotsPerGranter uint32 = 1_000
+	MaxParamPausedOneshotsPerGranter  uint32 = 200
+	MaxParamGrantLifetimeSeconds      int64  = 5 * 31_536_000 // 5 years
 )
 
 // NarrowSessionMaxMsgTypes is the most message types a session key may name
@@ -424,10 +440,41 @@ const (
 // use one renew it with a key kept off their host (x-session-spec §8.3).
 const NarrowSessionMaxMsgTypes = 2
 
-// SessionMaxExpiration returns how long a session key naming numMsgTypes
-// message types may live.
-func (p Params) SessionMaxExpiration(numMsgTypes int, allowSelfRevoke bool) time.Duration {
-	if numMsgTypes <= NarrowSessionMaxMsgTypes && !allowSelfRevoke {
+// NarrowSessionMsgTypes are the only message types a narrow session may
+// name (SES-103). Narrowness is judged by what the types do, not just how
+// many there are: these are the unattended-daemon messages that move no
+// SPARK and exercise no bonded-role power over other people's content
+// (checkpoints, bridge submissions and attestations, content
+// verification). A key naming anything else, such as the artifact mint
+// types (each mint takes a deposit from the granter) or a sentinel action,
+// keeps the max_expiration lifetime however few types it names. Adding a
+// type here is a chain upgrade.
+var NarrowSessionMsgTypes = map[string]bool{
+	"/sparkdream.service.v1.MsgSubmitCheckpoint":          true,
+	"/sparkdream.federation.v1.MsgSubmitFederatedContent": true,
+	"/sparkdream.federation.v1.MsgAttestOutbound":         true,
+	"/sparkdream.federation.v1.MsgVerifyContent":          true,
+}
+
+// IsNarrowSession reports whether a session key naming msgTypes counts as
+// narrow: 1..NarrowSessionMaxMsgTypes types, all in NarrowSessionMsgTypes,
+// and no allow_self_revoke.
+func IsNarrowSession(msgTypes []string, allowSelfRevoke bool) bool {
+	if allowSelfRevoke || len(msgTypes) == 0 || len(msgTypes) > NarrowSessionMaxMsgTypes {
+		return false
+	}
+	for _, t := range msgTypes {
+		if !NarrowSessionMsgTypes[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// SessionMaxExpiration returns how long a session key naming msgTypes may
+// live.
+func (p Params) SessionMaxExpiration(msgTypes []string, allowSelfRevoke bool) time.Duration {
+	if IsNarrowSession(msgTypes, allowSelfRevoke) {
 		return p.NarrowSessionMaxExpiration
 	}
 	return p.MaxExpiration
@@ -548,6 +595,12 @@ func (p Params) Validate() error {
 
 	if p.MaxGrantLifetimeSeconds <= 0 {
 		return fmt.Errorf("max_grant_lifetime_seconds must be > 0")
+	}
+	// pending_grant_deposit is a uint64, so non-negative by construction;
+	// it is bounded so a governance typo cannot make every unsolicited
+	// session key cost more than a member's balance.
+	if p.PendingGrantDeposit > MaxParamPendingGrantDeposit {
+		return fmt.Errorf("pending_grant_deposit %d exceeds ceiling %d", p.PendingGrantDeposit, MaxParamPendingGrantDeposit)
 	}
 
 	// --- Module-bypass allowlist ---

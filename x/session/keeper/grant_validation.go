@@ -223,12 +223,13 @@ func (k Keeper) validateSignInPayload(
 	}
 	active := 0
 	for _, g := range existing {
-		if !activeStatus(g.Status) {
-			continue
-		}
-		active++
-		if g.Grantee == grantee && g.GetSignIn().GetService() == p.Service {
+		// A pending sign-in to the same (grantee, service) is a duplicate
+		// too; it just does not count toward the active cap.
+		if g.Grantee == grantee && g.GetSignIn().GetService() == p.Service && !terminalStatus(g.Status) {
 			return nil, types.ErrSignInGrantExists.Wrapf("grant %d", g.Id)
+		}
+		if activeStatus(g.Status) {
+			active++
 		}
 	}
 	if active >= types.MaxSignInGrantsPerGranter {

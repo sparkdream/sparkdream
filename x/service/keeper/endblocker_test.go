@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
+	storetypes "cosmossdk.io/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
@@ -116,11 +117,14 @@ func TestEndBlocker_PendingNotExpiredStays(t *testing.T) {
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status)
 }
 
-// TestEndBlocker_EscalatedAutoTimeout flips an old ESCALATED report to
-// AUTO_TIMEOUT and refunds the deposit.
+// TestEndBlocker_EscalatedAutoTimeout flips an old ESCALATED report whose
+// jury did not uphold it to AUTO_TIMEOUT and refunds the deposit.
 func TestEndBlocker_EscalatedAutoTimeout(t *testing.T) {
 	f := initFixture(t)
 	reportID := f.seedEscalatedReport(t, 200)
+	f.repKeeper.GetJuryVerdictNameFn = func(context.Context, uint64) (string, error) {
+		return types.JuryVerdictInconclusive, nil
+	}
 
 	params, _ := f.keeper.Params.Get(f.ctx)
 	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxEscalatedBlocks + 1)
@@ -129,6 +133,60 @@ func TestEndBlocker_EscalatedAutoTimeout(t *testing.T) {
 	r, err := f.keeper.Reports.Get(f.ctx, reportID)
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_TIMEOUT, r.Status)
+}
+
+// SVC-101: an upheld verdict nobody relays is applied at the deadline as
+// ACCEPT at the proposed slash, without dissolving the operator.
+func TestEndBlocker_EscalatedUpheldVerdictApplied(t *testing.T) {
+	f := initFixture(t)
+	reportID := f.seedEscalatedReport(t, 200)
+	pre, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
+	require.True(t, ok)
+
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxEscalatedBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	r, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_RESOLVED_T2, r.Status)
+	require.Equal(t, pre.BondAmount.MulRaw(200).QuoRaw(10000).String(), r.SlashAmount.String())
+
+	post, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
+	require.True(t, ok)
+	require.Equal(t, pre.BondAmount.Sub(r.SlashAmount).String(), post.BondAmount.String())
+	require.Empty(t, f.hooks.Dissolved)
+	has, err := f.keeper.EscalatedReportsQueue.Has(f.ctx, collections.Join(r.EscalatedAt, reportID))
+	require.NoError(t, err)
+	require.False(t, has)
+}
+
+// SVC-105: a record whose processing fails is logged and skipped, stays
+// queued, and does not stop the EndBlocker or the other records.
+func TestEndBlocker_FailingItemIsSkippedNotFatal(t *testing.T) {
+	f := initFixture(t)
+	f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
+	failing := f.seedPendingReport(t)
+
+	// the deposit refund fails: the item must roll back, not halt
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(context.Context, string, sdk.AccAddress, sdk.Coins) error {
+		return types.ErrInvalidVerdict.Wrap("bank down")
+	}
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxPendingBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	r, err := f.keeper.Reports.Get(f.ctx, failing)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status)
+
+	// once the bank recovers, the queued record is processed
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = nil
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	r, err = f.keeper.Reports.Get(f.ctx, failing)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, r.Status)
 }
 
 // TestEndBlocker_Tier1EscrowReleaseToCommunityPool simulates an expired
@@ -376,4 +434,50 @@ func (f *fixture) fileMemberReport(t *testing.T) uint64 {
 	require.NoError(t, err)
 	require.NotZero(t, resp.ReportId)
 	return resp.ReportId
+}
+
+// SVC-202: a panic inside one EndBlocker item is recovered like an error:
+// the item rolls back and stays queued, FinalizeBlock does not fail.
+func TestEndBlocker_PanickingItemIsSkippedNotFatal(t *testing.T) {
+	f := initFixture(t)
+	f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
+	stuck := f.seedPendingReport(t)
+
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(context.Context, string, sdk.AccAddress, sdk.Coins) error {
+		panic("bank keeper unwired")
+	}
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxPendingBlocks + 1)
+	require.NotPanics(t, func() { require.NoError(t, f.keeper.EndBlocker(f.ctx)) })
+
+	r, err := f.keeper.Reports.Get(f.ctx, stuck)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status, "the panicking item rolled back")
+
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = nil
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	r, err = f.keeper.Reports.Get(f.ctx, stuck)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, r.Status, "retried once the panic is gone")
+}
+
+// SVC-202: out-of-gas is the block gas meter's decision and is re-raised,
+// never swallowed; every other panic is contained and the item not counted.
+func TestRunIsolated_RecoversPanicsButNotOutOfGas(t *testing.T) {
+	f := initFixture(t)
+	counted := f.keeper.RunIsolatedForTest(f.ctx, "test", func(context.Context) (bool, error) {
+		panic("boom")
+	})
+	require.False(t, counted)
+
+	require.Panics(t, func() {
+		f.keeper.RunIsolatedForTest(f.ctx, "test", func(context.Context) (bool, error) {
+			panic(storetypes.ErrorOutOfGas{Descriptor: "test"})
+		})
+	})
+
+	ok := f.keeper.RunIsolatedForTest(f.ctx, "test", func(context.Context) (bool, error) { return true, nil })
+	require.True(t, ok)
 }

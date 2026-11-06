@@ -556,6 +556,7 @@ TX_RES=$($BINARY tx rep propose-project \
     --tags "testing","challenges","jury" \
     --deliverables "Test challenge resolution system" \
     --milestones "Phase 1: Basic challenges,Phase 2: Jury system,Phase 3: Verdict processing" \
+    --gas 400000 \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -588,32 +589,13 @@ echo "[ OK ] Project created: #$PROJECT_ID"
 # Approve project budget
 echo "  → Approving project budget..."
 
-# Approve 5,000 DREAM (5000000000 micro-DREAM) + 0 SPARK
-# Budget must be under large_project_budget_threshold (10,000 DREAM) for direct committee approval
-TX_RES=$($BINARY tx rep approve-project-budget \
-    $PROJECT_ID \
-    "5000000000" \
-    "0" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "[FAIL] Failed to approve project: no txhash"
-    exit 1
-fi
-
-sleep 6
-TX_RESULT=$(wait_for_tx $TXHASH)
-
-if check_tx_success "$TX_RESULT"; then
+# Approve 5,000 DREAM (5000000000 micro-DREAM) + 0 SPARK.
+# A member cannot approve their own project alone (REP-E-105): alice's
+# projects are approved by an Operations Committee proposal.
+if ops_approve_project_budget "$PROJECT_ID" "5000000000" "0"; then
     echo "[ OK ] Project #$PROJECT_ID approved and ready for initiatives"
 else
-    echo "[FAIL] Failed to approve project"
+    echo "[FAIL] Failed to approve project: $OPS_COMMITTEE_ERROR"
     exit 1
 fi
 

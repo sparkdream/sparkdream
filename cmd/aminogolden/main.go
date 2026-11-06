@@ -58,7 +58,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	_ "sparkdream/app"
+	"sparkdream/app"
 )
 
 var (
@@ -567,12 +567,12 @@ type signedTx struct {
 }
 
 func verify() int {
-	addrCodec := addresscodec.NewBech32Codec("sprkdrm")
+	addrCodec := addresscodec.NewBech32Codec(app.AccountAddressPrefix)
 	signingCtx, err := txsigning.NewContext(txsigning.Options{
 		FileResolver:          files,
 		TypeResolver:          types,
 		AddressCodec:          addrCodec,
-		ValidatorAddressCodec: addresscodec.NewBech32Codec("sprkdrmvaloper"),
+		ValidatorAddressCodec: addresscodec.NewBech32Codec(app.AccountAddressPrefix + "valoper"),
 	})
 	if err != nil {
 		panic(err)

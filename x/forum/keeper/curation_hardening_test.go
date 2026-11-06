@@ -135,10 +135,12 @@ func TestCurationAccuracyAndDemotion(t *testing.T) {
 	ra := f.repKeeper.roleActivities[testSentinel]
 	require.Equal(t, uint64(1), ra.UpheldActions[reptypes.ActionKindForumCuration])
 	require.Equal(t, uint64(0), ra.OverturnedActions[reptypes.ActionKindForumCuration])
-	require.Equal(t, uint64(1), ra.ConsecutiveUpheld)
+	// A confirmed curation leaves the verdict streaks alone (FRM-101).
+	require.Equal(t, uint64(0), ra.ConsecutiveUpheld)
 
 	// Three rejections on separate threads (per-thread cap stays clear) -> three
-	// overturned ticks + demotion at DefaultMaxConsecutiveOverturnsBeforeDemotion.
+	// accuracy misses, but no streak and no demotion: an author's "no" is not a
+	// verdict on a contested action (REP-R-207).
 	for i := 0; i < int(reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion); i++ {
 		th := f.createTestPost(t, testCreator, 0, 0)
 		rp := f.createTestPost(t, testCreator2, th.PostId, th.PostId)
@@ -151,10 +153,11 @@ func TestCurationAccuracyAndDemotion(t *testing.T) {
 	require.Equal(t, uint64(1), ra.UpheldActions[reptypes.ActionKindForumCuration])
 	require.Equal(t, uint64(reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion),
 		ra.OverturnedActions[reptypes.ActionKindForumCuration])
-	require.Equal(t, reptypes.DefaultMaxConsecutiveOverturnsBeforeDemotion, ra.ConsecutiveOverturns)
+	require.Equal(t, uint64(0), ra.ConsecutiveOverturns, "a rejection never extends the overturn streak")
 	require.Equal(t, uint64(0), ra.ConsecutiveUpheld)
-	require.Equal(t, reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED,
-		f.repKeeper.sentinels[testSentinel].BondStatus, "demoted after rejection streak")
+	require.Zero(t, ra.OverturnCooldownUntil, "a rejection never starts an overturn cooldown")
+	require.Equal(t, reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+		f.repKeeper.sentinels[testSentinel].BondStatus, "never demoted by rejections alone")
 }
 
 // Phase C2: a sentinel may make at most max_accept_proposals_per_sentinel_per_thread
@@ -165,7 +168,8 @@ func TestProposalCapPerSentinel(t *testing.T) {
 	f.createTestSentinel(t, testSentinel, "1000000000")
 	f.createTestSentinel(t, testCreator2, "1000000000") // second sentinel
 	thread := f.createTestPost(t, testCreator, 0, 0)
-	reply := f.createTestPost(t, testCreator, thread.PostId, thread.PostId)
+	// Neither sentinel's nor the thread author's reply (FRM-201).
+	reply := f.createTestPost(t, testAuthority, thread.PostId, thread.PostId)
 	ms := keeper.NewMsgServerImpl(f.keeper)
 
 	cap := int(types.DefaultMaxAcceptProposalsPerSentinelPerThread)

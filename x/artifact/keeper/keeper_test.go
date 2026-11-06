@@ -105,6 +105,9 @@ type mockRep struct {
 	outcomes  []string
 	cooldown  map[string]int64
 	appeals   []string // "<action type>:<target>" opened via CreateGovActionAppeal
+	// onCreateGovActionAppeal, when set, runs inside CreateGovActionAppeal,
+	// where the real x/rep keeper reads the appeal target to seat the jury.
+	onCreateGovActionAppeal func(ctx context.Context, actionType reptypes.GovActionType, target string)
 	// initiatives backs impact-certificate claims (GetInitiative).
 	initiatives map[uint64]reptypes.Initiative
 	// migrated maps a tombstoned address to its canonical successor
@@ -222,7 +225,10 @@ func (r *mockRep) RecordRoleAction(_ context.Context, _ reptypes.RoleType, addr,
 	r.actions = append(r.actions, kind)
 	return nil
 }
-func (r *mockRep) CreateGovActionAppeal(_ context.Context, actionType reptypes.GovActionType, target string, _ sdk.AccAddress, _ string) (uint64, uint64, error) {
+func (r *mockRep) CreateGovActionAppeal(ctx context.Context, actionType reptypes.GovActionType, target string, _ sdk.AccAddress, _ string) (uint64, uint64, error) {
+	if r.onCreateGovActionAppeal != nil {
+		r.onCreateGovActionAppeal(ctx, actionType, target)
+	}
 	r.appeals = append(r.appeals, actionType.String()+":"+target)
 	return uint64(len(r.appeals)), uint64(100 + len(r.appeals)), nil
 }

@@ -143,4 +143,5 @@ var (
 	ErrCannotUnstakeAfterWindow   = errors.Register(ModuleName, 1262, "cannot unstake after nomination window closes")
 	ErrSeasonNotInNominationPhase = errors.Register(ModuleName, 1263, "season is not in nomination phase")
 	ErrStakeAmountFractional      = errors.Register(ModuleName, 1264, "stake amount must be a whole number of micro-DREAM")
+	ErrStakeAmountTooHigh         = errors.Register(ModuleName, 1265, "stake amount exceeds the uint64 range")
 )

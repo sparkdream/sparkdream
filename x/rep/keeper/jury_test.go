@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
@@ -133,6 +135,8 @@ func TestJuryWorkflow(t *testing.T) {
 
 	err = k.RespondToChallenge(ctx, chalID, assignee, "Defense", nil)
 	require.NoError(t, err)
+	// The jurors are drawn by the EndBlocker of the response's block.
+	require.NoError(t, k.DrawPendingJuries(ctx))
 
 	// Get Jury Review
 	challenge, _ := k.GetChallenge(ctx, chalID)
@@ -195,6 +199,17 @@ func TestJuryWorkflow(t *testing.T) {
 	}
 }
 
+// initiativeReview stores initiative and a challenge on it by challenger and
+// returns an unsaved review of that challenge: SelectJury derives the parties
+// from the case, so the case has to exist.
+func initiativeReview(t *testing.T, k keeper.Keeper, ctx context.Context, initiative types.Initiative, challenger string) types.JuryReview {
+	t.Helper()
+	require.NoError(t, k.Initiative.Set(ctx, initiative.Id, initiative))
+	const challengeID = 77
+	require.NoError(t, k.Challenge.Set(ctx, challengeID, types.Challenge{Id: challengeID, InitiativeId: initiative.Id, Challenger: challenger}))
+	return types.JuryReview{Id: 1, ChallengeId: challengeID, InitiativeId: initiative.Id}
+}
+
 func TestSelectJury(t *testing.T) {
 	t.Run("enough eligible members returns correct count", func(t *testing.T) {
 		fixture := initFixture(t)
@@ -227,7 +242,7 @@ func TestSelectJury(t *testing.T) {
 			Assignee: "some-other-address",
 		}
 
-		jurors, err := k.SelectJury(ctx, initiative, params.JurySize)
+		jurors, err := k.SelectJury(ctx, initiativeReview(t, k, ctx, initiative, ""), params.JurySize)
 		require.NoError(t, err)
 		require.Len(t, jurors, 3, "should select exactly JurySize jurors")
 
@@ -273,7 +288,7 @@ func TestSelectJury(t *testing.T) {
 		// jury at all — a worse outcome than a smaller one, and a sharp cliff
 		// whenever jury_size is raised. Safe because TallyJuryVotes floors
 		// quorum, so a short jury cannot return a rump verdict.
-		jurors, err := k.SelectJury(ctx, initiative, params.JurySize)
+		jurors, err := k.SelectJury(ctx, initiativeReview(t, k, ctx, initiative, ""), params.JurySize)
 		require.NoError(t, err)
 		require.Len(t, jurors, 2, "seats the two eligible members, not five")
 
@@ -289,9 +304,9 @@ func TestSelectJury(t *testing.T) {
 
 		// The escalation path in RespondToChallenge matches on this message, so
 		// an unseatable jury must keep producing it.
-		_, err := k.SelectJury(ctx, types.Initiative{
+		_, err := k.SelectJury(ctx, initiativeReview(t, k, ctx, types.Initiative{
 			Id: 1, Tags: []string{"nobody-has-this"}, Assignee: "other-address",
-		}, 5)
+		}, ""), 5)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "insufficient eligible jurors")
 	})
@@ -349,7 +364,7 @@ func TestSelectJury(t *testing.T) {
 			Apprentice: apprentice.String(),
 		}
 
-		jurors, err := k.SelectJury(ctx, initiative, params.JurySize)
+		jurors, err := k.SelectJury(ctx, initiativeReview(t, k, ctx, initiative, ""), params.JurySize)
 		require.NoError(t, err)
 		require.Len(t, jurors, 3)
 
@@ -396,7 +411,7 @@ func TestSelectJury(t *testing.T) {
 
 		initiative := types.Initiative{Id: 1, Tags: []string{"coding"}, Assignee: "other-addr"}
 
-		jurors, err := k.SelectJury(ctx, initiative, params.JurySize, challenger.String())
+		jurors, err := k.SelectJury(ctx, initiativeReview(t, k, ctx, initiative, challenger.String()), params.JurySize)
 		require.NoError(t, err)
 		require.Len(t, jurors, 3)
 		for _, j := range jurors {
@@ -446,7 +461,7 @@ func TestSelectJury(t *testing.T) {
 			Assignee: "unrelated-address",
 		}
 
-		jurors, err := k.SelectJury(ctx, initiative, params.JurySize)
+		jurors, err := k.SelectJury(ctx, initiativeReview(t, k, ctx, initiative, ""), params.JurySize)
 		require.NoError(t, err)
 		require.Len(t, jurors, 3)
 

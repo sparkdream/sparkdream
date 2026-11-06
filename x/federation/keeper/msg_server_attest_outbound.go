@@ -25,12 +25,23 @@ func (k msgServer) AttestOutbound(ctx context.Context, msg *types.MsgAttestOutbo
 	if bridge.Suspended {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge is suspended")
 	}
-	if err := k.requireMemberOperator(ctx, msg.Operator); err != nil {
-		return nil, err
+	// local_content_id is stored, so it is bounded like every other
+	// identifier a bridge writes (FED-107).
+	if len(msg.LocalContentId) == 0 || len(msg.LocalContentId) > types.MaxInboundIdentifierSize {
+		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "local_content_id must be 1..%d bytes", types.MaxInboundIdentifierSize)
 	}
 
 	// 2. Verify peer is ACTIVE
-	if _, err := k.GetPeerRequireActive(ctx, msg.PeerId); err != nil {
+	peer, err := k.GetPeerRequireActive(ctx, msg.PeerId)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2b. Same operator gate as every other bridge message: an active
+	//     member whose x/service record is ACTIVE with min_bond. An
+	//     UNBONDING operator fires no hook, so its binding is never
+	//     suspended and only this check stops it (FED-107).
+	if err := k.requireActiveOperator(ctx, msg.Operator, peer.Type); err != nil {
 		return nil, err
 	}
 
@@ -45,6 +56,21 @@ func (k msgServer) AttestOutbound(ctx context.Context, msg *types.MsgAttestOutbo
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
+
+	// 3b. Outbound rate limits (spec §10.3), as for FederateContent: each
+	//     attestation is a state row, so they are capped per block and
+	//     per peer window.
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := k.checkAndRecordOutboundPerBlock(ctx, sdkCtx.BlockHeight(), params.MaxOutboundPerBlock); err != nil {
+		return nil, errorsmod.Wrap(err, "global per-block outbound cap")
+	}
+	if err := k.checkAndRecordOutboundRate(ctx, msg.PeerId, blockTime,
+		int64(params.RateLimitWindow.Seconds()), policy.OutboundRateLimitPerEpoch); err != nil {
+		return nil, errorsmod.Wrapf(err, "peer %s", msg.PeerId)
+	}
 
 	// 4. Store OutboundAttestation
 	attestID, err := k.OutboundAttestSeq.Next(ctx)

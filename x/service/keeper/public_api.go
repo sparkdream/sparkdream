@@ -297,8 +297,8 @@ func (k Keeper) SlashOperator(
 	reportID uint64,
 	source SlashSource,
 ) (sdk.Coin, error) {
-	if slashBps == 0 || slashBps > 10000 {
-		return sdk.Coin{}, types.ErrSlashCapExceeded.Wrapf("slash_bps must be in (0, 10000], got %d", slashBps)
+	if slashBps == 0 || slashBps > types.MaxSlashBps {
+		return sdk.Coin{}, types.ErrSlashCapExceeded.Wrapf("slash_bps must be in (0, %d], got %d", types.MaxSlashBps, slashBps)
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

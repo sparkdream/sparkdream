@@ -2,11 +2,10 @@ package keeper
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"strings"
 
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -37,43 +36,21 @@ func (k Keeper) CreateJuryReview(
 		return err
 	}
 
-	// Select jury members, excluding the challenger so they can't sit on the jury
-	// for their own challenge (the accused side is already excluded via
-	// IsAffiliatedWithProject).
-	jurors, err := k.SelectJury(ctx, initiative, params.JurySize, challenge.Challenger)
-	if err != nil {
-		return err
-	}
-	// A jury below the floor cannot return a verdict (TallyJuryVotes would hold
-	// it at INCONCLUSIVE forever), so seating one would strand the challenge
-	// until its deadline. Escalate to the committee instead — the same route a
-	// wholly empty pool takes, which is why this reuses that error phrasing.
-	if len(jurors) < types.MinSeatedJurors {
-		return fmt.Errorf("insufficient eligible jurors: need %d, have %d",
-			types.MinSeatedJurors, len(jurors))
-	}
-
-	// Calculate required votes (supermajority)
-	superMajority := params.JurySuperMajority
-	requiredVotes := superMajority.MulInt64(int64(len(jurors))).Ceil().TruncateInt().Uint64()
-
-	// Get next jury review ID
+	// Jurors are drawn by the EndBlocker, not here: the assignee sends this
+	// transaction and could otherwise retry until the draw suits them
+	// (REP-R-102). The pool is checked now so a challenge nobody could judge
+	// still escalates to the committee inside the response. juryExclusions
+	// keeps the challenger and everyone affiliated with the initiative out of
+	// the pool.
 	juryReviewID, err := k.JuryReviewSeq.Next(ctx)
 	if err != nil {
 		return err
 	}
-
-	if err := k.RecordJurySeating(ctx, jurors); err != nil {
-		return err
-	}
-
-	// Create jury review
 	juryReview := types.JuryReview{
 		Id:                juryReviewID,
 		ChallengeId:       challengeID,
 		InitiativeId:      challenge.InitiativeId,
-		Jurors:            jurors,
-		RequiredVotes:     commontypes.Saturate[uint32](requiredVotes),
+		Jurors:            []string{},
 		ExpertWitnesses:   []string{},
 		Testimonies:       []*types.ExpertTestimony{},
 		ReviewDeliverable: initiative.DeliverableUri,
@@ -86,17 +63,29 @@ func (k Keeper) CreateJuryReview(
 		AcceptanceDeadline: sdkCtx.BlockHeight() + k.juryAcceptanceWindowBlocks(params),
 		Verdict:            types.Verdict_VERDICT_PENDING,
 	}
+	pool, err := k.jurorPool(ctx, juryReview)
+	if err != nil {
+		return err
+	}
+	// A jury below the floor cannot return a verdict (TallyJuryVotes would hold
+	// it at INCONCLUSIVE forever), so seating one would strand the challenge
+	// until its deadline. Escalate to the committee instead — the same route a
+	// wholly empty pool takes, which is why this reuses that error phrasing.
+	if len(pool) < types.MinSeatedJurors {
+		return fmt.Errorf("insufficient eligible jurors: need %d, have %d",
+			types.MinSeatedJurors, len(pool))
+	}
+	if err := k.queueJuryDraw(ctx, &juryReview, params.JurySize); err != nil {
+		return err
+	}
 
 	// Save jury review
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
 		return err
 	}
 	// Index as PENDING so the deadline sweep can find it if jurors don't reach a
-	// verdict via votes before the review's (block-height) deadline.
-	if err := k.AddJuryReviewToJurorIndex(ctx, juryReview); err != nil {
-		return err
-	}
-
+	// verdict via votes before the review's (block-height) deadline. The
+	// by-juror index is written when DrawPendingJuries seats the jurors.
 	if err := k.AddJuryReviewToVerdictIndex(ctx, juryReview); err != nil {
 		return err
 	}
@@ -124,12 +113,9 @@ func (k Keeper) CreateJuryReview(
 			"jury_review_created",
 			sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", juryReviewID)),
 			sdk.NewAttribute("challenge_id", fmt.Sprintf("%d", challengeID)),
-			sdk.NewAttribute("juror_count", fmt.Sprintf("%d", len(jurors))),
-			// The seated addresses, so a juror's client can act on a plain event
-			// filter instead of fetching every review to check whether it is
-			// theirs. Jury duty pays the voting jurors at the tally and is easy to
-			// miss; an unnoticed summons is the main cause of a lost quorum.
-			sdk.NewAttribute("jurors", strings.Join(jurors, ",")),
+			// The jurors are drawn at the end of this block; "jury_seated"
+			// lists them for a juror's client to filter on.
+			sdk.NewAttribute("seats_pending", fmt.Sprintf("%d", juryReview.PendingSeats)),
 			sdk.NewAttribute("deadline", fmt.Sprintf("%d", juryReview.Deadline)),
 		),
 	)
@@ -159,223 +145,6 @@ func (k Keeper) juryAcceptanceWindowBlocks(params types.Params) int64 {
 	return window
 }
 
-// SelectJury selects jury members for a challenge. excludeAddrs are removed from
-// the candidate pool in addition to members affiliated with the initiative —
-// callers pass the challenger so a party to the dispute can never judge it
-// (mirroring SelectContentJury and selectModerationAppealJury).
-func (k Keeper) SelectJury(
-	ctx context.Context,
-	initiative types.Initiative,
-	jurySize uint32,
-	excludeAddrs ...string,
-) ([]string, error) {
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parties to the dispute (e.g. the challenger) and everyone affiliated
-	// with the initiative (assignee / apprentice / author / project creator —
-	// see InitiativeAffiliates). Resolved to canonical addresses once, up
-	// front: Member is keyed by the canonical address, so a juror cannot sit
-	// on a case they are party to under an address they migrated away from.
-	skipAddrs := append([]string{}, excludeAddrs...)
-	if project, pErr := k.GetProject(ctx, initiative.ProjectId); pErr == nil {
-		skipAddrs = append(skipAddrs, InitiativeAffiliates(initiative, project)...)
-	} else {
-		skipAddrs = append(skipAddrs, initiative.Assignee, initiative.Apprentice, initiative.Creator)
-	}
-	excludeSet := k.canonicalSet(ctx, skipAddrs...)
-
-	// Get all eligible members
-	eligibleMembers := []types.Member{}
-	minReputation := params.MinJurorReputation
-
-	// Reputable members only, read from the max-reputation index.
-	err = k.walkJurorCandidates(ctx, minReputation, func(addr string, member types.Member) error {
-		if _, skip := excludeSet[addr]; skip {
-			return nil
-		}
-
-		// Check reputation requirement
-		hasReputation := false
-		for _, tag := range initiative.Tags {
-			if scoreStr, ok := member.ReputationScores[tag]; ok {
-				score, err := math.LegacyNewDecFromStr(scoreStr)
-				if err != nil {
-					continue
-				}
-				if score.GTE(minReputation) {
-					hasReputation = true
-					break
-				}
-			}
-		}
-
-		if hasReputation {
-			eligibleMembers = append(eligibleMembers, member)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Shrink to fit rather than refusing outright. This used to be all-or-nothing,
-	// which meant a pool one juror short of jury_size produced *no* jury at all
-	// and escalated to the committee — a worse outcome than a slightly smaller
-	// jury, and a sharp cliff whenever jury_size is raised.
-	//
-	// Safe now that TallyJuryVotes floors quorum: a short jury cannot return a
-	// rump verdict, so seating what is available costs nothing. It also matches
-	// the moderation-appeal and content-challenge selection routines, which have
-	// always seated what the pool allowed.
-	//
-	// Callers decide whether the result is enough. CreateJuryReview requires
-	// MinSeatedJurors and escalates below it; replacement draws take whatever
-	// they get. An empty pool is still an error, so the escalation path that
-	// matches on this message keeps working.
-	if len(eligibleMembers) == 0 {
-		return nil, fmt.Errorf("insufficient eligible jurors: need %d, have 0", jurySize)
-	}
-	if len(eligibleMembers) < int(jurySize) {
-		jurySize = commontypes.Saturate[uint32](len(eligibleMembers))
-	}
-
-	// Weighted random selection based on reputation
-	selectedJurors := []string{}
-	weights := make([]float64, len(eligibleMembers))
-
-	// Calculate weights based on domain reputation
-	for i, member := range eligibleMembers {
-		totalRep := math.LegacyZeroDec()
-		for _, tag := range initiative.Tags {
-			if scoreStr, ok := member.ReputationScores[tag]; ok {
-				score, err := math.LegacyNewDecFromStr(scoreStr)
-				if err != nil {
-					continue
-				}
-				totalRep = totalRep.Add(score)
-			}
-		}
-		// Weight by domain reputation, discounted by how often this member
-		// actually answers a summons. This is what replaced timed exclusion:
-		// a juror who never answers is drawn less often rather than removed, so
-		// nobody loses eligibility, broad sortition survives, and an address can
-		// always earn its weight back — which an excluded one never could,
-		// having stopped being drawn at all.
-		weights[i] = totalRep.MustFloat64() * k.JurorResponsivenessWeight(ctx, member.Address)
-	}
-
-	// Create a deterministic PRNG seeded from block hash + initiative ID.
-	// This ensures all validators produce identical jury selections for the
-	// same block, preventing consensus failure.
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	appHash := sdkCtx.BlockHeader().AppHash
-	var seed int64
-	if len(appHash) >= 8 {
-		seed = int64(binary.BigEndian.Uint64(appHash[:8]) ^ initiative.Id) //nolint:gosec // seed bits; wraparound is intended
-	} else {
-		// Fallback for genesis block or test contexts where AppHash is empty
-		seed = int64(initiative.Id) ^ sdkCtx.BlockHeight() //nolint:gosec // seed bits; wraparound is intended
-	}
-	rng := rand.New(rand.NewSource(seed))
-
-	// Perform weighted random selection without replacement
-	for i := 0; i < int(jurySize); i++ {
-		selected := weightedRandomSelect(rng, weights)
-		selectedJurors = append(selectedJurors, eligibleMembers[selected].Address)
-
-		// Remove selected juror from pool
-		eligibleMembers = append(eligibleMembers[:selected], eligibleMembers[selected+1:]...)
-		weights = append(weights[:selected], weights[selected+1:]...)
-	}
-
-	return selectedJurors, nil
-}
-
-// selectModerationAppealJury selects jurors for a moderation appeal. Unlike
-// SelectJury it is not scoped to an initiative's tags (an appeal has no
-// initiative): eligibility is "member with any tag reputation >=
-// MinJurorReputation", weight is the member's total reputation across all tags,
-// and the parties to the dispute (appellant, accused/sentinel, action target)
-// are excluded. Selection is best-effort: if fewer than JurySize eligible
-// members exist, it returns as many as it can (possibly zero), so appeal
-// creation never fails for lack of jurors — such appeals fall back to committee
-// resolution (MsgResolveGovActionAppeal) or timeout.
-//
-// Deterministic: seeded from the block AppHash XOR the jury review id so all
-// validators select identically.
-func (k Keeper) selectModerationAppealJury(ctx context.Context, juryReviewID uint64, excludes []string) ([]string, error) {
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	minReputation := params.MinJurorReputation
-
-	// Canonical addresses: Member is keyed by the current address, the
-	// parties may be recorded under an old one.
-	excludeSet := k.canonicalSet(ctx, excludes...)
-
-	var (
-		eligible []string
-		weights  []float64
-	)
-	err = k.walkJurorCandidates(ctx, minReputation, func(addr string, member types.Member) error {
-		if _, skip := excludeSet[addr]; skip {
-			return nil
-		}
-		qualifies := false
-		totalRep := math.LegacyZeroDec()
-		for _, scoreStr := range member.ReputationScores {
-			score, perr := math.LegacyNewDecFromStr(scoreStr)
-			if perr != nil {
-				continue
-			}
-			totalRep = totalRep.Add(score)
-			if score.GTE(minReputation) {
-				qualifies = true
-			}
-		}
-		if qualifies {
-			eligible = append(eligible, addr)
-			weights = append(weights, totalRep.MustFloat64()*k.JurorResponsivenessWeight(ctx, addr))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	size := int(params.JurySize)
-	if len(eligible) < size {
-		size = len(eligible)
-	}
-	if size == 0 {
-		return []string{}, nil
-	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	appHash := sdkCtx.BlockHeader().AppHash
-	var seed int64
-	if len(appHash) >= 8 {
-		seed = int64(binary.BigEndian.Uint64(appHash[:8]) ^ juryReviewID) //nolint:gosec // seed bits; wraparound is intended
-	} else {
-		seed = int64(juryReviewID) ^ sdkCtx.BlockHeight() //nolint:gosec // seed bits; wraparound is intended
-	}
-	rng := rand.New(rand.NewSource(seed))
-
-	selected := make([]string, 0, size)
-	for i := 0; i < size; i++ {
-		idx := weightedRandomSelect(rng, weights)
-		selected = append(selected, eligible[idx])
-		eligible = append(eligible[:idx], eligible[idx+1:]...)
-		weights = append(weights[:idx], weights[idx+1:]...)
-	}
-	return selected, nil
-}
-
 // appealRequiredVotes returns the supermajority vote count required to resolve
 // an appeal seated with jurySize jurors (ceil(JurySuperMajority * jurySize)),
 // minimum 1. Mirrors the supermajority math used for challenge jury reviews.
@@ -389,30 +158,6 @@ func (k Keeper) appealRequiredVotes(ctx context.Context, jurySize int) uint64 {
 		req = 1
 	}
 	return req
-}
-
-// weightedRandomSelect performs weighted random selection using a deterministic PRNG.
-func weightedRandomSelect(rng *rand.Rand, weights []float64) int {
-	total := 0.0
-	for _, w := range weights {
-		total += w
-	}
-
-	if total == 0 {
-		// If all weights are zero, use uniform random
-		return rng.Intn(len(weights))
-	}
-
-	r := rng.Float64() * total
-	sum := 0.0
-	for i, w := range weights {
-		sum += w
-		if r <= sum {
-			return i
-		}
-	}
-
-	return len(weights) - 1
 }
 
 // SubmitJurorVote records a juror's vote on a challenge
@@ -532,7 +277,11 @@ func (k Keeper) SubmitJurorVote(
 	return nil
 }
 
-// SubmitExpertTestimony records expert testimony for a challenge
+// SubmitExpertTestimony records an invited expert's testimony on a pending
+// review. The opinion must be non-trivial and both fields bounded
+// (MinExpertOpinionLength..MaxExpertOpinionLength, MaxExpertReasoningLength).
+// Nothing is paid here: the verdict settles the expert's interim
+// (settleExpertTestimonies).
 func (k Keeper) SubmitExpertTestimony(
 	ctx context.Context,
 	juryReviewID uint64,
@@ -549,15 +298,31 @@ func (k Keeper) SubmitExpertTestimony(
 
 	// Verify expert is on the witness list
 	expertAddrStr := expertAddr.String()
-	witness := ""
-	for _, e := range juryReview.ExpertWitnesses {
+	witnessIdx := -1
+	for i, e := range juryReview.ExpertWitnesses {
 		if k.CanActAs(ctx, expertAddrStr, e) {
-			witness = e
+			witnessIdx = i
 			break
 		}
 	}
-	if witness == "" {
+	if witnessIdx < 0 {
 		return fmt.Errorf("address is not an expert witness on this review")
+	}
+	// An invitation one juror issued alone is not yet an engagement: a second
+	// juror must endorse it before the expert testifies (REP-E-103).
+	if !expertEndorsed(juryReview, witnessIdx) {
+		return errorsmod.Wrapf(types.ErrExpertNotEndorsed, "expert %s on jury review %d", expertAddrStr, juryReview.Id)
+	}
+	// A zeroed (or otherwise inactive) expert no longer testifies (REP-E-104).
+	if !k.IsActiveMember(ctx, k.resolveMember(ctx, expertAddr)) {
+		return errorsmod.Wrapf(types.ErrExpertIneligible, "%s is not an active member", expertAddrStr)
+	}
+	if n := len(strings.TrimSpace(opinion)); n < types.MinExpertOpinionLength || n > types.MaxExpertOpinionLength {
+		return errorsmod.Wrapf(types.ErrInvalidTestimony, "opinion is %d bytes, must be %d to %d",
+			n, types.MinExpertOpinionLength, types.MaxExpertOpinionLength)
+	}
+	if n := len(reasoning); n > types.MaxExpertReasoningLength {
+		return errorsmod.Wrapf(types.ErrInvalidTestimony, "reasoning is %d bytes, at most %d", n, types.MaxExpertReasoningLength)
 	}
 	// Testimony informs a pending deliberation, once per expert.
 	if juryReview.Verdict != types.Verdict_VERDICT_PENDING {
@@ -584,9 +349,6 @@ func (k Keeper) SubmitExpertTestimony(
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
 		return err
 	}
-
-	// Pay the EXPERT_TESTIMONY interim opened by the invitation.
-	k.payExpertTestimony(ctx, juryReview, witness)
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -684,6 +446,10 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
 		return err
 	}
+
+	// The verdict settles the expert witnesses' interims: paid if they
+	// testified, expired if not.
+	k.settleExpertTestimonies(ctx, juryReview, true)
 
 	// Jurors who voted served their duty; season counts it toward
 	// achievements.

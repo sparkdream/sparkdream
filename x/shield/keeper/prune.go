@@ -26,6 +26,9 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
 		if err := k.PruneIdentityRateLimits(ctx, currentEpoch-1); err != nil {
 			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleState: k.PruneIdentityRateLimits failed", "err", err)
 		}
+		if err := k.PruneIdentityEpochFees(ctx, currentEpoch-1); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleState: k.PruneIdentityEpochFees failed", "err", err)
+		}
 	}
 
 	// 2. Prune epoch-scoped nullifiers.

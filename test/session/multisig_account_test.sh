@@ -325,13 +325,19 @@ cat > "$WORK/signin.json" <<TXEOF
  "signatures":[]}
 TXEOF
 multisign_broadcast "$WORK/signin.json" ms_k1 ms_k2
+# The hot key's first exec in TEST 6 accepted the multisig's session key, so
+# the multisig is one of the hot key's allowed granters and this SignIn grant
+# is ACTIVE at creation (x-session-spec §31). A sign-in to a key that has not
+# allowed the granter is PENDING until that key signs `accept-grant`.
+ALLOWED_MS=$($BINARY query session allowed-granters "$HOT_ADDR" --output json 2>/dev/null \
+    | jq -r --arg g "$MS_ADDR" '[.granters[]? | select(.==$g)] | length')
 SIGNIN=$($BINARY query session grants-by-grantee "$HOT_ADDR" --output json 2>/dev/null \
-    | jq -r '[.grants[]? | select(.type=="GRANT_TYPE_SIGN_IN" and .granter=="'"$MS_ADDR"'")] | length')
-if tx_ok "$TX_RESULT" && [ "$SIGNIN" = "1" ]; then
-    echo "  SignIn grant on file for the hot key"
+    | jq -r '[.grants[]? | select(.type=="GRANT_TYPE_SIGN_IN" and .granter=="'"$MS_ADDR"'" and .status=="GRANT_STATUS_ACTIVE")] | length')
+if tx_ok "$TX_RESULT" && [ "$SIGNIN" = "1" ] && [ "$ALLOWED_MS" = "1" ]; then
+    echo "  SignIn grant on file for the hot key (multisig is an allowed granter)"
     record_result "SignIn grant from a multisig" "PASS"
 else
-    echo "  failed: $(tx_log "$TX_RESULT") signin_grants=$SIGNIN"
+    echo "  failed: $(tx_log "$TX_RESULT") signin_grants=$SIGNIN allowed=$ALLOWED_MS"
     record_result "SignIn grant from a multisig" "FAIL"
 fi
 

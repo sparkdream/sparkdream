@@ -58,6 +58,14 @@ type Keeper struct {
 	// disputes. Maintained by SetDispute; the BeginBlocker walks only the
 	// entries whose timeout has passed.
 	PendingDisputes collections.KeySet[collections.Pair[int64, string]]
+	// Secondary Index: (Claimant, Name) for active disputes. Maintained by
+	// SetDispute; read by the zeroing hook.
+	ClaimantDisputes collections.KeySet[collections.Pair[string, string]]
+	// Secondary Index: (FiledAtHeight, Name) for active disputes waiting
+	// for a council decision: contested ones and uncontested ones awaiting
+	// review. Maintained by SetDispute; the BeginBlocker dismisses the ones
+	// past the review window (NAM-102, NAM-201).
+	ReviewDisputes collections.KeySet[collections.Pair[int64, string]]
 	// late holds the keepers wired after depinject (app.go Set*Keeper).
 	// It is a pointer so the AppModule's value copy of the keeper sees
 	// them too (docs/development-conventions.md, AppModule value-copy bug).
@@ -133,6 +141,10 @@ func NewKeeper(
 		TargetNames: collections.NewKeySet(sb, types.KeyTargetNames, "target_names",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
 		PendingDisputes: collections.NewKeySet(sb, types.KeyPendingDisputes, "pending_disputes",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
+		ClaimantDisputes: collections.NewKeySet(sb, types.KeyClaimantDisputes, "claimant_disputes",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
+		ReviewDisputes: collections.NewKeySet(sb, types.KeyReviewDisputes, "review_disputes",
 			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
 	}
 

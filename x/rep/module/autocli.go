@@ -1010,6 +1010,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Call an expert witness onto a pending initiative jury review (seated juror)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "jury_review_id"}, {ProtoField: "expert"}},
 				},
+				{
+					RpcMethod:      "EndorseExpertWitness",
+					Use:            "endorse-expert-witness [jury-review-id] [expert]",
+					Short:          "Endorse another juror's expert invitation on a pending initiative jury review (seated juror who accepted or voted; not the inviter)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "jury_review_id"}, {ProtoField: "expert"}},
+				},
 			},
 		},
 	}

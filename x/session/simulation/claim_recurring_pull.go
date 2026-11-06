@@ -26,7 +26,7 @@ func SimulateMsgClaimRecurringPull(
 		now := e.ctx.BlockTime().Unix()
 		pulls, err := e.grants(func(g types.Grant) bool {
 			rp := g.GetRecurringPull()
-			return g.Type == types.GrantType_GRANT_TYPE_RECURRING_PULL && pending(g) && rp != nil &&
+			return g.Type == types.GrantType_GRANT_TYPE_RECURRING_PULL && actionable(g) && rp != nil &&
 				rp.LastClaimAdvance+rp.PeriodSeconds <= now
 		})
 		if err != nil {

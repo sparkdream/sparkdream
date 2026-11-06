@@ -151,29 +151,6 @@ func TestRateCollection(t *testing.T) {
 			expErrContains: "not public",
 		},
 		{
-			name: "error: curator too new",
-			setup: func(f *testFixture) uint64 {
-				collID := f.createCollection(t, f.owner)
-				// Default min_curator_age_blocks is 0; opt-in to a non-zero gate
-				// to exercise the action-time age check.
-				params, _ := f.keeper.Params.Get(f.ctx)
-				params.MinCuratorAgeBlocks = 14400
-				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
-				f.registerCurator(t, f.member, 500_000_000)
-				// Do NOT advance block height past min_curator_age_blocks
-				return collID
-			},
-			msg: func(f *testFixture, collID uint64) *types.MsgRateCollection {
-				return &types.MsgRateCollection{
-					Creator:      f.member,
-					CollectionId: collID,
-					Verdict:      types.CurationVerdict_CURATION_VERDICT_UP,
-				}
-			},
-			expErr:         true,
-			expErrContains: "curator registered less than min age blocks ago",
-		},
-		{
 			name: "error: curator demoted",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)

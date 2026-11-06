@@ -7,7 +7,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -24,8 +23,9 @@ func isExternalJuryCase(review types.JuryReview) bool {
 	return strings.HasPrefix(review.ChallengerClaim, ExternalJuryCasePrefix)
 }
 
-// CreateSeatedAppeal opens a jury case for another module and seats its jury
-// immediately, the way gov-action appeals and migration objections do.
+// CreateSeatedAppeal opens a jury case for another module and queues its jury
+// draw, the way gov-action appeals and migration objections do; the jurors
+// are seated by DrawPendingJuries at the end of the block (REP-R-102).
 // CreateAppealInitiative alone writes a review with no jurors that nothing
 // ever tallies, so a case opened that way can never reach a verdict.
 //
@@ -50,24 +50,12 @@ func (k Keeper) CreateSeatedAppeal(ctx context.Context, initiativeType string, p
 	if err != nil {
 		return 0, err
 	}
+	if err := k.openAppealJury(ctx, reviewID, excludes); err != nil {
+		return 0, err
+	}
 	review, err := k.GetJuryReview(ctx, reviewID)
 	if err != nil {
 		return 0, err
-	}
-
-	if jurors, jErr := k.selectModerationAppealJury(ctx, reviewID, excludes); jErr != nil {
-		sdkCtx.Logger().Warn("failed to seat external jury case", "review_id", reviewID, "type", initiativeType, "error", jErr)
-	} else if len(jurors) > 0 {
-		review.Jurors = jurors
-		review.RequiredVotes = commontypes.Saturate[uint32](k.appealRequiredVotes(ctx, len(jurors)))
-		if err := k.JuryReview.Set(ctx, reviewID, review); err != nil {
-			return 0, err
-		}
-		if err := k.AddJuryReviewToJurorIndex(ctx, review); err != nil {
-			sdkCtx.Logger().Warn("failed to index external jury seating", "review_id", reviewID, "error", err)
-		} else if err := k.RecordJurySeating(ctx, jurors); err != nil {
-			sdkCtx.Logger().Warn("failed to record external jury seating", "review_id", reviewID, "error", err)
-		}
 	}
 
 	if err := k.AddJuryReviewToVerdictIndex(ctx, review); err != nil {
@@ -77,7 +65,7 @@ func (k Keeper) CreateSeatedAppeal(ctx context.Context, initiativeType string, p
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("external_jury_case_seated",
 		sdk.NewAttribute("review_id", fmt.Sprintf("%d", reviewID)),
 		sdk.NewAttribute("type", initiativeType),
-		sdk.NewAttribute("jurors", fmt.Sprintf("%d", len(review.Jurors))),
+		sdk.NewAttribute("seats_pending", fmt.Sprintf("%d", review.PendingSeats)),
 	))
 	return reviewID, nil
 }

@@ -360,6 +360,9 @@ func TestTLELivenessOnlyForDemandedEpochs(t *testing.T) {
 	params, err := f.keeper.Params.Get(f.ctx)
 	require.NoError(t, err)
 	params.EncryptedBatchEnabled = true
+	// Batch-mode liveness: the beacon would demand every closed epoch, which
+	// this test counts as "no demand" (beacon liveness: beacon_test.go).
+	params.BeaconEnabled = false
 	params.ShieldEpochInterval = 10
 	params.MinBatchSize = 1
 	params.TleMissWindow = 10

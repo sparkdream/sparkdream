@@ -1,6 +1,8 @@
 package simulation
 
 import (
+	"math/rand"
+
 	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -25,11 +27,16 @@ func SimulateMsgSubmitExpertTestimony(ak types.AuthKeeper, bk types.BankKeeper, 
 			for _, w := range rv.ExpertWitnesses {
 				if acc, ok := e.account(w); ok {
 					cands = append(cands, candidate{acc: acc, msg: &types.MsgSubmitExpertTestimony{
-						Expert: w, JuryReviewId: rv.Id, Opinion: randomReason(e.r), Reasoning: randomReason(e.r),
+						Expert: w, JuryReviewId: rv.Id, Opinion: randomOpinion(e.r), Reasoning: randomReason(e.r),
 					}, spent: math.ZeroInt()})
 				}
 			}
 		}
 		return e.firstValid(label, cands, 4, "no pending jury review has an expert witness yet")
 	})
+}
+
+// randomOpinion returns an expert opinion inside the testimony length bounds.
+func randomOpinion(r *rand.Rand) string {
+	return "sim opinion: " + simtypes.RandStringOfLength(r, types.MinExpertOpinionLength+r.Intn(64))
 }

@@ -38,6 +38,18 @@ func TestGenesisState_ValidatePolls(t *testing.T) {
 		{"poll id at next_poll_id", func(gs *types.GenesisState) { gs.NextPollId = 2 }, false},
 		{"tally count differs from options", func(gs *types.GenesisState) { gs.Polls[0].Tallies = []uint64{0} }, false},
 		{"unspecified status", func(gs *types.GenesisState) { gs.Polls[0].Status = types.PollStatus_POLL_STATUS_UNSPECIFIED }, false},
+		{"poll open counts", func(gs *types.GenesisState) {
+			gs.PollOpenCounts = []types.PollOpenCount{{Creator: "a", UtcDay: 3, Count: 3}, {Creator: "b", UtcDay: 4, Count: 1}}
+		}, true},
+		{"duplicate poll open count", func(gs *types.GenesisState) {
+			gs.PollOpenCounts = []types.PollOpenCount{{Creator: "a", UtcDay: 3, Count: 1}, {Creator: "a", UtcDay: 3, Count: 2}}
+		}, false},
+		{"poll open count without creator", func(gs *types.GenesisState) {
+			gs.PollOpenCounts = []types.PollOpenCount{{UtcDay: 3, Count: 1}}
+		}, false},
+		{"poll open count on a negative day", func(gs *types.GenesisState) {
+			gs.PollOpenCounts = []types.PollOpenCount{{Creator: "a", UtcDay: -1, Count: 1}}
+		}, false},
 		{"vote on unknown poll", func(gs *types.GenesisState) { gs.PollVotes[0].PollId = 9 }, false},
 		{"open vote on secret poll", func(gs *types.GenesisState) { gs.PollVotes[0].PollId = 2 }, false},
 		{"vote option out of range", func(gs *types.GenesisState) { gs.PollVotes[0].Option = 2 }, false},

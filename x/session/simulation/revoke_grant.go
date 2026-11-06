@@ -47,7 +47,7 @@ func SimulateMsgRevokeGrant(
 ) simtypes.Operation {
 	label := &types.MsgRevokeGrant{}
 	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		all, err := e.grants(pending)
+		all, err := e.grants(actionable)
 		if err != nil {
 			return noOpErr(label, err)
 		}

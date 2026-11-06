@@ -130,6 +130,31 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.AddJuryReviewToJurorIndex(ctx, elem); err != nil {
 			return err
 		}
+		// Seats opened by another module's EndBlocker after x/rep's draw wait
+		// for the next block's draw; rebuild that queue from the reviews
+		// (block-hash seed), then let pending_jury_draw_list restore the
+		// beacon epoch of each draw it names.
+		if elem.PendingSeats > 0 && elem.Verdict == types.Verdict_VERDICT_PENDING {
+			if err := k.PendingJuryDraws.Set(ctx, elem.Id, types.PendingJuryDraw{JuryReviewId: elem.Id}); err != nil {
+				return err
+			}
+		}
+	}
+	for _, draw := range genState.PendingJuryDrawList {
+		queued, err := k.PendingJuryDraws.Has(ctx, draw.JuryReviewId)
+		if err != nil {
+			return err
+		}
+		if !queued {
+			// A draw for a review with no pending seats would seat nobody;
+			// seatPendingJury returns at PendingSeats == 0 anyway.
+			continue
+		}
+		// Heights and epochs ahead of this chain are clamped so the draw
+		// cannot wait for a height the exporting chain had reached (REP-R-206).
+		if err := k.PendingJuryDraws.Set(ctx, draw.JuryReviewId, k.clampImportedJuryDraw(ctx, draw)); err != nil {
+			return err
+		}
 	}
 
 	if err := k.JuryReviewSeq.Set(ctx, genState.JuryReviewCount); err != nil {
@@ -663,6 +688,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if err != nil {
 		return nil, err
 	}
+	if err := k.PendingJuryDraws.Walk(ctx, nil, func(_ uint64, draw types.PendingJuryDraw) (bool, error) {
+		genesis.PendingJuryDrawList = append(genesis.PendingJuryDrawList, draw)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
 	err = k.Interim.Walk(ctx, nil, func(key uint64, elem types.Interim) (bool, error) {
 		genesis.InterimList = append(genesis.InterimList, elem)
 		return false, nil
@@ -1007,6 +1038,25 @@ func (k Keeper) exportEconomicState(ctx context.Context) (*types.EconomicState, 
 		}
 	}
 
+	// The decay pass in flight (REP-E-108), so an import resumes it instead
+	// of re-decaying what it already visited.
+	if econ.DecayPassEpoch, err = uint64ItemOrZero(ctx, k.DecayPassEpoch); err != nil {
+		return nil, err
+	}
+	if econ.DecayPassEpoch != 0 {
+		if econ.DecayPassMemberCursor, err = itemOrEmpty(ctx, k.DecayPassMemberCursor); err != nil {
+			return nil, err
+		}
+		if econ.DecayPassStakePhase, err = k.DecayPassStakeCursor.Has(ctx); err != nil {
+			return nil, err
+		}
+		if econ.DecayPassStakePhase {
+			if econ.DecayPassStakeCursor, err = k.DecayPassStakeCursor.Get(ctx); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	return econ, nil
 }
 
@@ -1069,6 +1119,23 @@ func (k Keeper) importEconomicState(ctx context.Context, econ *types.EconomicSta
 		}
 		if err := f.item.Set(ctx, f.val); err != nil {
 			return false, err
+		}
+	}
+
+	// The decay pass in flight. Its cursors mean nothing without its epoch.
+	if econ.DecayPassEpoch != 0 {
+		if err := k.DecayPassEpoch.Set(ctx, econ.DecayPassEpoch); err != nil {
+			return false, err
+		}
+		if econ.DecayPassMemberCursor != "" {
+			if err := k.DecayPassMemberCursor.Set(ctx, econ.DecayPassMemberCursor); err != nil {
+				return false, err
+			}
+		}
+		if econ.DecayPassStakePhase {
+			if err := k.DecayPassStakeCursor.Set(ctx, econ.DecayPassStakeCursor); err != nil {
+				return false, err
+			}
 		}
 	}
 

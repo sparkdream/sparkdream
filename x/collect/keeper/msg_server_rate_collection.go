@@ -54,12 +54,6 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 		return nil, errorsmod.Wrap(err, "curator daily review limit exceeded")
 	}
 
-	// Curator bonded for at least min_curator_age_blocks (action-time check).
-	if currentBlock-role.RegisteredAt < params.MinCuratorAgeBlocks {
-		return nil, errorsmod.Wrapf(types.ErrCuratorTooNew, "bonded %d blocks ago, need %d",
-			currentBlock-role.RegisteredAt, params.MinCuratorAgeBlocks)
-	}
-
 	// Collection must be VISIBILITY_PUBLIC, status=ACTIVE, community_feedback_enabled=true
 	coll, err := k.Collection.Get(ctx, msg.CollectionId)
 	if err != nil {

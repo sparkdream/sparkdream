@@ -109,4 +109,12 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Whether the randomness beacon is on: once a DKG has completed, the
+  // EndBlocker demands the TLE decryption key of every epoch as it closes,
+  // batch or no batch, so the reconstructed key (d = s.H1(epoch), a
+  // threshold BLS signature over the epoch number) is a public random value
+  // no single validator can predict or bias. Consumers: x/rep jury draws.
+  // A key only opens ciphertexts sealed to its own, already closed, epoch.
+  bool beacon_enabled = 22;
 }

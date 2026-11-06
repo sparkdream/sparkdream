@@ -24,6 +24,12 @@ import (
 // struct, the AppModule's value-copy would never see the assignment and
 // SendFederationPacket would silently no-op forever.
 type lateKeepers struct {
+	// bankKeeper, when set, replaces the depinject-supplied bank keeper:
+	// app.go wires the identity-guarded wrapper here after depinject so
+	// every DenomMetadata write (peer-identity ibc/... denoms) goes through
+	// the guard like x/identity's own.
+	bankKeeper types.BankKeeper
+
 	// collectKeeper reads a peer policy's curation collection (author gate).
 	collectKeeper types.CollectKeeper
 
@@ -120,6 +126,12 @@ type Keeper struct {
 	// BridgesByPeer indexes bindings by peer for peer-removal sweeps and
 	// max_bridges_per_peer enforcement.
 	BridgesByPeer collections.KeySet[collections.Pair[string, string]]
+
+	// PeerByChannel and ActivePeerChannels resolve a channel to its peer
+	// without walking Peers (see types.PeerByChannelKey). Written only by
+	// SetPeer / removePeer.
+	PeerByChannel      collections.Map[string, string]
+	ActivePeerChannels collections.KeySet[collections.Pair[string, string]]
 
 	// BindingsByOperator is the reverse index for hook handlers. Keyed
 	// on (service_type, address, peer_id) — multi-valued by design so
@@ -277,6 +289,10 @@ func NewKeeper(
 		// Bridge indexes
 		BridgesByPeer: collections.NewKeySet(sb, types.BridgesByPeerKey, "bridgesByPeer",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
+		PeerByChannel: collections.NewMap(sb, types.PeerByChannelKey, "peerByChannel",
+			collections.StringKey, collections.StringValue),
+		ActivePeerChannels: collections.NewKeySet(sb, types.ActivePeerChannelsKey, "activePeerChannels",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
 		BindingsByOperator: collections.NewKeySet(sb, types.BindingsByOperatorKey, "bindingsByOperator",
 			collections.TripleKeyCodec(collections.StringKey, collections.StringKey, collections.StringKey)),
 
@@ -366,6 +382,22 @@ func (k Keeper) GetAuthority() []byte {
 
 // SetCollectKeeper wires the x/collect keeper post-depinject so a peer
 // policy's author gate can read its curation collection.
+// SetBankKeeper replaces the bank keeper after depinject with the
+// identity-guarded wrapper (app.BankKeeperWithIdentityGuard); pinned by
+// app's TestFederationBankKeeperIsGuarded.
+func (k Keeper) SetBankKeeper(bk types.BankKeeper) {
+	k.late.bankKeeper = bk
+}
+
+// BankKeeper returns the bank keeper federation writes through: the late
+// override when wired, else the constructor's.
+func (k Keeper) BankKeeper() types.BankKeeper {
+	if k.late.bankKeeper != nil {
+		return k.late.bankKeeper
+	}
+	return k.bankKeeper
+}
+
 func (k Keeper) SetCollectKeeper(ck types.CollectKeeper) {
 	k.late.collectKeeper = ck
 }

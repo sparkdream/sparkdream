@@ -147,14 +147,18 @@ func TestMsgServerSubmitExpertTestimony(t *testing.T) {
 		require.NoError(t, err)
 
 		// Add expert to witness list
+		require.NoError(t, k.Member.Set(ctx, expertStr, types.Member{Address: expertStr, Status: types.MemberStatus_MEMBER_STATUS_ACTIVE}))
 		juryReview.ExpertWitnesses = append(juryReview.ExpertWitnesses, expertStr)
+		// An invitation testifies only once a second juror endorsed it.
+		juryReview.ExpertInviters = []string{juror.String()}
+		juryReview.ExpertEndorsers = []string{"juror_b"}
 		require.NoError(t, k.JuryReview.Set(ctx, juryReviewID, juryReview))
 
 		// Submit testimony
 		_, err = ms.SubmitExpertTestimony(ctx, &types.MsgSubmitExpertTestimony{
 			Expert:       expertStr,
 			JuryReviewId: juryReviewID,
-			Opinion:      "Opinion",
+			Opinion:      sampleOpinion,
 			Reasoning:    "Reasoning",
 		})
 		require.NoError(t, err)

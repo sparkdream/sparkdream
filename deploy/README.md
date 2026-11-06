@@ -317,6 +317,8 @@ everything that reaches it.
 
 **Home LAN integration**: TMKMS signing and archive nodes run on your own hardware with no port forwarding. Tailscale handles NAT traversal automatically.
 
+**Decryption shares are mandatory from the first DKG**: once the x/shield DKG has completed, the randomness beacon (`beacon_enabled`, default on) demands a TLE decryption share from every key-set validator for every closed shield epoch, whether or not encrypted batch mode is enabled. A validator whose vote extensions stop carrying shares is jailed by the TLE liveness ring (`tle_miss_window` / `tle_miss_tolerance` / `tle_jail_duration`), so keep the node and its DKG key material online continuously; see `docs/x-shield-spec.md` "Randomness beacon".
+
 ## Environment Variables
 
 The Docker image is configured via environment variables in the Akash SDL:

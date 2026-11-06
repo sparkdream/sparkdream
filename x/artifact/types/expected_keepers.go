@@ -95,6 +95,9 @@ type RecurringPullInfo struct {
 	Amount sdk.Coin
 	// PeriodSeconds between pulls; NextClaim is when the next one is due.
 	PeriodSeconds, NextClaim, ExpiresAt int64
+	// MaxPerEpoch is the grant's per-UTC-day ceiling on pulls; nil or zero
+	// means none.
+	MaxPerEpoch math.Int
 }
 
 // CommonsKeeper is the subset of x/commons used for authorization.

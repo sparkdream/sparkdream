@@ -30,9 +30,6 @@ func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams)
 	if current, err := k.Params.Get(ctx); err == nil && current.EpochBlocks != req.Params.EpochBlocks {
 		return nil, errorsmod.Wrapf(types.ErrParamImmutable, "epoch_blocks is %d", current.EpochBlocks)
 	}
-	if err := k.checkZkDelayAgainstVotingPeriods(ctx, req.Params); err != nil {
-		return nil, err
-	}
 
 	if err := k.Params.Set(ctx, req.Params); err != nil {
 		return nil, err

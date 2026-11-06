@@ -13,7 +13,11 @@ import (
 // artifactDelegable are the x/artifact messages in the default session
 // allowlist: game-server and venue ergonomics, inbox and media triage,
 // equipment and lending, reward claims and withdrawals (see the entries'
-// comment in params.go and docs/x-artifact-spec.md §7.13).
+// comment in params.go and docs/x-artifact-spec.md §7.13). The three mint
+// entries (MsgMint, MsgIssue, MsgMintUnits) are delegable only because a
+// deposit paid through MsgExecSession records the granter as deposit_payer
+// and refunds to it, never to the burner (SES-101): drop them if that ever
+// changes.
 var artifactDelegable = []string{
 	"MsgMint", "MsgUpdateToken", "MsgRedeem", "MsgIssue", "MsgMintUnits",
 	"MsgAcceptIncoming", "MsgRejectIncoming", "MsgSetReceivePolicy",

@@ -45,3 +45,10 @@ func (k Keeper) JurorCandidatesForTest(ctx context.Context, minRep math.LegacyDe
 	})
 	return out, err
 }
+
+// VoidPendingJuryReviewForChallengeForTest exposes the void path a cancelled
+// project or a zeroed challenger takes, so expert settlement on a voided
+// review can be asserted without staging either.
+func (k Keeper) VoidPendingJuryReviewForChallengeForTest(ctx context.Context, challengeID uint64, reason string) error {
+	return k.voidPendingJuryReviewForChallenge(ctx, challengeID, reason)
+}

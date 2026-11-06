@@ -71,18 +71,18 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		}
 	}
 
-	// Check for existing unresolved hide record on this target
+	// Check for existing unresolved hide record on this target. This check
+	// keeps at most one record per target unresolved, and a resolved record
+	// never reopens, so only the newest record (highest id) can be open:
+	// read that one instead of walking the target's whole history.
 	targetKey := HideRecordTargetCompositeKey(msg.TargetType, msg.TargetId)
 	hasUnresolved := false
 	if err := k.HideRecordByTarget.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](targetKey),
+		collections.NewPrefixedPairRange[string, uint64](targetKey).Descending(),
 		func(key collections.Pair[string, uint64]) (bool, error) {
 			hr, hrErr := k.HideRecord.Get(ctx, key.K2())
-			if hrErr == nil && !hr.Resolved {
-				hasUnresolved = true
-				return true, nil // stop walking
-			}
-			return false, nil
+			hasUnresolved = hrErr == nil && !hr.Resolved
+			return true, nil // the newest record decides
 		},
 	); err != nil {
 		return nil, err

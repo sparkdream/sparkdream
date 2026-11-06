@@ -2,10 +2,12 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"cosmossdk.io/collections"
 	sdkmath "cosmossdk.io/math"
+	storetypes "cosmossdk.io/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/service/types"
@@ -33,16 +35,19 @@ import (
 // Unbond completion is NOT swept — it's lazy via
 // MsgClaimUnbondedBond (§3.6).
 //
-// The function returns the first error encountered. Errors in a sweep
-// abort the rest of that sweep's batch but other sweeps still run, so
-// one failing record doesn't stall the whole block.
+// Each record runs in its own cache context (runIsolated): a record that
+// fails is logged and skipped, and stays queued for the next block. A
+// sweep-level error (a queue walk failing) is logged too and the other
+// sweeps still run. The EndBlocker never returns an error, so a store or
+// bank failure on one record cannot halt the chain (SVC-105).
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentHeight := sdkCtx.BlockHeight()
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		sdkCtx.Logger().Error("x/service EndBlocker: Params.Get failed", "err", err)
+		return nil
 	}
 	limit := int(params.EndblockerSweepLimit)
 	if limit <= 0 {
@@ -51,8 +56,6 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		limit = 100
 	}
 
-	var firstErr error
-
 	runSweep := func(name string, fn func() (int, error)) {
 		start := time.Now() //nolint:forbidigo // telemetry timing only, no state depends on it
 		n, err := fn()
@@ -60,8 +63,8 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		if n > 0 {
 			emitSweptRecords(name, float32(n))
 		}
-		if err != nil && firstErr == nil {
-			firstErr = err
+		if err != nil {
+			sdkCtx.Logger().Error("x/service EndBlocker: sweep failed", "sweep", name, "err", err)
 		}
 	}
 
@@ -87,7 +90,7 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		return k.sweepSystemReportDedup(ctx, params, currentHeight, limit)
 	})
 
-	return firstErr
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -116,56 +119,60 @@ func (k Keeper) sweepUnderfunded(ctx context.Context, params types.Params, curre
 	}
 
 	for _, p := range batch {
-		opAddr := p.dueKey.K2()
-		serviceType := p.dueKey.K3()
+		if k.runIsolated(ctx, "sweepUnderfunded", func(ctx context.Context) (bool, error) {
+			opAddr := p.dueKey.K2()
+			serviceType := p.dueKey.K3()
 
-		// Re-fetch the operator and verify it's still UNDERFUNDED — a
-		// concurrent message may have transitioned it (e.g. top-up).
-		op, exists := k.GetOperator(ctx, opAddr, serviceType)
-		if !exists || op.Status != types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED || op.UnderfundedSince == 0 {
-			// Stale entry. Remove.
-			k.clearUnderfundedDue(ctx, opAddr, serviceType)
-			continue
-		}
-		underfundedSince := op.UnderfundedSince
-		cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
-		if err != nil {
-			// Service type yanked from registry mid-flight: look again
-			// after the default grace instead of holding a batch slot.
-			if err := k.setUnderfundedDue(ctx, opAddr, serviceType, currentHeight+k.effectiveUnderfundedGraceBlocks(types.ServiceTypeConfig{}, params)+1); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepUnderfunded: k.setUnderfundedDue failed", "err", err)
+			// Re-fetch the operator and verify it's still UNDERFUNDED — a
+			// concurrent message may have transitioned it (e.g. top-up).
+			op, exists := k.GetOperator(ctx, opAddr, serviceType)
+			if !exists || op.Status != types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED || op.UnderfundedSince == 0 {
+				// Stale entry. Remove.
+				k.clearUnderfundedDue(ctx, opAddr, serviceType)
+				return false, nil
 			}
-			continue
-		}
-		grace := k.effectiveUnderfundedGraceBlocks(cfg, params)
-		if currentHeight < underfundedSince+grace {
-			// The grace grew since the entry was filed: re-file it.
-			if err := k.setUnderfundedDue(ctx, opAddr, serviceType, underfundedSince+grace); err != nil {
-				return processed, err
+			underfundedSince := op.UnderfundedSince
+			cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
+			if err != nil {
+				// Service type yanked from registry mid-flight: look again
+				// after the default grace instead of holding a batch slot.
+				if err := k.setUnderfundedDue(ctx, opAddr, serviceType, currentHeight+k.effectiveUnderfundedGraceBlocks(types.ServiceTypeConfig{}, params)+1); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepUnderfunded: k.setUnderfundedDue failed", "err", err)
+				}
+				return false, nil
 			}
-			continue
-		}
+			grace := k.effectiveUnderfundedGraceBlocks(cfg, params)
+			if currentHeight < underfundedSince+grace {
+				// The grace grew since the entry was filed: re-file it.
+				if err := k.setUnderfundedDue(ctx, opAddr, serviceType, underfundedSince+grace); err != nil {
+					return false, err
+				}
+				return false, nil
+			}
 
-		// Force-unbond. Settle, flip status, set clock, drop the
-		// UnderfundedQueue entry.
-		k.settleBondBlocks(&op, currentHeight)
-		op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
-		op.UnbondCompleteAt = currentHeight + k.effectiveUnbondingPeriodBlocks(cfg, params)
-		op.UnderfundedSince = 0
-		clearPendingWithdrawal(&op)
+			// Force-unbond. Settle, flip status, set clock, drop the
+			// UnderfundedQueue entry.
+			k.settleBondBlocks(&op, currentHeight)
+			op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
+			op.UnbondCompleteAt = currentHeight + k.effectiveUnbondingPeriodBlocks(cfg, params)
+			op.UnderfundedSince = 0
+			clearPendingWithdrawal(&op)
 
-		if err := k.removeUnderfundedQueueEntry(ctx, underfundedSince, opAddr, serviceType); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepUnderfunded: k.removeUnderfundedQueueEntry failed", "err", err)
-		}
-		if err := k.PutOperator(ctx, op); err != nil {
-			return processed, err
-		}
+			if err := k.removeUnderfundedQueueEntry(ctx, underfundedSince, opAddr, serviceType); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepUnderfunded: k.removeUnderfundedQueueEntry failed", "err", err)
+			}
+			if err := k.PutOperator(ctx, op); err != nil {
+				return false, err
+			}
 
-		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewOperatorUnbondStartedEvent(
-			op.Address, op.ServiceType, op.UnbondCompleteAt, types.UnbondSourceForcedUnderfunded,
-		))
-		emitOperatorUnbondStarted(op.ServiceType, types.UnbondSourceForcedUnderfunded)
-		processed++
+			sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewOperatorUnbondStartedEvent(
+				op.Address, op.ServiceType, op.UnbondCompleteAt, types.UnbondSourceForcedUnderfunded,
+			))
+			emitOperatorUnbondStarted(op.ServiceType, types.UnbondSourceForcedUnderfunded)
+			return true, nil
+		}) {
+			processed++
+		}
 	}
 
 	return processed, nil
@@ -207,69 +214,71 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 	}
 
 	for _, p := range batch {
-		report, err := k.Reports.Get(ctx, p.reportID)
-		if err != nil {
-			if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
-			}
-			continue
-		}
-		if report.Status != types.ReportStatus_REPORT_STATUS_PENDING {
-			if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
-			}
-			continue
-		}
-
-		// Look up the report's ServiceTypeConfig to decide whether this
-		// timeout dismisses or escalates (Phase 0 of the federation→
-		// service migration plan).
-		cfg, cfgErr := k.resolveServiceTypeConfig(ctx, report.ServiceType)
-		shouldEscalate := cfgErr == nil &&
-			cfg.ReportTimeoutAction == types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE
-
-		if shouldEscalate {
-			// Fall back to the configured default slash if the report
-			// has no proposal yet (member-filed reports start with 0).
-			// System reports filed via OpenSystemReport already carry
-			// the appropriate ProposedSlashBps.
-			proposedBps := report.ProposedSlashBps
-			if proposedBps == 0 {
-				proposedBps = cfg.ChallengeDefaultSlashBps
-			}
-			if proposedBps == 0 {
-				// No usable slash proposal — fall back to dismissal so we
-				// don't open a jury case the jurors can't meaningfully
-				// vote on.
-				if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
-					return processed, err
-				}
+		if k.runIsolated(ctx, "sweepPendingReports", func(ctx context.Context) (bool, error) {
+			report, err := k.Reports.Get(ctx, p.reportID)
+			if err != nil {
 				if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
 					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
 				}
-				processed++
-				continue
+				return false, nil
 			}
-			if proposedBps > cfg.UnilateralSlashCapBps {
-				proposedBps = cfg.UnilateralSlashCapBps
+			if report.Status != types.ReportStatus_REPORT_STATUS_PENDING {
+				if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+				}
+				return false, nil
 			}
-			if err := k.escalateReportToJury(ctx, &report, proposedBps, currentHeight); err != nil {
-				return processed, err
-			}
-			// escalateReportToJury already removed the PendingReportsQueue
-			// entry — no further work here.
-			processed++
-			continue
-		}
 
-		// Default path: auto-dismiss.
-		if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
-			return processed, err
+			// Look up the report's ServiceTypeConfig to decide whether this
+			// timeout dismisses or escalates (Phase 0 of the federation→
+			// service migration plan).
+			cfg, cfgErr := k.resolveServiceTypeConfig(ctx, report.ServiceType)
+			shouldEscalate := cfgErr == nil &&
+				cfg.ReportTimeoutAction == types.ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE
+
+			if shouldEscalate {
+				// Fall back to the configured default slash if the report
+				// has no proposal yet (member-filed reports start with 0).
+				// System reports filed via OpenSystemReport already carry
+				// the appropriate ProposedSlashBps.
+				proposedBps := report.ProposedSlashBps
+				if proposedBps == 0 {
+					proposedBps = cfg.ChallengeDefaultSlashBps
+				}
+				if proposedBps == 0 {
+					// No usable slash proposal — fall back to dismissal so we
+					// don't open a jury case the jurors can't meaningfully
+					// vote on.
+					if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
+						return false, err
+					}
+					if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+					}
+					return true, nil
+				}
+				if proposedBps > cfg.UnilateralSlashCapBps {
+					proposedBps = cfg.UnilateralSlashCapBps
+				}
+				if err := k.escalateReportToJury(ctx, &report, proposedBps, currentHeight); err != nil {
+					return false, err
+				}
+				// escalateReportToJury already removed the PendingReportsQueue
+				// entry — no further work here.
+				return true, nil
+			}
+
+			// Default path: auto-dismiss.
+			if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
+				return false, err
+			}
+			if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+			}
+			return true, nil
+		}) {
+			processed++
 		}
-		if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
-		}
-		processed++
 	}
 
 	return processed, nil
@@ -286,9 +295,9 @@ func (k Keeper) timeoutDismissReport(
 ) error {
 	// Refund deposit to reporter (zero for system reports, positive
 	// for member-filed reports).
-	depositCoin := sdk.NewCoin(k.BondDenom(ctx), report.Deposit)
+	depositCoin := sdk.NewCoin(k.BondDenom(ctx), reportDeposit(*report))
 	reporterBytes, err := k.addrBytes(report.Reporter)
-	if err == nil && !report.Deposit.IsNil() && !report.Deposit.IsZero() {
+	if err == nil && depositCoin.IsPositive() {
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(
 			ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
 		); err != nil {
@@ -328,10 +337,13 @@ func (k Keeper) timeoutDismissReport(
 // Sweep 3: ESCALATED report auto-timeout (§3.6 queue 3)
 // ---------------------------------------------------------------------------
 
-// sweepEscalatedReports auto-resolves ESCALATED reports older than
-// max_escalated_blocks as AUTO_TIMEOUT — treated as REJECT-equivalent
-// (no slash; contested-T1 escrow returns to bond; reporter/opener
-// deposit refunded; jury case canceled). See §3.6 + §3.4.5.
+// sweepEscalatedReports closes ESCALATED reports older than
+// max_escalated_blocks that no resolver relayed. If the jury tallied
+// UPHOLD, the verdict is applied as ACCEPT at the proposed slash (no
+// dissolve; SVC-101). Otherwise the report becomes AUTO_TIMEOUT, treated
+// as REJECT-equivalent (no slash; contested-T1 escrow returns to bond;
+// reporter/opener deposit refunded; jury case canceled). See §3.6 +
+// §3.4.5.
 func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, currentHeight int64, limit int) (int, error) {
 	processed := 0
 	iter, err := k.EscalatedReportsQueue.Iterate(ctx, nil)
@@ -359,113 +371,129 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 	}
 
 	for _, p := range batch {
-		report, err := k.Reports.Get(ctx, p.reportID)
-		if err != nil {
-			if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
-			}
-			continue
-		}
-		if report.Status != types.ReportStatus_REPORT_STATUS_ESCALATED {
-			if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
-			}
-			continue
-		}
-
-		opBytes, err := k.addrBytes(report.OperatorAddress)
-		if err != nil {
-			continue
-		}
-
-		// Release any contested-T1 escrow back to the operator's bond.
-		returned := sdkmath.ZeroInt()
-		op, exists := k.GetOperator(ctx, opBytes, report.ServiceType)
-		if exists {
-			escrow, escrowID, hasEscrow, err := k.findTier1EscrowForReportK(ctx, opBytes, report.ServiceType, report.ReportId)
-			if err == nil && hasEscrow {
-				returned = escrow.Amount
-				k.settleBondBlocks(&op, currentHeight)
-				op.BondAmount = op.BondAmount.Add(escrow.Amount)
-				if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.IsZero() {
-					op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Sub(escrow.Amount)
-					if op.Tier1SlashedInWindow.IsNegative() {
-						op.Tier1SlashedInWindow = sdkmath.ZeroInt()
-					}
+		if k.runIsolated(ctx, "sweepEscalatedReports", func(ctx context.Context) (bool, error) {
+			report, err := k.Reports.Get(ctx, p.reportID)
+			if err != nil {
+				if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
 				}
-				// Status may revert UNDERFUNDED → ACTIVE if bond clears
-				// min_bond again.
-				refundedTransition := false
-				if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
-					if cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType); err == nil {
-						if op.BondAmount.GTE(cfg.MinBondAmount) {
-							oldUF := op.UnderfundedSince
-							op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
-							op.UnderfundedSince = 0
-							if oldUF > 0 {
-								if err := k.removeUnderfundedQueueEntry(ctx, oldUF, opBytes, op.ServiceType); err != nil {
-									sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: k.removeUnderfundedQueueEntry failed", "err", err)
-								}
-							}
-							refundedTransition = true
+				return false, nil
+			}
+			if report.Status != types.ReportStatus_REPORT_STATUS_ESCALATED {
+				if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
+				}
+				return false, nil
+			}
+
+			// SVC-101: a jury that upheld the report decides the outcome
+			// even when no resolver relayed it. Apply the proposed slash
+			// (ACCEPT, no dissolve) instead of timing the report out.
+			if k.juryUpheld(ctx, report.JuryCaseId) {
+				if err := k.applyJuryVerdict(ctx, report, types.JuryVerdict_JURY_VERDICT_ACCEPT, report.ProposedSlashBps, false); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+
+			opBytes, err := k.addrBytes(report.OperatorAddress)
+			if err != nil {
+				return false, nil
+			}
+
+			// Release any contested-T1 escrow back to the operator's bond.
+			returned := sdkmath.ZeroInt()
+			op, exists := k.GetOperator(ctx, opBytes, report.ServiceType)
+			if exists {
+				escrow, escrowID, hasEscrow, err := k.findTier1EscrowForReportK(ctx, opBytes, report.ServiceType, report.ReportId)
+				if err == nil && hasEscrow {
+					returned = escrow.Amount
+					k.settleBondBlocks(&op, currentHeight)
+					op.BondAmount = op.BondAmount.Add(escrow.Amount)
+					if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.IsZero() {
+						op.Tier1SlashedInWindow = op.Tier1SlashedInWindow.Sub(escrow.Amount)
+						if op.Tier1SlashedInWindow.IsNegative() {
+							op.Tier1SlashedInWindow = sdkmath.ZeroInt()
 						}
 					}
-				}
-				if err := k.PutOperator(ctx, op); err != nil {
-					return processed, err
-				}
-				if refundedTransition && k.hooks() != nil {
-					k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
-				}
-				if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
-					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1Escrow.Remove failed", "err", err)
-				}
-				if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID)); err != nil {
-					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1EscrowByOperator.Remove failed", "err", err)
-				}
-				if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
-					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+					// Status may revert UNDERFUNDED → ACTIVE if bond clears
+					// min_bond again.
+					refundedTransition := false
+					if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
+						if cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType); err == nil {
+							if op.BondAmount.GTE(cfg.MinBondAmount) {
+								oldUF := op.UnderfundedSince
+								op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
+								op.UnderfundedSince = 0
+								if oldUF > 0 {
+									if err := k.removeUnderfundedQueueEntry(ctx, oldUF, opBytes, op.ServiceType); err != nil {
+										sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: k.removeUnderfundedQueueEntry failed", "err", err)
+									}
+								}
+								refundedTransition = true
+							}
+						}
+					}
+					if err := k.PutOperator(ctx, op); err != nil {
+						return false, err
+					}
+					if refundedTransition && k.hooks() != nil {
+						k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
+					}
+					if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1Escrow.Remove failed", "err", err)
+					}
+					if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID)); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1EscrowByOperator.Remove failed", "err", err)
+					}
+					if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+					}
 				}
 			}
-		}
 
-		// Refund reporter deposit (AUTO_TIMEOUT is treated as REJECT-
-		// equivalent for the reporter — they're not at fault for the
-		// jury not deciding).
-		bondDenom := k.BondDenom(ctx)
-		depositCoin := sdk.NewCoin(bondDenom, report.Deposit)
-		if reporterBytes, err := k.addrBytes(report.Reporter); err == nil && !report.Deposit.IsZero() {
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-				ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
-			); err != nil {
-				return processed, err
+			// Refund reporter deposit (AUTO_TIMEOUT is treated as REJECT-
+			// equivalent for the reporter — they're not at fault for the
+			// jury not deciding).
+			bondDenom := k.BondDenom(ctx)
+			// A nil deposit (pre-field record) is a zero deposit; NewCoin
+			// would panic on it.
+			depositCoin := sdk.NewCoin(bondDenom, reportDeposit(report))
+			if reporterBytes, err := k.addrBytes(report.Reporter); err == nil && depositCoin.IsPositive() {
+				if err := k.bankKeeper.SendCoinsFromModuleToAccount(
+					ctx, types.ModuleName, sdk.AccAddress(reporterBytes), sdk.NewCoins(depositCoin),
+				); err != nil {
+					return false, err
+				}
 			}
-		}
 
-		// The parallel x/rep JuryReview is left in place — x/rep does
-		// not expose a cancel API, and a still-PENDING JuryReview on
-		// an AUTO_TIMEOUT'd report is harmless (the resolver-side
-		// handlers check x/service's report status before applying any
-		// verdict, so a late-arriving jury verdict against an already-
-		// timed-out report would fail with ErrInvalidVerdict).
+			// The parallel x/rep JuryReview is left in place — x/rep does
+			// not expose a cancel API, and a still-PENDING JuryReview on
+			// an AUTO_TIMEOUT'd report is harmless (the resolver-side
+			// handlers check x/service's report status before applying any
+			// verdict, so a late-arriving jury verdict against an already-
+			// timed-out report would fail with ErrInvalidVerdict).
 
-		// Update report status, drop queue entry.
-		report.Status = types.ReportStatus_REPORT_STATUS_AUTO_TIMEOUT
-		if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
-			return processed, err
-		}
-		if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
-		}
+			// Update report status, drop queue entry.
+			report.Status = types.ReportStatus_REPORT_STATUS_AUTO_TIMEOUT
+			if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
+				return false, err
+			}
+			if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
+			}
 
-		// AUTO_TIMEOUT is treated as REJECT-equivalent. Any contested-T1
-		// escrow still held was returned to bond by the inner block above
-		// and is reported here. (A contest returns the escrow before
-		// escalation, so this is zero on every path reachable today.)
-		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-			types.NewReportAutoTimeoutEvent(report.ReportId, depositCoin, sdk.NewCoin(bondDenom, returned)),
-		)
-		processed++
+			// AUTO_TIMEOUT is treated as REJECT-equivalent. Any contested-T1
+			// escrow still held was returned to bond by the inner block above
+			// and is reported here. (A contest returns the escrow before
+			// escalation, so this is zero on every path reachable today.)
+			sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
+				types.NewReportAutoTimeoutEvent(report.ReportId, depositCoin, sdk.NewCoin(bondDenom, returned)),
+			)
+			return true, nil
+		}) {
+			processed++
+		}
 	}
 
 	return processed, nil
@@ -516,39 +544,43 @@ func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.P
 	}
 
 	processed := 0
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	for _, c := range expired {
-		if !c.Deposit.IsNil() && c.Deposit.IsPositive() {
-			openerBytes, err := k.addrBytes(c.Opener)
-			if err != nil {
-				return processed, err
-			}
-			depositCoin := sdk.NewCoin(k.BondDenom(ctx), c.Deposit)
-			if err := k.bankKeeper.SendCoinsFromModuleToAccount(
-				ctx, types.ModuleName, sdk.AccAddress(openerBytes), sdk.NewCoins(depositCoin),
-			); err != nil {
-				return processed, err
-			}
-		}
-
-		if err := k.removeControllerTransferCase(ctx, c); err != nil {
-			return processed, err
-		}
-		if opBytes, err := k.addrBytes(c.OperatorAddress); err == nil {
-			idxKey := collections.Join(opBytes, c.ServiceType)
-			// Only drop the index if it still points at this case.
-			if id, err := k.OpenControllerTransferByOperator.Get(ctx, idxKey); err == nil && id == c.JuryCaseId {
-				if err := k.OpenControllerTransferByOperator.Remove(ctx, idxKey); err != nil {
-					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepControllerTransferCases: OpenControllerTransferByOperator.Remove failed", "err", err)
+		if k.runIsolated(ctx, "sweepControllerTransferCases", func(ctx context.Context) (bool, error) {
+			sdkCtx := sdk.UnwrapSDKContext(ctx)
+			if !c.Deposit.IsNil() && c.Deposit.IsPositive() {
+				openerBytes, err := k.addrBytes(c.Opener)
+				if err != nil {
+					return false, err
+				}
+				depositCoin := sdk.NewCoin(k.BondDenom(ctx), c.Deposit)
+				if err := k.bankKeeper.SendCoinsFromModuleToAccount(
+					ctx, types.ModuleName, sdk.AccAddress(openerBytes), sdk.NewCoins(depositCoin),
+				); err != nil {
+					return false, err
 				}
 			}
-		}
 
-		sdkCtx.EventManager().EmitEvent(types.NewControllerTransferCaseFinalizedEvent(
-			c.JuryCaseId, types.CtfVerdictAutoTimeout, types.CtfDepositOpenerRefunded,
-		))
-		emitControllerTransferCaseFinalized(c.ServiceType, types.CtfVerdictAutoTimeout)
-		processed++
+			if err := k.removeControllerTransferCase(ctx, c); err != nil {
+				return false, err
+			}
+			if opBytes, err := k.addrBytes(c.OperatorAddress); err == nil {
+				idxKey := collections.Join(opBytes, c.ServiceType)
+				// Only drop the index if it still points at this case.
+				if id, err := k.OpenControllerTransferByOperator.Get(ctx, idxKey); err == nil && id == c.JuryCaseId {
+					if err := k.OpenControllerTransferByOperator.Remove(ctx, idxKey); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("sweepControllerTransferCases: OpenControllerTransferByOperator.Remove failed", "err", err)
+					}
+				}
+			}
+
+			sdkCtx.EventManager().EmitEvent(types.NewControllerTransferCaseFinalizedEvent(
+				c.JuryCaseId, types.CtfVerdictAutoTimeout, types.CtfDepositOpenerRefunded,
+			))
+			emitControllerTransferCaseFinalized(c.ServiceType, types.CtfVerdictAutoTimeout)
+			return true, nil
+		}) {
+			processed++
+		}
 	}
 	return processed, nil
 }
@@ -645,38 +677,42 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 	}
 
 	for _, p := range batch {
-		escrow, err := k.Tier1Escrow.Get(ctx, p.escrowID)
-		if err != nil {
+		if k.runIsolated(ctx, "sweepTier1EscrowRelease", func(ctx context.Context) (bool, error) {
+			escrow, err := k.Tier1Escrow.Get(ctx, p.escrowID)
+			if err != nil {
+				if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+				}
+				return false, nil
+			}
+
+			// Parent report must be in a terminal state. If still
+			// PENDING/ESCALATED/RESOLVED_T1 within window, skip — that
+			// shouldn't happen given release_at, but defensive.
+			report, err := k.Reports.Get(ctx, escrow.ReportId)
+			if err != nil {
+				if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+				}
+				return false, nil
+			}
+			// AUTO_TIMEOUT already returned funds to bond via sweep 3 (above)
+			// — defensive guard.
+			if report.Status == types.ReportStatus_REPORT_STATUS_PENDING ||
+				report.Status == types.ReportStatus_REPORT_STATUS_ESCALATED {
+				return false, nil
+			}
+
+			if err := k.releaseTier1Escrow(ctx, p.escrowID, escrow, currentHeight); err != nil {
+				return false, err
+			}
 			if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
 				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
 			}
-			continue
+			return true, nil
+		}) {
+			processed++
 		}
-
-		// Parent report must be in a terminal state. If still
-		// PENDING/ESCALATED/RESOLVED_T1 within window, skip — that
-		// shouldn't happen given release_at, but defensive.
-		report, err := k.Reports.Get(ctx, escrow.ReportId)
-		if err != nil {
-			if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
-				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
-			}
-			continue
-		}
-		// AUTO_TIMEOUT already returned funds to bond via sweep 3 (above)
-		// — defensive guard.
-		if report.Status == types.ReportStatus_REPORT_STATUS_PENDING ||
-			report.Status == types.ReportStatus_REPORT_STATUS_ESCALATED {
-			continue
-		}
-
-		if err := k.releaseTier1Escrow(ctx, p.escrowID, escrow, currentHeight); err != nil {
-			return processed, err
-		}
-		if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
-		}
-		processed++
 	}
 
 	return processed, nil
@@ -732,4 +768,45 @@ func (k Keeper) findTier1EscrowForReportK(
 		}
 	}
 	return types.Tier1EscrowEntry{}, 0, false, nil
+}
+
+// runIsolated runs one EndBlocker item in a cache context, so its writes
+// and events land only if it succeeds. A failing item is logged and skipped
+// (it stays queued and is retried next block) instead of failing
+// FinalizeBlock and halting the chain (SVC-105). A panic inside the item
+// (a nil late-wired keeper, a negative coin, a rep-side panic while seating
+// a jury) is recovered the same way (SVC-202); only out-of-gas is re-raised,
+// as in federation's hook isolation, because the block gas meter owns that
+// decision. fn reports whether the item counts as processed; the return is
+// that flag, false on error or panic.
+func (k Keeper) runIsolated(ctx context.Context, sweep string, fn func(ctx context.Context) (bool, error)) (counted bool) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	cacheCtx, write := sdkCtx.CacheContext()
+	defer func() {
+		if r := recover(); r != nil {
+			if _, oog := r.(storetypes.ErrorOutOfGas); oog {
+				panic(r)
+			}
+			sdkCtx.Logger().Error("x/service EndBlocker: item panicked and was skipped", "sweep", sweep, "panic", fmt.Sprintf("%v", r))
+			counted = false
+		}
+	}()
+	counted, err := fn(cacheCtx)
+	if err != nil {
+		sdkCtx.Logger().Error("x/service EndBlocker: item skipped", "sweep", sweep, "err", err)
+		return false
+	}
+	write()
+	return counted
+}
+
+// juryUpheld reports whether the x/rep JuryReview behind a report tallied
+// UPHOLD. False when x/rep is unwired, the report has no jury case, or the
+// review cannot be read.
+func (k Keeper) juryUpheld(ctx context.Context, juryCaseID uint64) bool {
+	if k.repKeeper() == nil || juryCaseID == 0 {
+		return false
+	}
+	name, err := k.repKeeper().GetJuryVerdictName(ctx, juryCaseID)
+	return err == nil && name == types.JuryVerdictUpholdChallenge
 }

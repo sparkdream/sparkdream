@@ -31,6 +31,13 @@ var (
 	// VaultInvitesBySignerKey indexes (signer, vault_id) of unaccepted
 	// signer entries; never iterated in full.
 	VaultInvitesBySignerKey = collections.NewPrefix("vault/invites_by_signer/")
+	// InviteExpiryQueueKey indexes (invite_expires_at, vault_id, signer) of
+	// unaccepted entries with a non-zero expiry.
+	InviteExpiryQueueKey = collections.NewPrefix("vault/invite_expiry/")
+	// ProposalsByVaultKey indexes (vault_id, proposal_id) of every stored proposal.
+	ProposalsByVaultKey = collections.NewPrefix("vaultProposal/by_vault/")
+	// ProposalsByProposerKey indexes (proposer, proposal_id) of every stored proposal.
+	ProposalsByProposerKey = collections.NewPrefix("vaultProposal/by_proposer/")
 	// PendingByVaultKey indexes (vault_id, proposal_id) of PENDING proposals.
 	PendingByVaultKey = collections.NewPrefix("vaultProposal/pending_by_vault/")
 	// PendingByProposerKey indexes (vault_id, proposer, proposal_id) of PENDING proposals.

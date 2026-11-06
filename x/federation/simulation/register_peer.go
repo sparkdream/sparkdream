@@ -35,6 +35,10 @@ func SimulateMsgRegisterPeer(
 		msg.PeerId = peerID
 		msg.DisplayName = "Sim Peer " + peerID
 		msg.Type = randomPeerType(e.r)
+		if msg.Type == types.PeerType_PEER_TYPE_SPARK_DREAM {
+			// required pin for IBC peers (FED-106); nothing activates them
+			msg.ExpectedChainId = peerID
+		}
 		msg.Metadata = fmt.Sprintf("simulation peer registered at height %d", e.ctx.BlockHeight())
 		return e.submit(signer, msg, math.ZeroInt())
 	})

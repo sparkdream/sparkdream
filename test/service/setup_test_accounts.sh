@@ -242,34 +242,20 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
 
     # Render the proposal JSON with the live gov address substituted in.
     # Bundles two messages so we only pay one 65s voting period:
-    #   1. MsgUpdateServiceTypeConfig — enables the synthetic
-    #      "test-akash" service type with short timing knobs.
-    #   2. MsgUpdateParams — lowers min_reporter_trust_level from the
+    #   1. MsgUpdateParams — lowers min_reporter_trust_level from the
     #      default ESTABLISHED to NEW. Newly-invited members start at
     #      TRUST_LEVEL_NEW, and the genesis ladder requires real
     #      reputation+interim work to climb out — far too much to bake
-    #      into a chain-startup script. All other params keep their
-    #      defaults.
+    #      into a chain-startup script. Also lowers
+    #      report_contest_window_blocks to 20: a per-type unbonding
+    #      period may not be shorter than it (SVC-104), so it must land
+    #      before message 2. All other params keep their defaults.
+    #   2. MsgUpdateServiceTypeConfig — enables the synthetic
+    #      "test-akash" service type with short timing knobs.
     mkdir -p "$PROPOSAL_DIR"
     cat > "$PROPOSAL_DIR/enable_test_service_type.json" <<EOF
 {
   "messages": [
-    {
-      "@type": "/sparkdream.service.v1.MsgUpdateServiceTypeConfig",
-      "authority": "$GOV_ADDR",
-      "config": {
-        "service_type": "$TEST_SERVICE_TYPE",
-        "description": "Synthetic service type for E2E tests of x/service. Mirrors the akash-funding shape: SPARK-bonded operators paid via recurring spend.",
-        "min_bond_amount": "1000000000",
-        "unbonding_period_blocks": "20",
-        "unilateral_slash_cap_bps": 500,
-        "tier1_window_blocks": "1000",
-        "tier1_aggregate_cap_bps": 1500,
-        "tier1_cooldown_blocks": "10",
-        "underfunded_grace_blocks": "10",
-        "enabled": true
-      }
-    },
     {
       "@type": "/sparkdream.service.v1.MsgUpdateParams",
       "authority": "$GOV_ADDR",
@@ -280,7 +266,7 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
         "default_tier1_aggregate_cap_bps": 1500,
         "default_tier1_cooldown_blocks": "120960",
         "default_underfunded_grace_blocks": "120960",
-        "report_contest_window_blocks": "17280",
+        "report_contest_window_blocks": "20",
         "max_pending_blocks": "518400",
         "max_escalated_blocks": "1036800",
         "report_refile_cooldown_blocks": "518400",
@@ -295,6 +281,22 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
         "reputation_grant_per_bond_block": "0.000000000001",
         "default_pagination_limit": 100,
         "max_pagination_limit": 1000
+      }
+    },
+    {
+      "@type": "/sparkdream.service.v1.MsgUpdateServiceTypeConfig",
+      "authority": "$GOV_ADDR",
+      "config": {
+        "service_type": "$TEST_SERVICE_TYPE",
+        "description": "Synthetic service type for E2E tests of x/service. Mirrors the akash-funding shape: SPARK-bonded operators paid via recurring spend.",
+        "min_bond_amount": "1000000000",
+        "unbonding_period_blocks": "20",
+        "unilateral_slash_cap_bps": 500,
+        "tier1_window_blocks": "1000",
+        "tier1_aggregate_cap_bps": 1500,
+        "tier1_cooldown_blocks": "10",
+        "underfunded_grace_blocks": "10",
+        "enabled": true
       }
     }
   ],

@@ -83,4 +83,8 @@ message GenesisState {
   // of the last op that used it: its scoping rule stays binding (pruning,
   // re-registration compatibility) while the domain still holds nullifiers.
   repeated ShieldedOpRegistration retired_domains = 23 [(gogoproto.nullable) = false];
+
+  // Fees paid per identity (rate-limit nullifier) in the current shield
+  // epoch, each capped at a share of params.max_fees_per_epoch.
+  repeated IdentityEpochFeeEntry identity_epoch_fees = 24 [(gogoproto.nullable) = false];
 }

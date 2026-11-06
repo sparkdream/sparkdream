@@ -50,6 +50,13 @@ func TestContainsDataURI(t *testing.T) {
 		{"text data uri without type slash", "data:text,hello", true},
 		{"prose with entities", "Tom &amp; Jerry: data &#58; 5 rows", false},
 		{"metadata entity prose", "meta&#100;ata: x/y", false},
+		// CSC-101 (rules v3): references and escapes past the v2 decoder.
+		{"zero-padded decimal entity colon", `<img src="data&#0000000058;image/png;base64,iVBOR">`, true},
+		{"zero-padded hex entity colon", `<img src="data&#x000000003a;image/png;base64,iVBOR">`, true},
+		{"css line continuation LF", "<div style='background:url(\"da\\\nta:image/png;base64,iVBOR\")'>", true},
+		{"css line continuation CRLF", "<div style='background:url(\"data\\\r\n:image/png;base64,iVBOR\")'>", true},
+		{"css line continuation FF", "<div style='background:url(\"da\\\fta:image/png;base64,iVBOR\")'>", true},
+		{"oversized entity is not a colon", "data&#99999999999999999999;image/png", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

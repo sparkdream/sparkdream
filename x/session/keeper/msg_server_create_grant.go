@@ -35,10 +35,6 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 	if err := k.validateGrantCommon(ctx, params, blockTime, msg.Granter, msg.Grantee, msg.ExpiresAt, msg.Note); err != nil {
 		return nil, err
 	}
-	if err := k.checkGranteeCapacity(ctx, msg.Grantee); err != nil {
-		return nil, err
-	}
-
 	// Allocate ID upfront so per-type validators can reference it for
 	// logging / events if they need to.
 	id, err := k.nextGrantID(ctx)
@@ -119,6 +115,20 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 		return nil, types.ErrInvalidPayload.Wrap("payload oneof must be set")
 	}
 
+	// Grantee consent (SES-102): an access-class grant from a granter the
+	// grantee has not allowed waits as PENDING outside the grantee indexes;
+	// the grantee cap is checked when the grantee accepts it instead.
+	consent, err := k.requiresConsent(ctx, msg.Granter, msg.Grantee, grant.Type)
+	if err != nil {
+		return nil, err
+	}
+	if consent {
+		if err := k.markPending(ctx, params, &grant); err != nil {
+			return nil, err
+		}
+	} else if err := k.checkGranteeCapacity(ctx, msg.Grantee, grant.Type); err != nil {
+		return nil, err
+	}
 	if err := k.checkPayoutRecipients(grant); err != nil {
 		return nil, err
 	}
@@ -133,6 +143,7 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 		sdk.NewAttribute("granter", msg.Granter),
 		sdk.NewAttribute("grantee", msg.Grantee),
 		sdk.NewAttribute("expires_at", msg.ExpiresAt.UTC().Format(time.RFC3339Nano)),
+		sdk.NewAttribute("status", types.GrantStatusEventValue(grant.Status)),
 	))
 
 	return &types.MsgCreateGrantResponse{GrantId: id}, nil
@@ -170,7 +181,12 @@ func (k Keeper) validateSessionKeyPayload(
 		return nil, types.ErrMaxSessionsExceeded
 	}
 
-	// Allowed-msg-types subset checks.
+	// Allowed-msg-types subset checks. An empty list could execute
+	// nothing, yet the ante would charge the granter's spend_limit for
+	// every failing exec (SES-103).
+	if len(p.AllowedMsgTypes) == 0 {
+		return nil, types.ErrNoMsgTypes
+	}
 	if uint64(len(p.AllowedMsgTypes)) > params.MaxMsgTypesPerSession {
 		return nil, types.ErrMaxMsgTypesExceeded
 	}
@@ -201,9 +217,9 @@ func (k Keeper) validateSessionKeyPayload(
 
 	// Expiration upper bound — SessionKey gets its own narrower cap on
 	// top of the universal max_grant_lifetime_seconds: max_expiration, or
-	// narrow_session_max_expiration for a key scoped to at most
-	// NarrowSessionMaxMsgTypes types without allow_self_revoke.
-	expCap := params.SessionMaxExpiration(len(p.AllowedMsgTypes), p.AllowSelfRevoke)
+	// narrow_session_max_expiration for a narrow daemon key
+	// (types.IsNarrowSession).
+	expCap := params.SessionMaxExpiration(p.AllowedMsgTypes, p.AllowSelfRevoke)
 	if expiresAt.After(blockTime.Add(expCap)) {
 		return nil, types.ErrExpirationTooLong.Wrapf("at most %s for this session", expCap)
 	}

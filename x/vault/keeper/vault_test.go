@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commontypes "sparkdream/x/common/types"
+	commonstypes "sparkdream/x/commons/types"
 	reptypes "sparkdream/x/rep/types"
 	sessiontypes "sparkdream/x/session/types"
 	shieldtypes "sparkdream/x/shield/types"
@@ -356,6 +357,7 @@ func TestUpdateVaultRotation(t *testing.T) {
 	// alice and bob carry over their acceptance; dave is new and must accept.
 	wantSet := signers(map[string]uint64{alice: 1, bob: 1, dave: 2}, alice, bob, dave)
 	wantSet[0].Accepted, wantSet[1].Accepted = true, true
+	wantSet[2].InviteExpiresAt = f.ctx.BlockTime().Unix() + types.InviteTTL
 	require.Equal(t, wantSet, v2.Signers)
 	require.Equal(t, math.NewInt(50_000-7), f.bank.balance(v.Address), "the send in the same proposal ran")
 	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_EXECUTED, proposalStatus(t, f, rot.ProposalId), "the executing proposal is not invalidated by its own update")
@@ -438,26 +440,18 @@ func TestInnerMsgDenylist(t *testing.T) {
 		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anyMsg(t, m)}})
 		require.ErrorIs(t, err, types.ErrInnerMsgDenied, sdk.MsgTypeURL(m))
 	}
-	// CMN-12: every message guarded by an ante-only rule is kept out, since
-	// a proposal's inner messages skip the ante. commons MsgSubmitProposal
-	// (proposal-fee floor) is refused outright; the gnovm messages are
-	// refused whenever they are mixed with any other message (the gnovm
-	// ante's no-mix rule). The type URLs are checked before unpacking, so
-	// raw Anys suffice.
-	for _, url := range commontypes.AnteOnlyRuleMsgTypeURLs() {
+	// The gnovm messages are refused whenever they are mixed with any other
+	// message (the gnovm ante's no-mix rule, which inner messages would
+	// otherwise skip). The type URLs are checked before unpacking, so raw
+	// Anys suffice. The commons MsgSubmitProposal is not denylisted: its
+	// handler charges the proposal fee itself (TestInnerCommonsSubmitProposal).
+	for _, url := range commontypes.GnoVMMsgTypeURLs {
 		raw := &codectypes.Any{TypeUrl: url}
-		if commontypes.IsGnoVMMsgTypeURL(url) {
-			_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{raw, anySend(t, v.Address, sink, 1)}})
-			require.ErrorIs(t, err, types.ErrInnerMsgDenied, "%s mixed with a send", url)
-			_, err = f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anySend(t, v.Address, sink, 1), raw}})
-			require.ErrorIs(t, err, types.ErrInnerMsgDenied, "send mixed with %s", url)
-			continue
-		}
-		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{raw}})
-		require.ErrorIs(t, err, types.ErrInnerMsgDenied, url)
+		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{raw, anySend(t, v.Address, sink, 1)}})
+		require.ErrorIs(t, err, types.ErrInnerMsgDenied, "%s mixed with a send", url)
+		_, err = f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anySend(t, v.Address, sink, 1), raw}})
+		require.ErrorIs(t, err, types.ErrInnerMsgDenied, "send mixed with %s", url)
 	}
-	_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{{TypeUrl: "/sparkdream.commons.v1.MsgSubmitProposal"}}})
-	require.ErrorIs(t, err, types.ErrInnerMsgDenied, "commons MsgSubmitProposal by literal URL")
 	// The allowed vault messages pass the denylist (signer check still applies).
 	for _, m := range []sdk.Msg{&types.MsgUpdateVault{Vault: v.Address, Signers: v.Signers, Threshold: 2, ProposalTtl: 3600}, &types.MsgCancelProposal{Signer: v.Address, ProposalId: 1}} {
 		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anyMsg(t, m)}})
@@ -589,17 +583,44 @@ func TestQueries(t *testing.T) {
 	require.Empty(t, bs.Vaults)
 }
 
-// Theme 6: a vault proposal skips the ante, so it may not carry a commons
-// MsgSubmitProposal (fee floor is ante-only) nor mix gnovm VM messages with
-// other messages (the gnovm ante's no-mix rule).
+// Theme 6: a vault proposal skips the ante, so it may not mix gnovm VM
+// messages with other messages (the gnovm ante's no-mix rule).
 func TestInnerMsgAnteOnlyRules(t *testing.T) {
 	f := initFixture(t)
 	v := create2of3(t, f)
-	submit := &codectypes.Any{TypeUrl: "/sparkdream.commons.v1.MsgSubmitProposal"}
-	_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{submit}})
-	require.ErrorIs(t, err, types.ErrInnerMsgDenied)
-
 	gno := &codectypes.Any{TypeUrl: "/gnovm.gnovm.v1.MsgCall"}
-	_, err = f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{gno, anySend(t, v.Address, sink, 1)}})
+	_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{gno, anySend(t, v.Address, sink, 1)}})
 	require.ErrorIs(t, err, types.ErrInnerMsgDenied)
+}
+
+// CMN-12: a commons MsgSubmitProposal may be a vault proposal's inner
+// message. It must be signed by the vault (the proposer the commons handler
+// charges the proposal fee from) and reaches the commons handler through
+// the router like any other inner message. The charge itself is the commons
+// handler's (x/commons TestCMN12_NestedSubmitProposalPaysFee) and the whole
+// path is covered end to end in app/vault_proposal_fee_test.go.
+func TestInnerCommonsSubmitProposal(t *testing.T) {
+	f := initFixture(t)
+	v := create2of3(t, f)
+
+	var routed []*commonstypes.MsgSubmitProposal
+	f.router.handlers[sdk.MsgTypeURL(&commonstypes.MsgSubmitProposal{})] = func(c sdk.Context, m sdk.Msg) (*sdk.Result, error) {
+		routed = append(routed, m.(*commonstypes.MsgSubmitProposal))
+		return &sdk.Result{}, nil
+	}
+
+	// Signed by a signer rather than the vault: refused.
+	byAlice := anyMsg(t, &commonstypes.MsgSubmitProposal{Proposer: alice, PolicyAddress: sink, Metadata: "signal"})
+	_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{byAlice}})
+	require.ErrorIs(t, err, types.ErrInnerSignerMismatch)
+
+	// Signed by the vault: proposed, approved and executed through the router.
+	byVault := anyMsg(t, &commonstypes.MsgSubmitProposal{Proposer: v.Address, PolicyAddress: sink, Metadata: "signal"})
+	p := propose(t, f, alice, v.VaultId, byVault)
+	_, err = f.srv.Approve(f.ctx, &types.MsgApprove{Signer: bob, ProposalId: p.ProposalId, MessagesHash: p.MessagesHash})
+	require.NoError(t, err)
+	_, err = f.srv.Execute(f.ctx, &types.MsgExecute{Signer: alice, ProposalId: p.ProposalId})
+	require.NoError(t, err)
+	require.Len(t, routed, 1)
+	require.Equal(t, v.Address, routed[0].Proposer, "the commons handler sees the vault as the proposer")
 }

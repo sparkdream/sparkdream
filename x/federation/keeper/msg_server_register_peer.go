@@ -28,6 +28,12 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		}
 	}
 
+	// 1b. display_name and metadata are read with the peer record on every
+	// federation packet, so their size is capped (also in ValidateBasic).
+	if err := types.ValidatePeerInfo(msg.DisplayName, msg.Metadata); err != nil {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest, err.Error())
+	}
+
 	// 2. Validate peer ID format
 	if !types.ValidatePeerID(msg.PeerId) {
 		return nil, errorsmod.Wrapf(types.ErrInvalidPeerID, "peer ID %q must be lowercase alphanumeric + hyphens + dots, 3-64 chars", msg.PeerId)
@@ -36,6 +42,14 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 	// 3. Validate peer type
 	if msg.Type == types.PeerType_PEER_TYPE_UNSPECIFIED {
 		return nil, errorsmod.Wrap(types.ErrPeerTypeMismatch, "peer type must be specified")
+	}
+
+	// 3b. A Spark Dream peer is pinned to the chain behind its federation
+	// channel: MsgResumePeer compares the channel's light client with
+	// expected_chain_id (FED-106). Other peer types have no chain and must
+	// leave it empty (also in ValidateBasic).
+	if err := types.ValidateExpectedChainID(msg.Type, msg.ExpectedChainId); err != nil {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest, err.Error())
 	}
 
 	// 4. Check peer doesn't already exist (or is REMOVED — allow re-registration)
@@ -56,14 +70,12 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 
 	// 4b. Reject duplicate IBC channel bindings (non-REMOVED peers)
 	if msg.IbcChannelId != "" {
-		err := k.Peers.Walk(ctx, nil, func(_ string, p types.Peer) (bool, error) {
-			if p.Status != types.PeerStatus_PEER_STATUS_REMOVED && p.IbcChannelId == msg.IbcChannelId && p.Id != msg.PeerId {
-				return true, errorsmod.Wrap(types.ErrInvalidRequest, "channel id already bound to another peer")
-			}
-			return false, nil
-		})
+		owner, err := k.peerForChannel(ctx, msg.IbcChannelId)
 		if err != nil {
 			return nil, err
+		}
+		if owner != "" && owner != msg.PeerId {
+			return nil, errorsmod.Wrap(types.ErrInvalidRequest, "channel id already bound to another peer")
 		}
 	}
 
@@ -98,8 +110,10 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 	blockTime := sdkCtx.BlockTime().Unix()
 
 	// 5. Create peer with PENDING status. peer_identity is optional; when
-	// supplied for SPARK_DREAM peers, we pre-register IBC voucher metadata
-	// below (step 6b).
+	// supplied for SPARK_DREAM peers together with a transfer channel, the
+	// IBC voucher metadata is pre-registered at activation (ResumePeer),
+	// once the transfer channel has been verified against expected_chain_id
+	// (FED-201). Registration is 1-of-N and verifies nothing.
 	peer := types.Peer{
 		Id:           msg.PeerId,
 		DisplayName:  msg.DisplayName,
@@ -113,30 +127,11 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 
 		IbcTransferChannelId: msg.IbcTransferChannelId,
 		ControllerGroup:      msg.ControllerGroup,
+		ExpectedChainId:      msg.ExpectedChainId,
 	}
 
-	if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {
+	if err := k.SetPeer(ctx, peer); err != nil {
 		return nil, err
-	}
-
-	// 6b. Pre-register IBC voucher metadata for SPARK_DREAM peers that
-	// supplied a peer_identity and an ibc_transfer_channel_id (spec §9.2).
-	// Skipped for non-Spark-Dream peers or when identity/channel is missing. Errors here
-	// do not fail registration — metadata is informational only.
-	if msg.Type == types.PeerType_PEER_TYPE_SPARK_DREAM &&
-		msg.IbcTransferChannelId != "" &&
-		msg.PeerIdentity != nil &&
-		msg.PeerIdentity.BondDenom != "" {
-		if err := k.preRegisterIBCVoucherMetadata(ctx, peer); err != nil {
-			// Log via event but do not fail; the peer record is the source of truth.
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"federation_peer_metadata_skipped",
-					sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
-					sdk.NewAttribute("reason", err.Error()),
-				),
-			)
-		}
 	}
 
 	// 6. Create default PeerPolicy
@@ -164,7 +159,8 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 // preRegisterIBCVoucherMetadata computes the canonical single-hop ICS-20
 // voucher denom for peer SPARK arriving on this chain via the registered
 // ICS-20 transfer channel, and registers DenomMetadata so wallets render <SYMBOL>.ibc
-// instead of ibc/<hash>. See x-identity-spec.md §9.2.
+// instead of ibc/<hash>. See x-identity-spec.md §9.2. Called from
+// ResumePeer once the transfer channel is verified (FED-201).
 //
 // Single-hop only: vouchers arriving via multi-hop relay paths produce a
 // different denom hash and are not covered. Deferred to spec §18 future
@@ -183,7 +179,7 @@ func (k Keeper) preRegisterIBCVoucherMetadata(ctx context.Context, peer types.Pe
 		Trace: []ibctransfertypes.Hop{{PortId: ibctransfertypes.PortID, ChannelId: peer.IbcTransferChannelId}},
 	}
 	ibcDenom := denom.IBCDenom()
-	if _, ok := k.bankKeeper.GetDenomMetaData(ctx, ibcDenom); ok {
+	if _, ok := k.BankKeeper().GetDenomMetaData(ctx, ibcDenom); ok {
 		return nil // already registered, skip
 	}
 	symbol := id.BondDisplaySymbol + ".ibc"
@@ -200,6 +196,6 @@ func (k Keeper) preRegisterIBCVoucherMetadata(ctx context.Context, peer types.Pe
 		Name:    id.BondDisplayName + " (IBC)",
 		Symbol:  symbol,
 	}
-	k.bankKeeper.SetDenomMetaData(ctx, meta)
+	k.BankKeeper().SetDenomMetaData(ctx, meta)
 	return nil
 }

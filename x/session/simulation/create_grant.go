@@ -221,6 +221,10 @@ func (e *simEnv) buildGrant(kind grantKind, granter, grantee simtypes.Account) (
 			MaxExecCount:    e.maxExecCount(),
 			AllowSelfRevoke: selfRevoke,
 		}}
+		var err error
+		if spent, err = e.consentDeposit(msg.Granter, msg.Grantee); err != nil {
+			return nil, spent, "", err
+		}
 
 	case kindRecurringPull:
 		minPeriod := e.params.MinRecurringPeriodSeconds
@@ -328,6 +332,10 @@ func (e *simEnv) buildGrant(kind grantKind, granter, grantee simtypes.Account) (
 		service, _ := pick(e.r, simSignInServices)
 		msg.ExpiresAt = now.Add(time.Duration(e.lifetimeCap(e.randSeconds(3600, 10*86400))) * time.Second)
 		msg.Payload = &types.MsgCreateGrant_SignIn{SignIn: &types.SignInPayload{Service: service}}
+		var err error
+		if spent, err = e.consentDeposit(msg.Granter, msg.Grantee); err != nil {
+			return nil, spent, "", err
+		}
 	}
 	return msg, spent, "", nil
 }

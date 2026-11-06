@@ -20,6 +20,119 @@ import (
 // are picked up on the following blocks.
 const maxDeadlineContributionsPerBlock = 100
 
+// deadlineRetryBlocks is how long a contribution whose deadline step failed
+// for a real reason waits before the EndBlocker retries it (REV-104).
+const deadlineRetryBlocks = int64(100)
+
+// deadlineEpochFallbackBlocks stands in for the next x/rep epoch boundary
+// when x/rep reports none (epoch_blocks 0): the retry interval of a
+// transient failure and of a poisoned contribution.
+const deadlineEpochFallbackBlocks = int64(10_000)
+
+// maxDeadlineFailures is how many consecutive real failures (store errors,
+// decode errors: anything that is not a transient x/rep refusal) a
+// contribution gets at the deadlineRetryBlocks cadence before it is
+// poisoned: contribution_deadline_poisoned is emitted once, the count
+// saturates at this value and the entry is retried only once per x/rep
+// epoch, so a deterministically failing contribution costs one failed
+// cache-context step per epoch instead of one per block, yet is never
+// stranded (REV-201). Any save of the contribution (a tx on it, the
+// zeroing hook, a successful step) clears the count (REV-202).
+const maxDeadlineFailures = uint32(3)
+
+// transientDeadlineErrors are x/rep refusals that clear on their own with
+// time: they never count toward maxDeadlineFailures, and the contribution
+// is retried at the next x/rep epoch boundary, where the budget that
+// refused it renews (REV-201). ErrDreamMintCapExceeded is the chain-wide
+// per-epoch DREAM mint cap, which a busy epoch (season retro payouts,
+// initiative completions) exhausts; the verified tranche's payout is only
+// deferred, never lost.
+var transientDeadlineErrors = []error{
+	reptypes.ErrDreamMintCapExceeded,
+}
+
+// isTransientDeadlineError reports whether a failed deadline step should
+// be retried at the next epoch without counting as a failure.
+func isTransientDeadlineError(err error) bool {
+	for _, t := range transientDeadlineErrors {
+		if errors.Is(err, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// recordDeadlineFailure parks a contribution whose deadline step failed at
+// height. The contribution itself is untouched (the step ran in a discarded
+// CacheContext). Transient x/rep refusals retry at the next epoch boundary
+// and are not counted; real failures retry after deadlineRetryBlocks and
+// count toward maxDeadlineFailures, after which the entry retries once per
+// epoch. The entry is always kept in the deadline index, parked behind
+// every deadline due before its retry height, so failing entries never
+// starve later deadlines (REV-104) and no IN_PROGRESS contribution is ever
+// left without a scheduled retry.
+func (k Keeper) recordDeadlineFailure(ctx context.Context, contribID uint64, height int64, stepErr error) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	transient := isTransientDeadlineError(stepErr)
+	var failures uint32
+	poisoned := false
+	retryAt := height + deadlineRetryBlocks
+	if transient {
+		retryAt = k.nextEpochRetryHeight(ctx, height)
+	} else {
+		prev, fErr := k.DeadlineFailures.Get(ctx, contribID)
+		if fErr != nil && !errors.Is(fErr, collections.ErrNotFound) {
+			sdkCtx.Logger().Error("reveal: failed to read deadline failure count", "contribution_id", contribID, "error", fErr)
+		}
+		failures = prev + 1
+		if failures >= maxDeadlineFailures {
+			poisoned = prev < maxDeadlineFailures
+			failures = maxDeadlineFailures
+			retryAt = k.nextEpochRetryHeight(ctx, height)
+		}
+		if sErr := k.DeadlineFailures.Set(ctx, contribID, failures); sErr != nil {
+			sdkCtx.Logger().Error("reveal: failed to record deadline failure", "contribution_id", contribID, "error", sErr)
+		}
+	}
+
+	sdkCtx.Logger().Error("failed to process deadlines; contribution left unchanged and retried later",
+		"contribution_id", contribID, "error", stepErr, "transient", transient, "failures", failures, "retry_at", retryAt)
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("contribution_deadline_failed",
+		sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contribID)),
+		sdk.NewAttribute("error", stepErr.Error()),
+		sdk.NewAttribute("transient", fmt.Sprintf("%t", transient)),
+		sdk.NewAttribute("failures", fmt.Sprintf("%d", failures)),
+		sdk.NewAttribute("retry_at", fmt.Sprintf("%d", retryAt)),
+	))
+	if poisoned {
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("contribution_deadline_poisoned",
+			sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contribID)),
+			sdk.NewAttribute("failures", fmt.Sprintf("%d", failures)),
+			sdk.NewAttribute("retry_at", fmt.Sprintf("%d", retryAt)),
+		))
+	}
+	// Park the entry: left in place it is picked first again next block,
+	// and enough failing entries starve every later deadline (REV-104).
+	if dErr := k.deferDeadline(ctx, contribID, retryAt); dErr != nil {
+		sdkCtx.Logger().Error("reveal: failed to defer deadline", "contribution_id", contribID, "error", dErr)
+	}
+}
+
+// nextEpochRetryHeight is the first height of the next x/rep epoch, or
+// height + deadlineEpochFallbackBlocks when x/rep has no epochs or cannot
+// be read. Always strictly after height.
+func (k Keeper) nextEpochRetryHeight(ctx context.Context, height int64) int64 {
+	next, err := k.repKeeper.NextEpochStartHeight(ctx)
+	if err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("reveal: failed to read next x/rep epoch start", "error", err)
+	}
+	if err != nil || next <= height {
+		return height + deadlineEpochFallbackBlocks
+	}
+	return next
+}
+
 // ProcessDeadlines runs every block and enforces all deadline-based transitions.
 // It walks only the contributions whose earliest pending deadline has passed
 // (deadline index, REV-11). Each contribution is processed in its own
@@ -61,15 +174,11 @@ func (k Keeper) ProcessDeadlines(ctx context.Context) error {
 
 		cacheCtx, write := sdkCtx.CacheContext()
 		if err := k.processContributionDeadlines(cacheCtx, &contrib, currentEpoch, &params); err != nil {
-			sdkCtx.Logger().Error("failed to process deadlines; contribution left unchanged and retried next block",
-				"contribution_id", contribID, "error", err)
-			sdkCtx.EventManager().EmitEvent(sdk.NewEvent("contribution_deadline_failed",
-				sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contribID)),
-				sdk.NewAttribute("error", err.Error()),
-			))
+			k.recordDeadlineFailure(ctx, contribID, currentEpoch, err)
 			continue
 		}
-		// Re-index even when nothing was due (stale entry after a param change).
+		// Re-index even when nothing was due (stale entry after a param
+		// change); the save also clears the failure count.
 		if err := k.saveContribution(cacheCtx, &contrib); err != nil {
 			sdkCtx.Logger().Error("failed to save contribution after deadlines", "contribution_id", contribID, "error", err)
 			continue
@@ -485,8 +594,9 @@ func (k Keeper) confirmTranche(ctx context.Context, contrib *types.Contribution,
 // completeContribution handles the final phase: release holdback, return bond, create project.
 // A failed holdback mint (e.g. the per-epoch mint cap) returns an error: the
 // caller's CacheContext rolls the whole verification back and the EndBlocker
-// retries it on the next block, so the holdback is never silently lost
-// (REV-08). The status index is written together with the record.
+// retries it at the next x/rep epoch boundary (a transient refusal,
+// recordDeadlineFailure), so the holdback is never silently lost (REV-08).
+// The status index is written together with the record.
 func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contribution) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 

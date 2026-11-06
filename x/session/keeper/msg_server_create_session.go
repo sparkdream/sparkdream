@@ -44,8 +44,25 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 	if uint64(count) >= params.MaxSessionsPerGranter {
 		return nil, types.ErrMaxSessionsExceeded
 	}
+	// Grantee consent, as on MsgCreateGrant (SES-102): a key from a granter
+	// the grantee has not allowed waits as PENDING; otherwise the per-grantee
+	// cap applies now, so the legacy path never bypasses the fan-in bound.
+	consent, err := k.requiresConsent(ctx, msg.Granter, msg.Grantee, types.GrantType_GRANT_TYPE_SESSION_KEY)
+	if err != nil {
+		return nil, err
+	}
+	if !consent {
+		if err := k.checkGranteeCapacity(ctx, msg.Grantee, types.GrantType_GRANT_TYPE_SESSION_KEY); err != nil {
+			return nil, err
+		}
+	}
 
-	// 4. Message types count limit
+	// 4. Message types count limit. An empty list could execute nothing,
+	// yet the ante would charge the granter's spend_limit for every
+	// failing exec (SES-103).
+	if len(msg.AllowedMsgTypes) == 0 {
+		return nil, types.ErrNoMsgTypes
+	}
 	if uint64(len(msg.AllowedMsgTypes)) > params.MaxMsgTypesPerSession {
 		return nil, types.ErrMaxMsgTypesExceeded
 	}
@@ -73,7 +90,7 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 	if !msg.Expiration.After(blockTime) {
 		return nil, types.ErrInvalidExpiration
 	}
-	expCap := params.SessionMaxExpiration(len(msg.AllowedMsgTypes), false)
+	expCap := params.SessionMaxExpiration(msg.AllowedMsgTypes, false)
 	if msg.Expiration.After(blockTime.Add(expCap)) {
 		return nil, types.ErrExpirationTooLong.Wrapf("at most %s for this session", expCap)
 	}
@@ -132,6 +149,11 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		},
 	}
 
+	if consent {
+		if err := k.markPending(ctx, params, &grant); err != nil {
+			return nil, err
+		}
+	}
 	if err := k.writeGrant(ctx, grant); err != nil {
 		return nil, err
 	}
@@ -142,6 +164,7 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 		sdk.NewAttribute("grantee", msg.Grantee),
 		sdk.NewAttribute("expiration", msg.Expiration.String()),
 		sdk.NewAttribute("grant_id", fmt.Sprintf("%d", id)),
+		sdk.NewAttribute("status", types.GrantStatusEventValue(grant.Status)),
 	))
 
 	return &types.MsgCreateSessionResponse{}, nil

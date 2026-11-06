@@ -2,8 +2,9 @@ package keeper
 
 import (
 	"context"
-	"cosmossdk.io/collections"
 	"fmt"
+
+	"cosmossdk.io/collections"
 
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -92,6 +93,103 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 			return err
 		}
 	}
+
+	// PENDING grants naming the old address as grantee are on no index
+	// ListGrantsByGrantee walks; apply the grantee-side policy to them too:
+	// a pending session key is dropped (its deposit goes back to its
+	// granter, who is not the migrating member), a pending sign-in is
+	// re-keyed and stays pending for the new address to accept.
+	pending, err := k.listPendingGrantsForGrantee(ctx, fromStr)
+	if err != nil {
+		return err
+	}
+	for _, g := range pending {
+		if g.Granter == toStr {
+			continue
+		}
+		if g.Type == types.GrantType_GRANT_TYPE_SESSION_KEY {
+			if err := k.dropPendingForMigration(ctx, g, fromStr, toStr); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := k.rekeyGrant(ctx, g, g.Granter, toStr); err != nil {
+			return err
+		}
+	}
+
+	// Allowed-granter entries follow the member's granter-side grants
+	// (SES-102): re-keyed on the KEY path, dropped on RECOVERY / COUNCIL so
+	// a compromised old key's consents do not carry over. The grantee side
+	// is never re-keyed: hot keys are not members.
+	return k.migrateAllowedGranters(ctx, fromStr, toStr, keyPath)
+}
+
+// migrateAllowedGranters rewrites or removes every (grantee, from) consent
+// entry, walking the granter-keyed reverse index.
+func (k Keeper) migrateAllowedGranters(ctx context.Context, fromStr, toStr string, keyPath bool) error {
+	var grantees []string
+	rng := collections.NewPrefixedPairRange[string, string](fromStr)
+	if err := k.AllowedGranteesByGranter.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
+		grantees = append(grantees, key.K2())
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, grantee := range grantees {
+		if err := k.removeAllowedGranter(ctx, grantee, fromStr); err != nil {
+			return err
+		}
+		if keyPath && grantee != toStr {
+			if err := k.setAllowedGranter(ctx, grantee, toStr); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// listPendingGrantsForGrantee returns the PENDING grants naming grantee,
+// from the query-only PendingGrantsByGrantee index. Pending grants are
+// capped per granter, not per grantee, so this walk is bounded only by
+// how many distinct granters named the address; it runs inside a
+// migration tx, which is rare and signed by the member.
+func (k Keeper) listPendingGrantsForGrantee(ctx context.Context, grantee string) ([]types.Grant, error) {
+	var out []types.Grant
+	rng := collections.NewPrefixedPairRange[string, uint64](grantee)
+	err := k.PendingGrantsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		g, err := k.Grants.Get(ctx, key.K2())
+		if err != nil {
+			return true, err
+		}
+		if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+			out = append(out, g)
+		}
+		return false, nil
+	})
+	return out, err
+}
+
+// dropPendingForMigration deletes a PENDING grantee-side grant of a
+// migrating member and refunds the consent deposit to its granter.
+func (k Keeper) dropPendingForMigration(ctx context.Context, g types.Grant, fromStr, toStr string) error {
+	refund, err := k.refundPendingDeposit(ctx, g, g.Granter)
+	if err != nil {
+		return err
+	}
+	if err := k.deleteGrant(ctx, g); err != nil {
+		return err
+	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("grant_revoked",
+		sdk.NewAttribute("id", fmt.Sprintf("%d", g.Id)),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(g.Type)),
+		sdk.NewAttribute("granter", g.Granter),
+		sdk.NewAttribute("grantee", g.Grantee),
+		sdk.NewAttribute("refund_amount", refund.String()),
+		sdk.NewAttribute("source", "member_migration"),
+		sdk.NewAttribute("migrated_from", fromStr),
+		sdk.NewAttribute("migrated_to", toStr),
+	))
 	return nil
 }
 
@@ -157,6 +255,12 @@ func (k Keeper) revokeForMigration(ctx context.Context, g types.Grant, fromStr, 
 				return err
 			}
 			refund = dep
+		}
+	}
+	if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		var err error
+		if refund, err = k.refundPendingDeposit(ctx, g, toStr); err != nil {
+			return err
 		}
 	}
 	if err := k.deleteGrant(ctx, g); err != nil {

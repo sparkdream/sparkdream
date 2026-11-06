@@ -413,6 +413,8 @@ func TestExtractDataURIsStrict(t *testing.T) {
 		"tab in scheme":    "<img src=\"da\tta:image/png;base64," + b64 + "\">",
 		"long parameter":   `<img src="data:image/png;x=` + strings.Repeat("y", 300) + `;base64,` + b64 + `">`,
 		"spaced parameter": `<img src="data:image/png ; base64,` + b64 + `">`,
+		"padded entity":    `<img src="data&#0000000058;image/png;base64,` + b64 + `">`,
+		"css continuation": "<div style='background:url(\"da\\\nta:image/png;base64," + b64 + "\")'>",
 	}
 	for name, body := range decodes {
 		t.Run(name, func(t *testing.T) {
@@ -440,6 +442,44 @@ func TestExtractDataURIsStrict(t *testing.T) {
 
 	if blobs, err := ExtractDataURIsStrict([]byte("Data: 5 records, all valid"), 1<<20); err != nil || len(blobs) != 0 {
 		t.Fatalf("prose: %v %v", blobs, err)
+	}
+}
+
+// CSC-103: a data URI is classified by its bytes, not its declared type. A
+// PNG declared as text/plain or application/json still reaches the
+// classifier, and data URIs nested in a decoded HTML payload are followed.
+func TestDeclaredTypeDoesNotHideMedia(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRaurora")
+	b64 := base64.StdEncoding.EncodeToString(png)
+	flagAll := Detector{
+		Classifier: fakeClassifier{"sexual": 0.9, "minor": 0.1},
+		Ruleset:    Ruleset{Thresholds: map[string]float64{"sexual": 0.8, "minor": 0.6}},
+	}
+	bodies := map[string]string{
+		"declared png":   `<img src="data:image/png;base64,` + b64 + `">`,
+		"declared text":  `<img src="data:text/plain;base64,` + b64 + `">`,
+		"declared json":  `<img src="data:application/json;base64,` + b64 + `">`,
+		"nested in html": `<iframe src="data:text/html;base64,` + base64.StdEncoding.EncodeToString([]byte(`<img src="data:text/plain;base64,`+b64+`">`)) + `">`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			blobs, err := ExtractDataURIsStrict([]byte(body), 1<<20)
+			if err != nil {
+				t.Fatalf("extract: %v", err)
+			}
+			v, c, err := flagAll.Judge(context.Background(), blobs)
+			if err != nil || v != VerdictHeld || c != CategorySexual {
+				t.Fatalf("verdict %q %q %v, want held/sexual", v, c, err)
+			}
+		})
+	}
+	// Plain text declared as text stays text: no classifier needed.
+	blobs, err := ExtractDataURIsStrict([]byte(`data:text/plain,hello%20world`), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _, err := (Detector{}).Judge(context.Background(), blobs); err != nil || v != VerdictClean {
+		t.Fatalf("plain text: %q %v", v, err)
 	}
 }
 
@@ -482,5 +522,42 @@ func TestSigningBytesVectors(t *testing.T) {
 	}
 	if _, err := Sign(offset, testKey(3)); err == nil {
 		t.Fatal("signed a non-canonical time")
+	}
+}
+
+// CSC-201: sniffing never yields SVG, so an SVG declared as text is judged
+// as text. That is safe only because browsers equally refuse to render SVG
+// in <img> without the image/svg+xml type; this pins the assumption so a
+// change in either half (a sniffer that learns SVG, or a decision to treat
+// text-declared SVG as media) is a deliberate one. An SVG declared as such
+// is media, and raster data URIs nested in a text-declared SVG are still
+// extracted and judged.
+func TestSVGSniffAssumption(t *testing.T) {
+	svg := []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>`)
+	if got := EffectiveMediaType("text/plain", svg); got != "text/plain" {
+		t.Fatalf("text-declared SVG judged as %q, want text/plain (sniffer learned SVG: revisit content-scanning.md §5.1)", got)
+	}
+	if got := EffectiveMediaType("", svg); IsMedia(got) {
+		t.Fatalf("undeclared SVG sniffed as media %q", got)
+	}
+	if got := EffectiveMediaType("image/svg+xml", svg); got != "image/svg+xml" || !IsMedia(got) {
+		t.Fatalf("declared SVG judged as %q", got)
+	}
+
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRzenith")
+	nested := `<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,` + base64.StdEncoding.EncodeToString(png) + `"/></svg>`
+	body := `<img src="data:text/plain;base64,` + base64.StdEncoding.EncodeToString([]byte(nested)) + `">`
+	blobs, err := ExtractDataURIsStrict([]byte(body), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var media []string
+	for _, b := range blobs {
+		if IsMedia(b.MediaType) {
+			media = append(media, b.MediaType)
+		}
+	}
+	if len(media) != 1 || media[0] != "image/png" {
+		t.Fatalf("media blobs %v, want the nested png only", media)
 	}
 }

@@ -148,6 +148,9 @@ func (stubRepKeeper) RecordRoleAction(context.Context, reptypes.RoleType, string
 func (stubRepKeeper) RecordRoleOutcome(context.Context, reptypes.RoleType, string, string, bool) error {
 	return nil
 }
+func (stubRepKeeper) RecordRoleRejection(context.Context, reptypes.RoleType, string, string) error {
+	return nil
+}
 func (stubRepKeeper) RoleOverturnCooldownUntil(context.Context, reptypes.RoleType, string) int64 {
 	return 0
 }

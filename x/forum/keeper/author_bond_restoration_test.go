@@ -229,12 +229,12 @@ func TestAuthorBondRestoration_AppealOverturn(t *testing.T) {
 		require.Error(t, err, "HideRecord must be cleaned up")
 	})
 
-	t.Run("dangling category skip avoids both status flip AND bond restore", func(t *testing.T) {
-		// Belt-and-suspenders: even if a category is deleted before an
-		// overturned-appeal reversal lands, the rep keeper must not mint
-		// DREAM on the author's behalf for a now-orphaned post — the
-		// dangling-reference guard at the top of the hide branch short-
-		// circuits before any state mutation.
+	t.Run("dangling category: post soft-deleted, bond returned unlocked", func(t *testing.T) {
+		// FRM-103: an overturned hide whose category was deleted cannot
+		// unhide the post, but the author still won. The post is
+		// soft-deleted (not left HIDDEN with no record) and the slashed bond
+		// comes back as plain DREAM: no bond is re-locked on a post that is
+		// gone.
 		f := initFixture(t)
 		cat := f.createTestCategory(t, "AuthorBondCategoryGone")
 		f.createTestSentinel(t, testSentinel, "2000000000")
@@ -260,13 +260,14 @@ func TestAuthorBondRestoration_AppealOverturn(t *testing.T) {
 			f.ctx,
 			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(post.PostId, 10),
-		), "soft skip")
+		))
 
 		require.Empty(t, f.repKeeper.restoreCalls,
-			"reverse must not mint a bond into a post whose category was deleted")
-		// Post stays HIDDEN.
+			"no bond is re-locked on a post whose category was deleted")
+		require.Len(t, f.repKeeper.mintDreamCalls, 1, "the slashed bond is returned unlocked")
+		require.True(t, f.repKeeper.mintDreamCalls[0].Amount.Equal(bondAmount))
 		p, err := f.keeper.Post.Get(f.ctx, post.PostId)
 		require.NoError(t, err)
-		require.Equal(t, types.PostStatus_POST_STATUS_HIDDEN, p.Status)
+		require.Equal(t, types.PostStatus_POST_STATUS_DELETED, p.Status, "not left HIDDEN with no record")
 	})
 }

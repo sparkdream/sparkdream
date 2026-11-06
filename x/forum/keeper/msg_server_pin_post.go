@@ -14,6 +14,9 @@ import (
 // PinPost pins a root post (thread) to the top of its category.
 // Only governance authority can pin root posts.
 func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.MsgPinPostResponse, error) {
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
@@ -54,6 +57,17 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 		return nil, errorsmod.Wrap(types.ErrAlreadyPinned, "post is already pinned")
 	}
 
+	// A category holds at most max_pinned_per_category pinned threads
+	// (spec §6, MsgPinPost). Counted from the pinned index, which every
+	// pin and unpin keeps current.
+	pinned, err := k.countPinnedInCategory(ctx, post.CategoryId)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to count pinned posts")
+	}
+	if pinned >= types.DefaultMaxPinnedPerCategory {
+		return nil, errorsmod.Wrapf(types.ErrMaxPinnedPosts, "category %d holds at most %d pinned posts", post.CategoryId, types.DefaultMaxPinnedPerCategory)
+	}
+
 	// Pin the post
 	post.Pinned = true
 	post.PinnedBy = msg.Creator
@@ -80,4 +94,19 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 	)
 
 	return &types.MsgPinPostResponse{}, nil
+}
+
+// countPinnedInCategory returns the number of pinned root posts the
+// PostsByPinned index holds for a category. The walk is bounded by the
+// per-category pin cap plus any surplus a thread move brought in
+// (MsgMoveThread re-keys a pinned post into its new category without
+// re-checking the cap), so it stays a handful of keys.
+func (k Keeper) countPinnedInCategory(ctx context.Context, categoryID uint64) (uint64, error) {
+	var n uint64
+	err := k.PostsByPinned.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](categoryID),
+		func(_ collections.Pair[uint64, uint64]) (bool, error) {
+			n++
+			return false, nil
+		})
+	return n, err
 }

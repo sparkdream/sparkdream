@@ -53,8 +53,9 @@ type RepKeeper interface {
 	GetReputationScores(ctx context.Context, addr string) (map[string]string, error)
 
 	// ArchiveSeasonalReputation archives the member's seasonal reputation to lifetime
-	// and resets the seasonal scores. Returns the archived reputation scores.
-	ArchiveSeasonalReputation(ctx context.Context, addr string) (map[string]string, error)
+	// and resets every tag the member held to baseline (zero clears them).
+	// Returns the archived reputation scores.
+	ArchiveSeasonalReputation(ctx context.Context, addr string, baseline math.LegacyDec) (map[string]string, error)
 
 	// MembersAfter pages x/rep's member records in address order: up to
 	// limit addresses strictly after `after`, and whether the walk is done.

@@ -196,9 +196,15 @@ type mockRepKeeper struct {
 
 	// Moderation appeals opened via CreateGovActionAppeal ("<type>:<target>").
 	appealCalls []string
+	// onCreateGovActionAppeal, when set, runs inside CreateGovActionAppeal,
+	// where the real x/rep keeper reads the appeal target to seat the jury.
+	onCreateGovActionAppeal func(ctx context.Context, actionType reptypes.GovActionType, target string)
 }
 
-func (m *mockRepKeeper) CreateGovActionAppeal(_ context.Context, actionType reptypes.GovActionType, target string, _ sdk.AccAddress, _ string) (uint64, uint64, error) {
+func (m *mockRepKeeper) CreateGovActionAppeal(ctx context.Context, actionType reptypes.GovActionType, target string, _ sdk.AccAddress, _ string) (uint64, uint64, error) {
+	if m.onCreateGovActionAppeal != nil {
+		m.onCreateGovActionAppeal(ctx, actionType, target)
+	}
 	m.appealCalls = append(m.appealCalls, actionType.String()+":"+target)
 	return uint64(len(m.appealCalls)), uint64(1000 + len(m.appealCalls)), nil
 }

@@ -64,6 +64,8 @@ func (k Keeper) CreateProject(
 		SpentBudget:       PtrInt(math.ZeroInt()),
 		ApprovedSpark:     PtrInt(math.ZeroInt()),
 		SpentSpark:        PtrInt(math.ZeroInt()),
+		RequestedBudget:   PtrInt(requestedBudget),
+		RequestedSpark:    PtrInt(requestedSpark),
 		Status:            status,
 		Permissionless:    permissionless,
 		ExpiryBlockHeight: expiryHeight,
@@ -153,6 +155,19 @@ func (k Keeper) ApproveProject(
 	if approvedBudget.IsNil() || approvedBudget.IsNegative() || approvedSpark.IsNil() || approvedSpark.IsNegative() {
 		return errorsmod.Wrapf(types.ErrInvalidAmount, "approved budget %s / spark %s must not be negative", approvedBudget, approvedSpark)
 	}
+	// The approval is bounded by the request (REP-E-207): the review interim
+	// was priced from the requested DREAM (budget_review_threshold), and a
+	// larger approval would have been reviewed at the wrong rate. A record
+	// without a stored request (imported from before the field existed) is
+	// unbounded.
+	if project.RequestedBudget != nil && !project.RequestedBudget.IsNil() && approvedBudget.GT(*project.RequestedBudget) {
+		return errorsmod.Wrapf(types.ErrApprovedBudgetExceedsRequested,
+			"approved budget %s exceeds requested %s", approvedBudget, project.RequestedBudget)
+	}
+	if project.RequestedSpark != nil && !project.RequestedSpark.IsNil() && approvedSpark.GT(*project.RequestedSpark) {
+		return errorsmod.Wrapf(types.ErrApprovedBudgetExceedsRequested,
+			"approved SPARK %s exceeds requested %s", approvedSpark, project.RequestedSpark)
+	}
 
 	// Authorization is required: commonsKeeper must be wired. Treat a nil
 	// keeper as a configuration error, not an authorization bypass.
@@ -190,6 +205,14 @@ func (k Keeper) ApproveProject(
 				"approver must be a member of the Operations Committee for council '%s', or its policy",
 				project.Council)
 		}
+		// A single member's approval is a second pair of eyes on someone
+		// else's project; on their own it is self-dealing (REP-E-105). The
+		// creator goes through a committee proposal like a large budget.
+		if k.SameMember(ctx, approverStr, project.Creator) {
+			return errorsmod.Wrapf(types.ErrUnauthorized,
+				"%s created project %d and cannot approve it alone; submit via a council or Operations Committee proposal",
+				approverStr, project.Id)
+		}
 	}
 
 	// Update project
@@ -222,6 +245,11 @@ func (k Keeper) ApproveProject(
 	if err := k.UpdateProjectStatusIndex(ctx, oldStatus, project.Status, project.Id); err != nil {
 		return fmt.Errorf("failed to update project status index: %w", err)
 	}
+
+	// The approval is the Operations Committee's review work: pay and close
+	// the PROJECT_APPROVAL / BUDGET_REVIEW interim opened at proposal time.
+	// Best-effort — a refused payout never fails the approval.
+	k.settleProjectApprovalInterim(ctx, project)
 
 	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -281,6 +309,12 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 	// Cancelling is a retirement, not a confiscation, so the principal goes back
 	// with it and stops diluting the pools.
 	if err := k.releaseProjectStakes(ctx, projectID); err != nil {
+		return err
+	}
+
+	// A proposal cancelled before approval ends its committee review unpaid
+	// (no-op once the review was settled by an approval).
+	if err := k.cancelProjectApprovalInterim(ctx, project, "project cancelled: "+reason); err != nil {
 		return err
 	}
 
@@ -453,6 +487,11 @@ func (k Keeper) ExpireProject(ctx context.Context, projectID uint64) error {
 	}
 	if project.Status != types.ProjectStatus_PROJECT_STATUS_PROPOSED {
 		return nil
+	}
+
+	// The committee never decided: its review interim ends unpaid.
+	if err := k.cancelProjectApprovalInterim(ctx, project, "project proposal expired"); err != nil {
+		return err
 	}
 
 	oldStatus := project.Status

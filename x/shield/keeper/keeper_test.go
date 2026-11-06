@@ -14,6 +14,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/cosmos/cosmos-sdk/x/bank"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/stretchr/testify/require"
 
@@ -108,7 +109,9 @@ type fixture struct {
 func initFixture(t *testing.T) *fixture {
 	t.Helper()
 
-	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+	// x/bank's MsgMultiSend is the multi-signer vector for the inner-signer
+	// loop (SHD-104); the chain's own messages all have one signer.
+	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{}, bank.AppModule{})
 	key := storetypes.NewKVStoreKey(types.StoreKey)
 	storeService := runtime.NewKVStoreService(key)
 	testCtx := testutil.DefaultContextWithDB(t, key, storetypes.NewTransientStoreKey("transient_test"))

@@ -147,6 +147,11 @@ message GenesisState {
   // epoch cap ledger). Without it an import inside an epoch would reset every
   // awarder's cap for that epoch.
   repeated TagBudgetAwarderEpochSpend tag_budget_awarder_epoch_list = 54 [(gogoproto.nullable) = false];
+  // Reviews with seats waiting for the EndBlocker draw, with the x/shield
+  // beacon epoch each draw is seeded from. A review exported with
+  // pending_seats > 0 and no entry here is queued with seed_epoch 0 (block-hash
+  // seed, drawn in the first block).
+  repeated PendingJuryDraw pending_jury_draw_list = 55 [(gogoproto.nullable) = false];
 }
 
 // TagBudgetAwarderEpochSpend is the amount awarder awarded from budget_id in
@@ -155,7 +160,11 @@ message TagBudgetAwarderEpochSpend {
   uint64 budget_id = 1;
   string awarder = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   int64 epoch = 3;
-  string amount = 4 [(cosmos_proto.scalar) = "cosmos.Int", (gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];
+  string amount = 4 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // TagBudgetAwardCooldown is the height of the latest award from budget_id to
@@ -188,6 +197,17 @@ message EconomicState {
   uint64 epoch_minted_epoch = 13;
   string epoch_minted_amount = 14;
   uint64 decay_last_processed_epoch = 15;
+  // The decay pass in flight (REP-E-108). A pass spans blocks, so an export
+  // taken mid-pass must carry where it stopped, or the importing chain starts
+  // a fresh pass and decays the already-visited stake records a second time.
+  // decay_pass_epoch is 0 when no pass is running (a pass is never for epoch
+  // 0); the member cursor is the last member visited ("" before the first);
+  // decay_pass_stake_phase marks that the member phase is done and
+  // decay_pass_stake_cursor is the next stake id.
+  uint64 decay_pass_epoch = 16;
+  string decay_pass_member_cursor = 17;
+  bool decay_pass_stake_phase = 18;
+  uint64 decay_pass_stake_cursor = 19;
 }
 
 // GiftRecordEntry is one (sender, recipient) lifetime gift ledger, flattened

@@ -54,14 +54,21 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		}
 	}
 
-	if params.EncryptedBatchEnabled {
+	if params.EncryptedBatchEnabled || params.BeaconEnabled {
 		// Liveness first, every block: a demand is judged exactly one epoch
 		// interval after it was recorded, before expiry can forget it (a
 		// force-demanded lone op's epoch falls out of the window at the very
-		// boundary it would be judged at).
+		// boundary it would be judged at). Beacon demands are judged like
+		// batch demands: a validator that stops serving the beacon is as
+		// absent as one that stops serving batches.
 		k.judgeTLELiveness(ctx, params, currentHeight)
 	}
 	k.expirePendingOps(ctx, params, currentEpoch)
+	if atBoundary {
+		// The beacon: the epoch that just closed is demanded at once (see
+		// beacon.go), whether or not anything was submitted to it.
+		k.recordBeaconDemand(ctx, params, currentEpoch-1, currentHeight)
+	}
 	if params.EncryptedBatchEnabled {
 		// Every block, not just at boundaries: a closed epoch's key arrives
 		// whenever enough validators' shares land, and the batch should run

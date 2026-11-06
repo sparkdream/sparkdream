@@ -25,11 +25,13 @@ type mockSession struct {
 	grants map[uint64]*types.RecurringPullInfo
 	fail   map[uint64]bool
 	panics map[uint64]bool
-	claims []uint64
+	// deferred pulls fail like session's per-day ceiling (ErrTaxPullDeferred).
+	deferred map[uint64]bool
+	claims   []uint64
 }
 
 func newMockSession(b *mockBank) *mockSession {
-	return &mockSession{bank: b, grants: map[uint64]*types.RecurringPullInfo{}, fail: map[uint64]bool{}, panics: map[uint64]bool{}}
+	return &mockSession{bank: b, grants: map[uint64]*types.RecurringPullInfo{}, fail: map[uint64]bool{}, panics: map[uint64]bool{}, deferred: map[uint64]bool{}}
 }
 
 func (s *mockSession) RecurringPull(_ context.Context, id uint64) (types.RecurringPullInfo, bool, error) {
@@ -47,6 +49,9 @@ func (s *mockSession) ClaimRecurringPull(_ context.Context, id uint64) (sdk.Coin
 	}
 	if s.fail[id] {
 		return sdk.Coin{}, fmt.Errorf("insufficient funds")
+	}
+	if s.deferred[id] {
+		return sdk.Coin{}, types.ErrTaxPullDeferred.Wrap("claim would exceed max_per_epoch for the current UTC day")
 	}
 	if s.panics[id] {
 		panic("session adapter bug")
@@ -592,7 +597,9 @@ func TestHarberger(t *testing.T) {
 	f.endBlock()
 	require.Equal(t, []uint64{1}, sess.claims)
 	require.Equal(t, tax, f.distr.pool.AmountOf(bond).Sub(pool))
-	require.Equal(t, tax, f.token(classID, tok).Harberger.TaxPaid)
+	// The first assessment paid the mint grace period at the new price up
+	// front (ART-201); the pull paid the second.
+	require.Equal(t, tax.MulRaw(2), f.token(classID, tok).Harberger.TaxPaid)
 
 	// A failed pull forecloses: the price falls linearly to zero.
 	sess.fail[1] = true

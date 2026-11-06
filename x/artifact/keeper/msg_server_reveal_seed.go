@@ -12,7 +12,9 @@ import (
 // RevealSeed discloses a generative class's seed (docs/x-artifact-spec.md
 // §7.15). Its SHA-256 must equal the commitment fixed at creation. Every
 // token's seed is then derivable, and the escrowed public-mint payments are
-// released to the class by the EndBlocker release queue, capped per block.
+// released to the class by the EndBlocker release queue, capped per block,
+// or refunded to the holders when the seed lands after the class deadline
+// (their refund right does not lapse on a late reveal, ART-205).
 func (k msgServer) RevealSeed(ctx context.Context, msg *types.MsgRevealSeed) (*types.MsgRevealSeedResponse, error) {
 	if _, err := k.decodeAddr("owner", msg.Owner); err != nil {
 		return nil, err
@@ -42,6 +44,7 @@ func (k msgServer) RevealSeed(ctx context.Context, msg *types.MsgRevealSeed) (*t
 	if err := k.ClassReleaseQueue.Set(ctx, c.Id, 0); err != nil {
 		return nil, err
 	}
-	emit(ctx, types.EventSeedRevealed, classAttr(c.Id), sdk.NewAttribute("seed", msg.Seed))
+	emit(ctx, types.EventSeedRevealed, classAttr(c.Id), sdk.NewAttribute("seed", msg.Seed),
+		sdk.NewAttribute("late", boolStr(lateSeedReveal(c))))
 	return &types.MsgRevealSeedResponse{}, nil
 }

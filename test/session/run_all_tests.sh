@@ -390,6 +390,12 @@ else
     echo ""
 fi
 
+# Grantee consent: pending grants, accept / disallow, per-granter cap
+# (x-session-spec §31).
+if [ "$RUN_CREATE" = true ]; then
+    run_test "Pending Grant Tests" "pending_grant_test.sh"
+fi
+
 # Query tests
 if [ "$RUN_QUERY" = true ]; then
     run_test "Query Tests" "query_test.sh"

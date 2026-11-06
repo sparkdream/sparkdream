@@ -51,7 +51,7 @@ func (e *simEnv) buildExec(g types.Grant) (*types.MsgExecSession, sdk.Coins, str
 				return nil, nil, "", err
 			}
 			for _, i := range e.r.Perm(len(others)) {
-				if others[i].Id != g.Id && pending(others[i]) {
+				if others[i].Id != g.Id && actionable(others[i]) {
 					revoke = &types.MsgRevokeGrant{Granter: g.Granter, GrantId: others[i].Id}
 					inners = append(inners, revoke)
 					break
@@ -105,7 +105,7 @@ func (e *simEnv) ensureRevokeTarget(g types.Grant, granter simtypes.Account) err
 		return err
 	}
 	for _, o := range others {
-		if o.Id != g.Id && pending(o) {
+		if o.Id != g.Id && actionable(o) {
 			return nil
 		}
 	}

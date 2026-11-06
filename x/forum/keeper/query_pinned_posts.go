@@ -32,7 +32,7 @@ func (q queryServer) PinnedPosts(ctx context.Context, req *types.QueryPinnedPost
 			return err == nil && p.Pinned && p.CategoryId == key.K1(), nil
 		},
 		func(key collections.Pair[uint64, uint64], _ collections.NoValue) (types.Post, error) {
-			return q.k.Post.Get(ctx, key.K2())
+			return q.k.getWithheldPost(ctx, key.K2())
 		},
 		opts...,
 	)

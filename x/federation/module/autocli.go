@@ -143,8 +143,8 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "RegisterPeer",
-					Use:            "register-peer [peer-id] [display-name] [metadata] [ibc-channel-id]",
-					Short:          "Send a RegisterPeer tx",
+					Use:            "register-peer [peer-id] [display-name] [metadata] [ibc-channel-id] --type <type> [--expected-chain-id <chain-id>]",
+					Short:          "Register a peer (Spark Dream peers also need --expected-chain-id, the chain behind the federation channel)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "display_name"}, {ProtoField: "metadata"}, {ProtoField: "ibc_channel_id"}},
 				},
 				{
@@ -280,8 +280,8 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				// Phase 1 federation→service migration messages.
 				{
 					RpcMethod:      "UpdatePeerInfo",
-					Use:            "update-peer-info [peer-id] [display-name]",
-					Short:          "Correct a peer's display name and metadata (gov, Commons Council or Operations Committee)",
+					Use:            "update-peer-info [peer-id] [display-name] [--metadata <json>] [--expected-chain-id <chain-id>]",
+					Short:          "Correct a peer's display name, metadata and, while not ACTIVE, expected_chain_id (gov, Commons Council or Operations Committee)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "display_name"}},
 				},
 				{
@@ -308,6 +308,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Attest that a member controls a remote identity on this bridge peer (bridge operator, bonded)",
 					Long:           "Verifies the member's UNVERIFIED link to a bridge peer. Fetch evidence-uri off-chain first and check that remote-identity published sparkdream-identity-link:<chain-id>:<local-address>:<challenge-hex> there; challenge-hex is the hex of the link's challenge (query get-identity-link). A false attestation is reported against your x/service bond.",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "local_address"}, {ProtoField: "remote_identity"}, {ProtoField: "challenge"}, {ProtoField: "evidence_uri"}},
+				},
+				{
+					RpcMethod:      "RevokeIdentityLink",
+					Use:            "revoke-identity-link [local-address] [peer-id] [reason]",
+					Short:          "Remove a falsely attested identity link (gov, Commons Council or Operations Committee policy)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "local_address"}, {ProtoField: "peer_id"}, {ProtoField: "reason"}},
 				},
 			},
 		},

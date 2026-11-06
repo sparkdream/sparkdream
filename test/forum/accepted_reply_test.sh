@@ -373,15 +373,19 @@ R=$(submit poster1 set-thread-proposals-lock "$T7" false)
 [ "$(tx_code "$R")" = "0" ] && pass "author unlocked proposals" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "author unlock"; }
 R=$(submit sentinel1 mark-accepted-reply "$T7" "$R7")
 [ "$(tx_code "$R")" = "0" ] && pass "proposal allowed after unlock" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "proposal after unlock"; }
-# Confirm cleans up the pending proposal AND resets the overturn streak (upheld).
+# Confirm cleans up the pending proposal (a confirmed curation no longer
+# resets the overturn streak, FRM-101).
 R=$(submit poster1 confirm-proposed-reply "$T7")
 [ "$(tx_code "$R")" = "0" ] && pass "confirmed proposal on unlocked thread" || fail "confirm on unlocked thread"
 
 # ------------------------------------------------------------------------
 # 8. PER-SENTINEL PER-THREAD PROPOSAL CAP
 #    Default cap is 2: a sentinel may propose twice on a thread; the third is
-#    rejected even after each prior proposal was rejected (disarms the
-#    re-propose harassment loop).
+#    rejected however the prior proposals ended (disarms the re-propose
+#    harassment loop). Each proposal is cleared by the author accepting it
+#    directly and then clearing the acceptance (no verdict), not by rejecting
+#    it: a confirmed curation no longer resets the overturn streak (FRM-101),
+#    so two more rejections on top of section 2's would demote sentinel1.
 # ------------------------------------------------------------------------
 echo "--- 8. Per-sentinel per-thread proposal cap ---"
 read -r T8 R8 <<<"$(create_thread_and_reply)"
@@ -391,22 +395,63 @@ i=0
 while [ $i -lt $CAP ]; do
     R=$(submit sentinel1 mark-accepted-reply "$T8" "$R8")
     [ "$(tx_code "$R")" = "0" ] || CAP_OK=0
-    R=$(submit poster1 reject-proposed-reply "$T8" "try again")
+    R=$(submit poster1 mark-accepted-reply "$T8" "$R8")
+    [ "$(tx_code "$R")" = "0" ] || CAP_OK=0
+    R=$(submit poster1 mark-accepted-reply "$T8" "0")
     [ "$(tx_code "$R")" = "0" ] || CAP_OK=0
     i=$((i + 1))
 done
-[ "$CAP_OK" = "1" ] && pass "sentinel proposed up to the cap ($CAP times)" || fail "propose/reject within cap failed"
+[ "$CAP_OK" = "1" ] && pass "sentinel proposed up to the cap ($CAP times)" || fail "propose/supersede/clear within cap failed"
 
 # One past the cap is rejected.
 R=$(submit sentinel1 mark-accepted-reply "$T8" "$R8")
 if [ "$(tx_code "$R")" != "0" ]; then pass "proposal past the per-sentinel cap rejected"; else fail "cap not enforced"; fi
 
-# Reset the sentinel's consecutive-overturn streak (bumped by the two rejects
-# above) so downstream tests see a clean baseline: a final clean confirm.
+# sentinel1 leaves this suite with the single overturn from section 2's
+# rejection (a confirm no longer clears it): below the demotion threshold, so
+# it can still propose. Check that with one more clean propose + confirm.
 read -r T8C R8C <<<"$(create_thread_and_reply)"
 R=$(submit sentinel1 mark-accepted-reply "$T8C" "$R8C")
 [ "$(tx_code "$R")" = "0" ] && { R=$(submit poster1 confirm-proposed-reply "$T8C"); }
-[ "$(tx_code "$R")" = "0" ] && pass "overturn streak reset via clean confirm" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "streak-reset confirm failed"; }
+[ "$(tx_code "$R")" = "0" ] && pass "sentinel1 still eligible after the suite (clean confirm)" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "final clean confirm failed"; }
+
+# ------------------------------------------------------------------------
+# 9. NEGATIVE: a sentinel cannot curate the thread author's own reply
+#    (FRM-201, ErrCannotCurateSelfAnswer = forum code 1922). The author's
+#    confirmation would endorse their own answer and pay the sentinel for
+#    it. Anonymous threads are exempt (not exercised here). A refused tx
+#    does not count toward the per-sentinel per-thread cap.
+# ------------------------------------------------------------------------
+echo "--- 9. Sentinel cannot propose the thread author's own reply ---"
+TR=$(submit poster1 create-post "$TEST_CATEGORY_ID" "0" "Self-answered thread $(date +%s%N)")
+T9=$(post_id_from "$TR")
+RR=$(submit poster1 create-post "$TEST_CATEGORY_ID" "$T9" "Answering my own question")
+R9=$(post_id_from "$RR")
+if [ -z "$T9" ] || [ -z "$R9" ]; then
+    fail "self-answer fixture (thread=$T9 reply=$R9)"
+else
+    R=$(submit sentinel1 mark-accepted-reply "$T9" "$R9")
+    CODE9=$(tx_code "$R")
+    if [ "$CODE9" = "1922" ]; then
+        pass "self-answer proposal refused with code 1922 (ErrCannotCurateSelfAnswer)"
+    elif [ "$CODE9" != "0" ]; then
+        fail "self-answer proposal refused with unexpected code $CODE9: $(echo "$R" | jq -r '.raw_log' | cut -c1-200)"
+    else
+        fail "sentinel was allowed to propose the thread author's own reply"
+    fi
+    # A thread nobody has curated has no ThreadMetadata record at all, so the
+    # query returns not-found; that is "no proposal" too.
+    MD=$($BINARY query forum get-thread-metadata "$T9" --output json 2>/dev/null)
+    PROPOSED9=$(echo "$MD" | jq -r '.thread_metadata.proposed_reply_id // "0"' 2>/dev/null)
+    [ -z "$PROPOSED9" ] && PROPOSED9="0"
+    [ "$PROPOSED9" = "0" ] \
+        && pass "no proposal recorded on the self-answered thread" \
+        || fail "proposed_reply_id set on the self-answered thread (got $PROPOSED9)"
+    # The author may still accept their own reply directly (no reward, no verdict).
+    R=$(submit poster1 mark-accepted-reply "$T9" "$R9")
+    [ "$(tx_code "$R")" = "0" ] && pass "author accepted their own reply directly" \
+        || { echo "  $(echo "$R" | jq -r '.raw_log' | cut -c1-200)"; fail "author self-accept"; }
+fi
 
 echo ""
 if [ "$FAILED" = "0" ]; then

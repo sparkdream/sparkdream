@@ -51,6 +51,10 @@ const simYear = int64(365 * 24 * 3600)
 func simGenesisParams() types.Params {
 	params := types.DefaultParams()
 	params.EpochBlocks = 20
+	// Keep the ZK key activation delay's wall time at the default (it must
+	// cover MaxAnonymousActionWindow on network builds); no simulated key
+	// change activates within a run either way.
+	params.ZkKeyActivationDelay = params.ZkKeyActivationDelay * types.DefaultParams().EpochBlocks / params.EpochBlocks
 	params.DefaultReviewPeriodEpochs = 2
 	params.DefaultChallengePeriodEpochs = 1
 	params.InitiativeBountyReclaimDelay = 30
@@ -894,6 +898,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgInviteExpertWitness,
 		repsimulation.SimulateMsgInviteExpertWitness(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgEndorseExpertWitness          = "op_weight_msg_rep"
+		defaultWeightMsgEndorseExpertWitness int = 100
+	)
+
+	var weightMsgEndorseExpertWitness int
+	simState.AppParams.GetOrGenerate(opWeightMsgEndorseExpertWitness, &weightMsgEndorseExpertWitness, nil,
+		func(_ *rand.Rand) {
+			weightMsgEndorseExpertWitness = defaultWeightMsgEndorseExpertWitness
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgEndorseExpertWitness,
+		repsimulation.SimulateMsgEndorseExpertWitness(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

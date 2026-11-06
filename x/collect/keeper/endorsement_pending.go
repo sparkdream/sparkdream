@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
@@ -86,8 +87,15 @@ func selfCorrectedBondHeld(hr types.HideRecord) bool {
 // releases the bond at the original appeal_deadline exactly as if the
 // target still existed (deleting the target must neither leak the
 // reservation nor shorten the anti-cycling hold).
+//
+// An appealed hide still awaiting its verdict is left untouched: x/rep owns
+// it, and its verdict settles the sentinel's reservation (slash or release),
+// records the outcome and restores what can be restored, while the
+// content-restore step soft-skips the missing target. Closing it here would
+// let an owner delete, or a TTL expire, an item hide's appeal away before
+// the jury rules (COL-103).
 func (k Keeper) closeHideRecordOnTargetDelete(ctx context.Context, hr types.HideRecord) {
-	if selfCorrectedBondHeld(hr) {
+	if selfCorrectedBondHeld(hr) || (hr.Appealed && !hr.Resolved) {
 		return
 	}
 	if !hr.Resolved && k.late.repKeeper != nil && !hr.CommittedAmount.IsNil() && hr.CommittedAmount.IsPositive() {

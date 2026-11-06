@@ -225,7 +225,7 @@ message MsgRedeem {
 
 Two payout regimes:
 
-- **Winning path** (`RESOLVED_YES` or `RESOLVED_NO`): the holder's full balance of the winning denom (`f/{id}/{winner}`) is burned and they receive an equal amount of `market.denom` 1:1. Losing shares are not redeemable but are also not actively burned.
+- **Winning path** (`RESOLVED_YES` or `RESOLVED_NO`): the holder's full balance of the winning denom (`f/{id}/{winner}`) is burned and they receive an equal amount of `market.denom` 1:1. Any losing shares the holder still carries are burned in the same redemption (they are worth nothing and would otherwise sit in the wallet as dust); the `redeem` event's `shares_burned` lists both.
 - **Settled path** (`CANCELLED` or `RESOLVED_INVALID` with non-zero pools): both yes and no balances are burned and the holder receives `yes_balance * settlement_price_yes + no_balance * (1 - settlement_price_yes)`. The settlement price was snapshotted at resolution / cancellation time. Truncation losses are absorbed silently (dust loss is accepted).
 
 If both pools were zero at resolution (`RESOLVED_INVALID` with no trades), no shares were ever minted and there is nothing to redeem; the creator's entire subsidy is returned automatically at resolution.
@@ -403,7 +403,8 @@ When integrated with `x/commons`, the futarchy module is the engine of elastic c
   - `duration = 72000` blocks (~5 days at 6s blocks)
   - `redemption_blocks = 302400` (~21 days)
   - `subsidy = 1000 SPARK` paid by the commons module account
-- The created `market_id` is recorded in `MarketToGroup` so the resolution hook can find the linked council.
+- The created `market_id` is recorded in `MarketToGroup` so the resolution hook can find the linked council. `MarketToGroup` holds only live markets (the hook drops the link on every outcome), so it doubles as the "is a confidence market of this group still open" check.
+- A trigger that fires while the group's market is still open (futarchy was turned off and back on during the market, FUT-201) opens **no second market**: two concurrent markets would both resolve, both move the term and each cost a subsidy. The trigger emits `confidence_market_skipped` (`group`, `reason=market_already_open`) and only reschedules the next trigger, so the loop continues from the live market.
 - On `AfterMarketResolved`:
   - `winner = "yes"` (high confidence) -> council's `current_term_expiration` extended by `term_duration / 5` (+20%), capped at two terms from `current_time`.
   - `winner = "no"` (low confidence) -> `current_term_expiration` reduced by `term_duration / 2` (-50%), floored at `current_time` so it never expires in the past.
@@ -502,7 +503,7 @@ futarchyKeeper.SetHooks(commonsKeeper)  // Keeper implements FutarchyHooks
 
 ### 12.2. Numerical Stability
 
-`Exp` and `Ln` use range reduction (Section 7.1) and every LMSR formula is written so `Exp` only sees non-positive arguments, so nothing overflows and nothing needs clamping. `max_lmsr_exponent` (default 20, compiled ceiling 30) bounds how far a trade may push `|qY - qN| / b`; past it the trade is rejected instead of mispriced. Trades that would push the inner term `1 - exp(...)` to zero or below are rejected with "would deplete market liquidity", and a trade whose computed `shares_out` is not positive is rejected.
+`Exp` and `Ln` use range reduction (Section 7.1) and every LMSR formula is written so `Exp` only sees non-positive arguments, so nothing overflows and nothing needs clamping; `Exp` returns an error for an argument above 100 instead of silently flattening it, so a future caller that forgets the reduced form fails loudly. `max_lmsr_exponent` (default 20, compiled ceiling 30) bounds how far a trade may push `|qY - qN| / b`; past it the trade is rejected instead of mispriced. Trades that would push the inner term `1 - exp(...)` to zero or below are rejected with "would deplete market liquidity", and a trade whose computed `shares_out` is not positive is rejected.
 
 ### 12.3. Gas-Metered Math
 

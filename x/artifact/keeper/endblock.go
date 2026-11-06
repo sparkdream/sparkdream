@@ -48,13 +48,17 @@ func dueIDs(ctx context.Context, ks collections.KeySet[collections.Pair[int64, u
 	var due []collections.Pair[int64, uint64]
 	iter, err := ks.Iterate(ctx, rng)
 	if err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("artifact endblock: due index iterate failed", "err", err)
 		return nil
 	}
 	defer iter.Close()
 	for ; iter.Valid() && len(due) < limit; iter.Next() {
-		if key, err := iter.Key(); err == nil {
-			due = append(due, key)
+		key, err := iter.Key()
+		if err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("artifact endblock: due index key decode failed", "err", err)
+			continue
 		}
+		due = append(due, key)
 	}
 	return due
 }
@@ -167,19 +171,7 @@ func (k Keeper) expireRentalOffers(ctx sdk.Context, cutoff int64, limit int) {
 // expireUnitListings removes unit listings past their expiry and unlocks
 // their units.
 func (k Keeper) expireUnitListings(ctx sdk.Context, cutoff int64, limit int) {
-	rng := new(collections.Range[collections.Pair[int64, uint64]]).EndInclusive(collections.Join(cutoff, uint64(math.MaxUint64)))
-	var due []collections.Pair[int64, uint64]
-	iter, err := k.UnitListingExpiry.Iterate(ctx, rng)
-	if err != nil {
-		return
-	}
-	for ; iter.Valid() && len(due) < limit; iter.Next() {
-		if key, err := iter.Key(); err == nil {
-			due = append(due, key)
-		}
-	}
-	iter.Close()
-	for _, key := range due {
+	for _, key := range dueIDs(ctx, k.UnitListingExpiry, cutoff, limit) {
 		id := key.K2()
 		k.safely(ctx, "unit_listing", u64(id), func(c sdk.Context) error {
 			l, err := k.UnitListings.Get(c, id)
@@ -229,7 +221,8 @@ func (k Keeper) expireTokens(ctx sdk.Context, cutoff int64, limit int) {
 				return err
 			}
 			emit(c, types.EventTokenExpired, classAttr(classID), tokenAttr(tokenID),
-				sdk.NewAttribute("holder", t.Owner), sdk.NewAttribute("refund", t.Deposit.String()))
+				sdk.NewAttribute("holder", t.Owner), sdk.NewAttribute("refund", t.Deposit.String()),
+				sdk.NewAttribute("refund_to", depositRefundee(t, t.Owner)))
 			return nil
 		}, func() {
 			if err := k.TokenExpiry.Remove(ctx, key); err != nil {
@@ -259,7 +252,7 @@ func (k Keeper) drainReleaseQueues(ctx sdk.Context, limit int) {
 			if err != nil {
 				return err
 			}
-			if err := k.releasePayment(c, cls, &t); err != nil {
+			if err := k.releaseOrRefund(c, cls, &t); err != nil {
 				return err
 			}
 			return k.saveToken(c, t)
@@ -301,12 +294,14 @@ func dueTimeTokens(ctx context.Context, ks collections.KeySet[TimeTokenKey], cut
 	var out []TimeTokenKey
 	iter, err := ks.Iterate(ctx, rng)
 	if err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("artifact endblock: due index iterate failed", "err", err)
 		return nil
 	}
 	defer iter.Close()
 	for ; iter.Valid() && len(out) < limit; iter.Next() {
 		key, err := iter.Key()
 		if err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("artifact endblock: due index key decode failed", "err", err)
 			break
 		}
 		out = append(out, key)
@@ -341,19 +336,7 @@ func (k Keeper) expireListings(ctx sdk.Context, cutoff int64, limit int) {
 }
 
 func (k Keeper) expireOwnerProposals(ctx sdk.Context, cutoff int64, limit int) {
-	rng := new(collections.Range[collections.Pair[int64, uint64]]).EndInclusive(collections.Join(cutoff, uint64(math.MaxUint64)))
-	var due []collections.Pair[int64, uint64]
-	iter, err := k.PendingOwnerExpiry.Iterate(ctx, rng)
-	if err != nil {
-		return
-	}
-	for ; iter.Valid() && len(due) < limit; iter.Next() {
-		if key, err := iter.Key(); err == nil {
-			due = append(due, key)
-		}
-	}
-	iter.Close()
-	for _, key := range due {
+	for _, key := range dueIDs(ctx, k.PendingOwnerExpiry, cutoff, limit) {
 		classID := key.K2()
 		k.safely(ctx, "owner", u64(classID), func(c sdk.Context) error {
 			po, err := k.PendingClassOwners.Get(c, classID)
@@ -374,19 +357,7 @@ func (k Keeper) expireOwnerProposals(ctx sdk.Context, cutoff int64, limit int) {
 }
 
 func (k Keeper) expireHides(ctx sdk.Context, cutoff int64, limit int) {
-	rng := new(collections.Range[collections.Pair[int64, uint64]]).EndInclusive(collections.Join(cutoff, uint64(math.MaxUint64)))
-	var due []collections.Pair[int64, uint64]
-	iter, err := k.HideExpiry.Iterate(ctx, rng)
-	if err != nil {
-		return
-	}
-	for ; iter.Valid() && len(due) < limit; iter.Next() {
-		if key, err := iter.Key(); err == nil {
-			due = append(due, key)
-		}
-	}
-	iter.Close()
-	for _, key := range due {
+	for _, key := range dueIDs(ctx, k.HideExpiry, cutoff, limit) {
 		id := key.K2()
 		k.safely(ctx, "hide", u64(id), func(c sdk.Context) error {
 			hr, err := k.HideRecords.Get(c, id)
@@ -414,17 +385,23 @@ func (k Keeper) expireHides(ctx sdk.Context, cutoff int64, limit int) {
 func (k Keeper) drainQueue(ctx sdk.Context, queue collections.Map[uint64, uint64], name string, limit int,
 	nextIDs func(sdk.Context, uint64, uint64, int) ([]uint64, bool), visit func(sdk.Context, uint64, uint64) error,
 ) {
+	// Read at most limit queued classes: each one either spends budget or
+	// (an exhausted class) is removed, so the per-block cost stays
+	// O(limit) however many classes are queued; the rest wait (ART-108).
 	type entry struct{ classID, cursor uint64 }
 	var queued []entry
 	iter, err := queue.Iterate(ctx, nil)
 	if err != nil {
+		ctx.Logger().Error("drainQueue: iterate failed", "queue", name, "err", err)
 		return
 	}
-	for ; iter.Valid(); iter.Next() {
+	for ; iter.Valid() && len(queued) < limit; iter.Next() {
 		kv, err := iter.KeyValue()
-		if err == nil {
-			queued = append(queued, entry{kv.Key, kv.Value})
+		if err != nil {
+			ctx.Logger().Error("drainQueue: entry decode failed", "queue", name, "err", err)
+			continue
 		}
+		queued = append(queued, entry{kv.Key, kv.Value})
 	}
 	iter.Close()
 
@@ -472,10 +449,20 @@ func (k Keeper) drainQueue(ctx sdk.Context, queue collections.Map[uint64, uint64
 		done = done && !stalled
 		emit(ctx, types.EventClassDrainProgress, classAttr(classID), sdk.NewAttribute("queue", name),
 			sdk.NewAttribute("cursor", u64(cursor)), sdk.NewAttribute("done", fmt.Sprintf("%t", done)))
+		var qErr error
 		if done {
-			_ = queue.Remove(ctx, classID)
+			qErr = queue.Remove(ctx, classID)
 		} else {
-			_ = queue.Set(ctx, classID, cursor)
+			qErr = queue.Set(ctx, classID, cursor)
+		}
+		if qErr != nil {
+			key := fmt.Sprintf("class/%d", classID)
+			ctx.Logger().Error("drainQueue: queue write failed", "queue", name, "class", classID, "done", done, "err", qErr)
+			if err := k.FailedExpiry.Set(ctx, collections.Join(name, key)); err != nil {
+				ctx.Logger().Error("drainQueue: FailedExpiry.Set failed", "err", err)
+			}
+			emit(ctx, types.EventExpiryError, sdk.NewAttribute("pass", name),
+				sdk.NewAttribute("key", key), sdk.NewAttribute("error", qErr.Error()))
 		}
 	}
 }

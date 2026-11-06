@@ -1,0 +1,26 @@
+package keeper
+
+import (
+	"context"
+
+	"sparkdream/x/rep/types"
+
+	errorsmod "cosmossdk.io/errors"
+)
+
+func (k msgServer) EndorseExpertWitness(ctx context.Context, msg *types.MsgEndorseExpertWitness) (*types.MsgEndorseExpertWitnessResponse, error) {
+	jurorAddr, err := k.addressCodec.StringToBytes(msg.Juror)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid juror address")
+	}
+	expertAddr, err := k.addressCodec.StringToBytes(msg.Expert)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid expert address")
+	}
+
+	if err := k.Keeper.EndorseExpertWitness(ctx, msg.JuryReviewId, jurorAddr, expertAddr); err != nil {
+		return nil, err
+	}
+
+	return &types.MsgEndorseExpertWitnessResponse{}, nil
+}

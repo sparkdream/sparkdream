@@ -24,7 +24,7 @@ func TestFederateContent(t *testing.T) {
 	// Manually set to ACTIVE
 	peer, _ := f.keeper.Peers.Get(f.ctx, "ibc-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "ibc-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	creatorStr := testAddr(t, f, "content-creator")
 	_, err = ms.FederateContent(f.ctx, &types.MsgFederateContent{
@@ -49,7 +49,7 @@ func TestFederateContentWrongPeerType(t *testing.T) {
 
 	peer, _ := f.keeper.Peers.Get(f.ctx, "ap-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-	require.NoError(t, f.keeper.Peers.Set(f.ctx, "ap-peer", peer))
+	require.NoError(t, f.keeper.SetPeer(f.ctx, peer))
 
 	creatorStr := testAddr(t, f, "wrong-creator")
 	_, err := ms.FederateContent(f.ctx, &types.MsgFederateContent{

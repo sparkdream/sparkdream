@@ -27,6 +27,23 @@ func (k Keeper) GetCurrentEpoch(ctx context.Context) (int64, error) {
 	return sdkCtx.BlockHeight() / params.EpochBlocks, nil
 }
 
+// NextEpochStartHeight returns the first block height of the epoch after
+// the current one: the height at which the per-epoch DREAM mint budget
+// (max_dream_mint_per_epoch) is next renewed. Consumers that hit the cap
+// (x/reveal's deadline steps) retry there instead of burning retries inside
+// the exhausted epoch. Returns 0 when epochs are disabled (epoch_blocks 0).
+func (k Keeper) NextEpochStartHeight(ctx context.Context) (int64, error) {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if params.EpochBlocks <= 0 {
+		return 0, nil
+	}
+	current := sdk.UnwrapSDKContext(ctx).BlockHeight() / params.EpochBlocks
+	return (current + 1) * params.EpochBlocks, nil
+}
+
 // ApplyPendingDecay calculates and applies decay to a member's UNSTAKED
 // balance (0.2%/epoch). Staked decay is NOT applied here: it burns the
 // member.StakedDream aggregate while leaving every obligation that backs it
@@ -475,6 +492,50 @@ func (k Keeper) CreditDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 	return nil
 }
 
+// reissueDREAM re-creates DREAM that the same operation just burned, moving
+// value rather than creating it (REP-E-107): a review bounty drawn off its
+// funders' locks and paid to the reviewers, or an author bond restored after
+// its slash is reversed. It counts toward the season mint ledger (TrackMint)
+// so SeasonMinted and SeasonBurned keep moving together, but it skips
+// MintDREAM's per-epoch mint ceiling (the move is net zero, and failing it
+// would fail the completion or reversal it belongs to) and the referral
+// cascade (an inviter earns on income their invitee earned, not on DREAM
+// moved between members).
+func (k Keeper) reissueDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int, reason string) error {
+	addr = k.resolveMember(ctx, addr)
+	if amount.IsNil() || !amount.IsPositive() {
+		return types.ErrInvalidAmount
+	}
+	member, err := k.Member.Get(ctx, addr.String())
+	if err != nil {
+		return types.ErrMemberNotFound
+	}
+	// Same recipient gate as every other payout (payableInterimAssignees,
+	// REP-E-208): a zeroed member is owed nothing, including DREAM that only
+	// moved. Callers skip such a recipient before drawing the amount down.
+	if member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return errorsmod.Wrapf(types.ErrMemberNotActive, "reissue to %s (%s)", addr, member.Status)
+	}
+	if err := k.ApplyPendingDecay(ctx, &member); err != nil {
+		return err
+	}
+	if err := k.TrackMint(ctx, amount); err != nil {
+		return err
+	}
+	*member.DreamBalance = member.DreamBalance.Add(amount)
+	*member.LifetimeEarned = member.LifetimeEarned.Add(amount)
+	if err := k.Member.Set(ctx, addr.String(), member); err != nil {
+		return err
+	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+		"reissue_dream",
+		sdk.NewAttribute("recipient", addr.String()),
+		sdk.NewAttribute("amount", amount.String()),
+		sdk.NewAttribute("reason", reason),
+	))
+	return nil
+}
+
 // BurnDREAM burns DREAM tokens from a member's UNLOCKED balance.
 // This updates the member's balance, lifetime burned tracking, and the
 // per-season burn counter.
@@ -747,6 +808,15 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 	recipientMember, err := k.Member.Get(ctx, recipient.String())
 	if err != nil {
 		return types.ErrMemberNotFound
+	}
+	// Tips and gifts are between members, and a zeroed member is not one
+	// (REP-E-109): it can neither pass DREAM it may still receive afterwards
+	// to an accomplice nor be used as a tip sink.
+	if senderMember.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return errorsmod.Wrapf(types.ErrMemberNotActive, "sender %s is %s", sender, senderMember.Status)
+	}
+	if recipientMember.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return errorsmod.Wrapf(types.ErrRecipientNotActive, "recipient %s is %s", recipient, recipientMember.Status)
 	}
 
 	if err := k.ApplyPendingDecay(ctx, &senderMember); err != nil {
