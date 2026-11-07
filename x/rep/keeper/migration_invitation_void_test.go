@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -54,7 +53,7 @@ func TestREPR02_RecoveryVoidsFrontRunInvitation(t *testing.T) {
 	require.NoError(t, f.keeper.CommitRecovery(f.ctx, target.String(), types.RecoverySeal(preimage, victim.String(), target.String())))
 	advance(f, 0, p.RecoveryRevealMinBlocks)
 
-	invID, err := f.keeper.CreateInvitation(f.ctx, thief, target, math.NewInt(100_000_000), nil)
+	invID, err := f.keeper.CreateInvitation(f.ctx, thief, target, f.keeper.RequiredInvitationStakeForTest(f.ctx, thief), nil)
 	require.NoError(t, err, "no migration request exists yet, so the invitation is accepted")
 
 	id, reason, err := f.keeper.RevealRecovery(f.ctx, target.String(), victim.String(), target.String(), preimage)
@@ -64,7 +63,7 @@ func TestREPR02_RecoveryVoidsFrontRunInvitation(t *testing.T) {
 	assertInvitationVoided(t, f, invID, thief, before)
 
 	// The target is now reserved: the thief cannot re-invite it.
-	_, err = f.keeper.CreateInvitation(f.ctx, thief, target, math.NewInt(100_000_000), nil)
+	_, err = f.keeper.CreateInvitation(f.ctx, thief, target, f.keeper.RequiredInvitationStakeForTest(f.ctx, thief), nil)
 	require.ErrorIs(t, err, types.ErrMigrationTargetNotFresh)
 
 	// The target can accept: nothing is left that fails freshness.
@@ -82,7 +81,7 @@ func TestREPR02_CouncilForceVoidsPriorInvitation(t *testing.T) {
 	seedMigrant(t, f, victim, 1)
 	before := seedInviter(t, f, thief)
 
-	invID, err := f.keeper.CreateInvitation(f.ctx, thief, target, math.NewInt(100_000_000), nil)
+	invID, err := f.keeper.CreateInvitation(f.ctx, thief, target, f.keeper.RequiredInvitationStakeForTest(f.ctx, thief), nil)
 	require.NoError(t, err)
 
 	id, err := f.keeper.ForceMigration(f.ctx, f.keeper.GetAuthorityString(), victim.String(), target.String(), "ipfs://evidence")
@@ -102,7 +101,7 @@ func TestREPR02_KeyPathKeepsInvitationRefusal(t *testing.T) {
 	inviter := sdk.AccAddress([]byte("aurora-inviter_____"))
 	seedMigrant(t, f, member, 1)
 	seedInviter(t, f, inviter)
-	invID, err := f.keeper.CreateInvitation(f.ctx, inviter, target, math.NewInt(100_000_000), nil)
+	invID, err := f.keeper.CreateInvitation(f.ctx, inviter, target, f.keeper.RequiredInvitationStakeForTest(f.ctx, inviter), nil)
 	require.NoError(t, err)
 
 	_, err = f.keeper.RequestKeyMigration(f.ctx, member.String(), target.String())

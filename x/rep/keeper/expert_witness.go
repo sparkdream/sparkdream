@@ -145,10 +145,16 @@ func (k Keeper) InviteExpertWitness(
 	return interimID, nil
 }
 
-// alignExpertLists pads expert_inviters and expert_endorsers up to the length
-// of expert_witnesses so the four lists index together. An invitation with no
-// recorded inviter or endorser is simply unendorsed.
+// alignExpertLists pads expert_interim_ids, expert_inviters and
+// expert_endorsers up to the length of expert_witnesses so the four lists
+// index together. An invitation with no recorded inviter or endorser is
+// simply unendorsed; one with no recorded interim pads with id 0, which
+// settleExpertTestimonies matches only against an interim referencing this
+// review and assigned to this witness (interim ids start at 0).
 func alignExpertLists(review *types.JuryReview) {
+	for len(review.ExpertInterimIds) < len(review.ExpertWitnesses) {
+		review.ExpertInterimIds = append(review.ExpertInterimIds, 0)
+	}
 	for len(review.ExpertInviters) < len(review.ExpertWitnesses) {
 		review.ExpertInviters = append(review.ExpertInviters, "")
 	}
@@ -282,6 +288,8 @@ func (k Keeper) settleExpertTestimonies(ctx context.Context, review types.JuryRe
 		interimID := review.ExpertInterimIds[i]
 		interim, err := k.GetInterim(ctx, interimID)
 		if err != nil || interim.Type != types.InterimType_INTERIM_TYPE_EXPERT_TESTIMONY ||
+			interim.ReferenceType != expertTestimonyReferenceType || interim.ReferenceId != review.Id ||
+			!slices.ContainsFunc(interim.Assignees, func(a string) bool { return k.SameMember(ctx, a, witness) }) ||
 			(interim.Status != types.InterimStatus_INTERIM_STATUS_PENDING &&
 				interim.Status != types.InterimStatus_INTERIM_STATUS_IN_PROGRESS) {
 			// Abandoned by the expert, or closed by their zeroing.

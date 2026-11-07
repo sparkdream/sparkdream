@@ -378,8 +378,15 @@ func TestCouncilPath_ObjectionVerdicts(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, types.MigrationObjectionInitiativeType, review.ChallengerClaim)
 
-			// An objected migration does not finalize on its own.
-			advance(f, p.CouncilMigrationDelay+1, 1)
+			// An objected migration does not finalize on its own. Past the
+			// council delay, but inside the objection jury's deadline: on the
+			// network builds the delay (21 days) outlasts the jury (14 days),
+			// whose timeout would escalate the objection before the verdict.
+			wait := p.CouncilMigrationDelay + 1
+			if wait >= types.DefaultAppealDeadline {
+				wait = types.DefaultAppealDeadline - 1
+			}
+			advance(f, wait, 1)
 			f.keeper.ProcessMigrations(f.ctx)
 			m, _ = f.keeper.GetMemberMigration(f.ctx, id)
 			require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_OBJECTED, m.Status)

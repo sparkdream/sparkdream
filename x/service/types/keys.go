@@ -159,6 +159,16 @@ var (
 	// The timeout sweep reads it in opened_at order and stops at the first
 	// case not yet due, so it never walks undue cases.
 	ControllerTransferCasesByOpenedAtKey = collections.NewPrefix("idx/controller_transfer_opened_at/")
+
+	// SweepParkedKey: (retry_at, sweep, item) — EndBlocker items whose last
+	// attempt failed, parked until retry_at so they cannot hold the head of
+	// their queue. The prune pass walks it up to the current
+	// height.
+	SweepParkedKey = collections.NewPrefix("idx/sweep_parked/")
+
+	// SweepParkedAtKey: (sweep, item) → retry_at; reverse of SweepParked,
+	// read by the sweeps to skip a parked item without a scan.
+	SweepParkedAtKey = collections.NewPrefix("idx/sweep_parked_at/")
 )
 
 // ---------------------------------------------------------------------------

@@ -3,10 +3,12 @@ package keeper_test
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -370,9 +372,10 @@ func TestAcceptanceWindowRestartsWhenTheDrawSeats(t *testing.T) {
 }
 
 // REP-R-206: a pending draw imported from a chain that was further along
-// carries a seed epoch and a queued height ahead of this chain. Both are
-// clamped at import so the draw neither waits for a future epoch nor
-// measures its fallback wait from a height not yet reached.
+// carries a seed epoch and a queued height ahead of this chain. The height
+// is clamped at import; the epoch by the first draw pass, after x/shield's
+// genesis has run, so the draw neither waits for a future epoch nor measures
+// its fallback wait from a height not yet reached.
 func TestImportedJuryDrawIsClampedToTheChain(t *testing.T) {
 	exported := func(t *testing.T) types.GenesisState {
 		t.Helper()
@@ -394,27 +397,65 @@ func TestImportedJuryDrawIsClampedToTheChain(t *testing.T) {
 		require.NoError(t, err)
 		return draw
 	}
+	queued := func(t *testing.T, g *fixture) (types.PendingJuryDraw, bool) {
+		t.Helper()
+		draw, err := g.keeper.PendingJuryDraws.Get(g.ctx, 5)
+		if errors.Is(err, collections.ErrNotFound) {
+			return draw, false
+		}
+		require.NoError(t, err)
+		return draw, true
+	}
 
+	t.Run("only the height is clamped at import", func(t *testing.T) {
+		// At import x/shield's genesis has not run: the beacon reads epoch 0
+		// and no value anywhere. The seed epoch must survive that.
+		gen := exported(t)
+		g := initFixture(t)
+		g.keeper.SetBeaconSource(newBeaconStub(0, 1))
+		require.Equal(t, types.PendingJuryDraw{JuryReviewId: 5, SeedEpoch: 900, QueuedAtHeight: 5}, imported(t, g, gen))
+	})
+	t.Run("seeded by the beacon once shield is up", func(t *testing.T) {
+		gen := exported(t)
+		g := initFixture(t)
+		b := newBeaconStub(0, 1)
+		g.keeper.SetBeaconSource(b)
+		imported(t, g, gen)
+		b.epoch = 899 // shield's genesis restored its epoch
+		b.keys[900] = beaconKey("exported-chain")
+		require.NoError(t, g.keeper.DrawPendingJuries(g.ctx))
+		_, still := queued(t, g)
+		require.False(t, still, "drawn from the beacon of its own epoch")
+		for _, ev := range g.ctx.EventManager().Events() {
+			require.NotEqual(t, "jury_seed_fallback", ev.Type, "no block-hash fallback")
+		}
+	})
 	t.Run("beacon pending for the next epoch", func(t *testing.T) {
 		gen := exported(t)
 		g := initFixture(t)
 		b := newBeaconStub(10, 1)
 		b.status[11] = shieldtypes.BeaconStatus_BEACON_STATUS_PENDING
 		g.keeper.SetBeaconSource(b)
-		require.Equal(t, types.PendingJuryDraw{JuryReviewId: 5, SeedEpoch: 11, QueuedAtHeight: 5}, imported(t, g, gen))
+		imported(t, g, gen)
+		require.NoError(t, g.keeper.DrawPendingJuries(g.ctx))
+		draw, still := queued(t, g)
+		require.True(t, still)
+		require.Equal(t, types.PendingJuryDraw{JuryReviewId: 5, SeedEpoch: 11, QueuedAtHeight: 5}, draw)
 
 		// And the draw runs as soon as that epoch's value lands.
 		b.keys[11] = beaconKey("fresh-chain")
 		require.NoError(t, g.keeper.DrawPendingJuries(g.ctx))
-		queued, err := g.keeper.PendingJuryDraws.Has(g.ctx, 5)
-		require.NoError(t, err)
-		require.False(t, queued, "the imported draw must not stall")
+		_, still = queued(t, g)
+		require.False(t, still, "the imported draw must not stall")
 	})
 	t.Run("no beacon value in prospect", func(t *testing.T) {
 		gen := exported(t)
 		g := initFixture(t)
 		g.keeper.SetBeaconSource(newBeaconStub(10, 1)) // no DKG: every epoch UNAVAILABLE
-		require.Equal(t, types.PendingJuryDraw{JuryReviewId: 5, QueuedAtHeight: 5}, imported(t, g, gen))
+		imported(t, g, gen)
+		require.NoError(t, g.keeper.DrawPendingJuries(g.ctx))
+		_, still := queued(t, g)
+		require.False(t, still, "re-pointed to the block hash and drawn at once")
 	})
 	t.Run("beacon unwired", func(t *testing.T) {
 		gen := exported(t)
@@ -427,7 +468,39 @@ func TestImportedJuryDrawIsClampedToTheChain(t *testing.T) {
 		gen := exported(t)
 		gen.PendingJuryDrawList[0] = types.PendingJuryDraw{JuryReviewId: 5, SeedEpoch: 3, QueuedAtHeight: 2}
 		g := initFixture(t)
-		g.keeper.SetBeaconSource(newBeaconStub(10, 1))
+		b := newBeaconStub(10, 1)
+		b.status[3] = shieldtypes.BeaconStatus_BEACON_STATUS_PENDING
+		g.keeper.SetBeaconSource(b)
 		require.Equal(t, types.PendingJuryDraw{JuryReviewId: 5, SeedEpoch: 3, QueuedAtHeight: 2}, imported(t, g, gen))
+		require.NoError(t, g.keeper.DrawPendingJuries(g.ctx))
+		draw, still := queued(t, g)
+		require.True(t, still, "waiting for its own epoch's value")
+		require.Equal(t, uint64(3), draw.SeedEpoch)
 	})
+}
+
+// The draw runs in the BeginBlocker, before the block's transactions, so it
+// draws from a pool settled before its seed was knowable: the EndBlocker
+// leaves a queued draw alone and the next BeginBlocker seats it.
+func TestJuryDrawRunsInBeginBlocker(t *testing.T) {
+	f := initFixture(t)
+	k, ctx := f.keeper, f.ctx
+	b := newBeaconStub(10, 5)
+	b.status[11] = shieldtypes.BeaconStatus_BEACON_STATUS_PENDING
+	k.SetBeaconSource(b)
+	id := queuedChallengeReview(t, k, ctx)
+	b.keys[11] = beaconKey("epoch-11")
+
+	require.NoError(t, k.EndBlocker(ctx))
+	queued, err := k.PendingJuryDraws.Has(ctx, id)
+	require.NoError(t, err)
+	require.True(t, queued, "the EndBlocker does not draw")
+
+	require.NoError(t, k.BeginBlocker(ctx))
+	queued, err = k.PendingJuryDraws.Has(ctx, id)
+	require.NoError(t, err)
+	require.False(t, queued, "the BeginBlocker draws")
+	review, err := k.JuryReview.Get(ctx, id)
+	require.NoError(t, err)
+	require.NotEmpty(t, review.Jurors)
 }

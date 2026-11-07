@@ -151,7 +151,7 @@ Four ordered, independently-capped passes:
 1. **Fire scheduled oneshots** in `(fire_at_unix ASC, grant_id ASC)` order. Each fire runs in a child `CacheContext` with capped gas meter + `defer recover()`.
 2. **Auto-revoke paused oneshots** past TTL (default 7d) and refund deposits.
 3. **Expire grants** past `expires_at` and refund any held oneshot deposit.
-4. **Expire pending grants** past their consent deadline and forfeit the deposit to the community pool.
+4. **Expire pending grants** past their consent deadline and forfeit the deposit to the community pool (forfeit and delete in one cache context, all or nothing).
 
 Each pass is rate-limited; cap is configurable to bound block-time impact.
 

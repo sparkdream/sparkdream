@@ -26,6 +26,15 @@ package types
 // entry and an escrow row until the grantee answers or the TTL runs out.
 const MaxPendingGrantsPerGranter = 4
 
+// MaxMigratedPendingGrants caps the PENDING grants naming a migrating member
+// as grantee that the migration hook carries over. Pending grants are capped
+// per granter, not per grantee, so anyone can point any number of them at an
+// address; without the cap a flood of them would push the member's migration
+// tx out of gas. Grants past the cap stay under the old address, where they
+// are inert (a tombstone can neither accept nor exec) and expire with the
+// TTL; their granters can still revoke them for the deposit.
+const MaxMigratedPendingGrants = 32
+
 // IsAccessGrantType reports whether grants of type t need the grantee's
 // consent (session keys and sign-ins).
 func IsAccessGrantType(t GrantType) bool {

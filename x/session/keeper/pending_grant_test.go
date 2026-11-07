@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -946,5 +947,73 @@ func TestPendingGrant_MigrationGranteeSide(t *testing.T) {
 	requireInvariants(t, f)
 	_, err = ms.AcceptGrant(f.ctx, &types.MsgAcceptGrant{Grantee: newAddr, GrantId: signResp.GrantId})
 	require.NoError(t, err, "the new address accepts it")
+	requireInvariants(t, f)
+}
+
+// A flood of pending grants naming a migrating member as grantee cannot
+// block the migration: the hook carries over at most
+// MaxMigratedPendingGrants and leaves the rest, inert, under the old address.
+func TestPendingGrant_MigrationGranteeSideCapped(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	trackDeposits(f)
+	now := sdk.UnwrapSDKContext(f.ctx).BlockTime()
+	oldAddr, newAddr := testAddr("old_member", f.addressCodec), testAddr("new_member", f.addressCodec)
+	oldAcc, err := f.addressCodec.StringToBytes(oldAddr)
+	require.NoError(t, err)
+	newAcc, err := f.addressCodec.StringToBytes(newAddr)
+	require.NoError(t, err)
+
+	total := types.MaxMigratedPendingGrants + 5
+	for i := 0; i < total; i++ {
+		granter := testAddr(fmt.Sprintf("flood_%d", i), f.addressCodec)
+		_, err := ms.CreateGrant(f.ctx, sessionKeyGrantMsg(granter, oldAddr, now.Add(time.Hour)))
+		require.NoError(t, err)
+	}
+
+	hooks := keeper.NewMigrationHooks(&f.keeper)
+	require.NoError(t, hooks.AfterMemberMigration(f.ctx, oldAcc, newAcc, reptypes.MigrationPath_MIGRATION_PATH_KEY))
+
+	left := 0
+	rng := collections.NewPrefixedPairRange[string, uint64](oldAddr)
+	require.NoError(t, f.keeper.PendingGrantsByGrantee.Walk(f.ctx, rng, func(collections.Pair[string, uint64]) (bool, error) {
+		left++
+		return false, nil
+	}))
+	require.Equal(t, total-types.MaxMigratedPendingGrants, left, "grants past the cap stay under the old address")
+	requireInvariants(t, f)
+}
+
+// A pending grant whose deposit can be moved nowhere is left as it was by
+// the expiry pass, deposit row included, and expires once the bank recovers:
+// the escrow row never stops matching the coins the module holds.
+func TestPendingGrant_ExpiryFailedForfeitChangesNothing(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	ledger := trackDeposits(f)
+	now := sdk.UnwrapSDKContext(f.ctx).BlockTime()
+	granter := testAddr("granter", f.addressCodec)
+	ttl := time.Duration(types.PendingGrantTTLSeconds) * time.Second
+	resp, err := ms.CreateGrant(f.ctx, sessionKeyGrantMsg(granter, testAddr("aurora", f.addressCodec), now.Add(2*ttl)))
+	require.NoError(t, err)
+
+	ledger.poolError = errors.New("pool down")
+	f.bankKeeper.SendCoinsFromModuleToModuleFn = func(context.Context, string, string, sdk.Coins) error {
+		return errors.New("fee collector down")
+	}
+	after := sdk.UnwrapSDKContext(withBlockTime(f.ctx, now.Add(ttl+time.Minute)))
+	require.NoError(t, f.keeper.EndBlocker(after))
+	g, err := f.keeper.Grants.Get(f.ctx, resp.GrantId)
+	require.NoError(t, err)
+	require.Equal(t, types.GrantStatus_GRANT_STATUS_PENDING, g.Status)
+	has, err := f.keeper.PendingGrantDeposit.Has(f.ctx, resp.GrantId)
+	require.NoError(t, err)
+	require.True(t, has, "the deposit row stays with the coins")
+
+	ledger.poolError = nil
+	require.NoError(t, f.keeper.EndBlocker(after))
+	_, err = f.keeper.Grants.Get(f.ctx, resp.GrantId)
+	require.ErrorIs(t, err, collections.ErrNotFound)
+	require.Equal(t, depositCoins(), ledger.pool)
 	requireInvariants(t, f)
 }

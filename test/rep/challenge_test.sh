@@ -71,6 +71,7 @@ fi
 
 # Load test environment
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/jury.sh"
 
 echo ""
 echo "=== TEST ACTORS ==="
@@ -269,6 +270,7 @@ fi
 if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW_ID" ] && [ "$JURY_REVIEW_ID" != "null" ]; then
     echo ""
     echo "Step 4: Querying jury composition..."
+    wait_for_jury_seated "$JURY_REVIEW_ID"
     JURY_DETAIL=$($BINARY query rep get-jury-review $JURY_REVIEW_ID --output json 2>&1)
     echo "$JURY_DETAIL" | jq '{
         id: .jury_review.id,
@@ -721,6 +723,7 @@ if [ "$TEST_5_RESULT" = "PASS" ]; then
 fi
 
 if [ "$TEST_5_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW5_ID" ] && [ "$JURY_REVIEW5_ID" != "null" ]; then
+    wait_for_jury_seated "$JURY_REVIEW5_ID"
     JURY_ADDRS=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json | jq -r '.jury_review.jurors[]')
     INVITER="" REFUSER="" REFUSER_ADDR=""
     for JADDR in $JURY_ADDRS; do

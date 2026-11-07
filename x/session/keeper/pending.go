@@ -184,17 +184,19 @@ func (k Keeper) refundPendingDeposit(ctx context.Context, grant types.Grant, rec
 
 // forfeitPendingDeposit sends an expired PENDING grant's deposit to the
 // community pool (or the fee collector when no distribution keeper is
-// wired, or if funding the pool fails) and clears the escrow row. Runs in
-// the EndBlocker, so failures are logged, never returned: the grant is
-// deleted either way and no escrow row is left behind.
-func (k Keeper) forfeitPendingDeposit(ctx sdk.Context, grant types.Grant) sdk.Coin {
+// wired, or if funding the pool fails) and clears the escrow row. It
+// returns an error when the deposit could not be moved anywhere or its row
+// not read or cleared; the caller runs it in a cache context and discards
+// the expiry then, so the escrow row keeps matching the coins the module
+// holds and the expiry is retried.
+func (k Keeper) forfeitPendingDeposit(ctx sdk.Context, grant types.Grant) (sdk.Coin, error) {
 	zero := sdk.NewCoin(k.BondDenom(ctx), sdkmath.ZeroInt())
 	dep, err := k.PendingGrantDeposit.Get(ctx, grant.Id)
 	if err != nil {
 		if !errors.Is(err, collections.ErrNotFound) {
-			ctx.Logger().Error("forfeitPendingDeposit: PendingGrantDeposit.Get failed", "grant_id", grant.Id, "err", err)
+			return zero, err
 		}
-		return zero
+		return zero, nil
 	}
 	if !dep.IsZero() {
 		funded := false
@@ -208,14 +210,14 @@ func (k Keeper) forfeitPendingDeposit(ctx sdk.Context, grant types.Grant) sdk.Co
 		}
 		if !funded {
 			if err := k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, feeCollectorModule, sdk.NewCoins(dep)); err != nil {
-				ctx.Logger().Error("pending deposit forfeit failed", "grant_id", grant.Id, "err", err)
+				return zero, fmt.Errorf("pending deposit forfeit failed: %w", err)
 			}
 		}
 	}
 	if err := k.PendingGrantDeposit.Remove(ctx, grant.Id); err != nil {
-		ctx.Logger().Error("forfeitPendingDeposit: PendingGrantDeposit.Remove failed", "grant_id", grant.Id, "err", err)
+		return zero, err
 	}
-	return dep
+	return dep, nil
 }
 
 // acceptPendingGrant is the one acceptance path (explicit MsgAcceptGrant
@@ -354,11 +356,20 @@ func (k Keeper) expirePendingPass(ctx sdk.Context, blockTime time.Time, cap int)
 			}
 			continue
 		}
-		forfeited := k.forfeitPendingDeposit(ctx, grant)
-		if err := k.deleteGrant(ctx, grant); err != nil {
+		// Forfeit and delete land together or not at all: forfeiting first
+		// and then failing the delete left a PENDING grant whose deposit was
+		// already gone, so a later accept or revoke refunded nothing.
+		cacheCtx, write := ctx.CacheContext()
+		forfeited, err := k.forfeitPendingDeposit(cacheCtx, grant)
+		if err != nil {
+			ctx.Logger().Error("pending grant expiry: deposit forfeit failed", "grant_id", e.id, "err", err)
+			continue
+		}
+		if err := k.deleteGrant(cacheCtx, grant); err != nil {
 			ctx.Logger().Error("pending grant expiry failed", "grant_id", e.id, "err", err)
 			continue
 		}
+		write()
 		ctx.EventManager().EmitEvent(sdk.NewEvent(
 			"grant_expired",
 			sdk.NewAttribute("granter", grant.Granter),

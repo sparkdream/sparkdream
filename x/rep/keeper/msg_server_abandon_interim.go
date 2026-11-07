@@ -50,12 +50,23 @@ func (k msgServer) AbandonInterim(ctx context.Context, msg *types.MsgAbandonInte
 	// assignee who abandons it gives up only their own seat (and its share),
 	// the review stays live for the rest and still settles when the project
 	// is approved (REP-E-206). With the last seat gone it expires unpaid.
+	// The budget shrinks with the seat, so each seat left is paid what it
+	// was before the abandon: the payout divides by the assignees left, and
+	// without the cut every abandoned seat raised the others' share, so
+	// members who would not vote could abandon to hand the whole review
+	// budget to the one who did. (A zeroed seat's share is redistributed,
+	// REP-E-203; abandoning never adds to that.)
 	if IsProjectReviewInterimType(interim.Type) {
 		var own []string
 		for _, assignee := range interim.Assignees {
 			if k.Keeper.CanActAs(ctx, msg.Creator, assignee) {
 				own = append(own, assignee)
 			}
+		}
+		if seats := len(interim.Assignees); seats > 0 {
+			share := DerefInt(interim.Budget).QuoRaw(int64(seats))
+			kept := share.MulRaw(int64(seats - len(own)))
+			interim.Budget = &kept
 		}
 		if err := k.Keeper.dropInterimAssignees(ctx, interim, own, "abandoned: "+msg.Reason); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to update interim")

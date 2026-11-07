@@ -117,12 +117,16 @@ func (k Keeper) sweepCheckpointLiveness(ctx context.Context, currentHeight int64
 	var due []collections.Triple[int64, string, []byte]
 	rng := new(collections.Range[collections.Triple[int64, string, []byte]]).
 		EndInclusive(collections.Join3(currentHeight, string([]byte{0xff}), []byte{0xff}))
+	scanned := 0
 	if err := k.CheckpointDeadlines.Walk(ctx, rng, func(key collections.Triple[int64, string, []byte]) (bool, error) {
 		if key.K1() > currentHeight {
 			return true, nil
 		}
-		due = append(due, key)
-		return len(due) >= limit, nil
+		scanned++
+		if !k.isSweepParked(ctx, sweepCheckpointLivenessName, dueItem(key.K1(), operatorItem(key.K3(), key.K2())), currentHeight) {
+			due = append(due, key)
+		}
+		return len(due) >= limit || scanned >= sweepScanCap(limit), nil
 	}); err != nil {
 		return 0, err
 	}
@@ -130,7 +134,7 @@ func (k Keeper) sweepCheckpointLiveness(ctx context.Context, currentHeight int64
 	moduleAddr := authtypes.NewModuleAddress(types.ModuleName)
 	processed := 0
 	for _, key := range due {
-		if k.runIsolated(ctx, "checkpoint_liveness", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepCheckpointLivenessName, dueItem(key.K1(), operatorItem(key.K3(), key.K2())), func(ctx context.Context) (bool, error) {
 			sdkCtx := sdk.UnwrapSDKContext(ctx)
 			deadline, serviceType, opBytes := key.K1(), key.K2(), key.K3()
 			if err := k.clearCheckpointDeadline(ctx, serviceType, opBytes); err != nil {

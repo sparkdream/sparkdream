@@ -42,6 +42,12 @@ var (
 	// awaiting review); the BeginBlocker dismisses the ones the council
 	// leaves past the review window.
 	KeyReviewDisputes = collections.NewPrefix("review_disputes")
+	// KeyParkedReviewDisputes: (retry_at, filed_at_height, name) for review
+	// disputes whose dismissal failed, parked until retry_at so they cannot
+	// hold the head of ReviewDisputes; KeyParkedReviewDisputeAt is its
+	// reverse, (filed_at_height, name) -> retry_at.
+	KeyParkedReviewDisputes  = collections.NewPrefix("parked_review_disputes")
+	KeyParkedReviewDisputeAt = collections.NewPrefix("parked_review_dispute_at")
 )
 
 // Parameter keys

@@ -36,10 +36,12 @@ import (
 //     validators has released shares, so neither the sender nor any block
 //     proposer nor any validator short of the threshold knows the seed when
 //     the review opens, and no one can bias it (the value is unique).
-//     DrawPendingJuries seats the review in the EndBlocker once the value
-//     is AVAILABLE. Without a beacon (no DKG yet, beacon disabled, or
-//     x/shield unwired) the draw is seeded from the hash of the block being
-//     finalized in the next EndBlocker, which the sender cannot know when
+//     DrawPendingJuries seats the review in the first BeginBlocker that
+//     finds the value AVAILABLE, before that block's transactions, so the
+//     juror pool it draws from was settled before anyone could compute the
+//     outcome. Without a beacon (no DKG yet, beacon disabled, or x/shield
+//     unwired) the draw is seeded from the hash of the block being
+//     finalized in the next BeginBlocker, which the sender cannot know when
 //     signing but a block proposer can bias; a beacon that stays PENDING
 //     past JuryBeaconWaitBlocks falls back the same way (event
 //     jury_seed_fallback). See "Jury Selection" in docs/x-rep-spec.md.
@@ -314,7 +316,7 @@ func (k Keeper) selectJuryWith(ctx context.Context, review types.JuryReview, jur
 
 // newPendingJuryDraw records which beacon epoch seeds reviewID's draw: the
 // epoch after the one open now, when x/shield is wired and its beacon can
-// produce it; seed_epoch 0 (block-hash seed, drawn in the next EndBlocker)
+// produce it; seed_epoch 0 (block-hash seed, drawn in the next BeginBlocker)
 // otherwise.
 func (k Keeper) newPendingJuryDraw(ctx context.Context, reviewID uint64) types.PendingJuryDraw {
 	draw := types.PendingJuryDraw{
@@ -331,7 +333,7 @@ func (k Keeper) newPendingJuryDraw(ctx context.Context, reviewID uint64) types.P
 	return draw
 }
 
-// queueJuryDraw asks the EndBlocker to draw seats more jurors onto review
+// queueJuryDraw asks the next BeginBlocker to draw seats more jurors onto review
 // and records parties as never-drawable. The caller persists review. A
 // review already queued keeps its seed epoch: the refill joins the draw
 // already waiting.
@@ -401,7 +403,8 @@ func (k Keeper) juryDrawSeed(ctx context.Context, draw types.PendingJuryDraw) (r
 	}
 }
 
-// DrawPendingJuries seats every review whose draw is ready. EndBlocker only.
+// DrawPendingJuries seats every review whose draw is ready. BeginBlocker
+// only (see Keeper.BeginBlocker for why not the EndBlocker).
 // A draw whose beacon value is still pending stays queued for a later block
 // (bounded by JuryBeaconWaitBlocks, after which it falls back to the block
 // hash). Each draw runs in its own cache context so one failing review never
@@ -417,8 +420,18 @@ func (k Keeper) DrawPendingJuries(ctx context.Context) error {
 		return err
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	var nextEpoch uint64
+	if k.late.beacon != nil && len(draws) > 0 {
+		nextEpoch = k.late.beacon.CurrentEpoch(ctx) + 1
+	}
 	for _, draw := range draws {
 		id := draw.JuryReviewId
+		if repointed, changed := k.repointFutureSeedEpoch(ctx, draw, nextEpoch); changed {
+			draw = repointed
+			if err := k.PendingJuryDraws.Set(ctx, id, draw); err != nil {
+				return err
+			}
+		}
 		rng, source, reason, ready := k.juryDrawSeed(ctx, draw)
 		if !ready {
 			continue
@@ -507,7 +520,7 @@ func (k Keeper) seatPendingJury(ctx context.Context, id uint64, rng *rand.Rand, 
 // restartAcceptanceWindow counts the acceptance window of an initiative jury
 // from the block its seats were actually filled (REP-R-201). The window is
 // first set when the review opens, but the draw that fills the seats runs in
-// a later EndBlocker and, with the beacon pending, up to JuryBeaconWaitBlocks
+// a later BeginBlocker and, with the beacon pending, up to JuryBeaconWaitBlocks
 // later; a short window could elapse before anyone was seated, the sweep
 // would find no silent juror and stand the clock down for good, and the
 // jurors seated afterwards would never be swept for silence. A review that
@@ -533,27 +546,37 @@ func (k Keeper) restartAcceptanceWindow(ctx context.Context, review *types.JuryR
 	return nil
 }
 
-// clampImportedJuryDraw bounds a pending draw imported from genesis to the
-// chain it lands on (REP-R-206). A draw exported from a long-running chain
-// carries a queued_at_height and seed_epoch ahead of a fresh chain: its
-// beacon epoch reads PENDING for as long as the epoch is in the future and
-// the fallback wait is measured from a height not yet reached, so the review
-// would sit unseated until the new chain caught up. The height is clamped to
-// the import height; a seed epoch past the next one is re-pointed at the next
-// epoch (or the block hash when that epoch yields no beacon) exactly as a
-// draw queued now would be.
+// clampImportedJuryDraw bounds the queued height of a pending draw imported
+// from genesis to the import height (REP-R-206): a draw exported from a
+// long-running chain would otherwise measure its fallback wait from a
+// height the new chain has not reached. The seed epoch is clamped later, by
+// repointFutureSeedEpoch in the first draw pass: x/rep's InitGenesis runs
+// before x/shield's, so at import the beacon reads epoch 0 and UNAVAILABLE
+// for every epoch, and clamping against it re-pointed every imported draw to
+// the block-hash seed.
 func (k Keeper) clampImportedJuryDraw(ctx context.Context, draw types.PendingJuryDraw) types.PendingJuryDraw {
 	if height := sdk.UnwrapSDKContext(ctx).BlockHeight(); draw.QueuedAtHeight > height {
 		draw.QueuedAtHeight = height
 	}
-	if draw.SeedEpoch == 0 || k.late.beacon == nil {
-		return draw
-	}
-	if next := k.late.beacon.CurrentEpoch(ctx) + 1; draw.SeedEpoch > next {
-		draw.SeedEpoch = next
-		if k.late.beacon.BeaconStatus(ctx, next) == shieldtypes.BeaconStatus_BEACON_STATUS_UNAVAILABLE {
-			draw.SeedEpoch = 0
-		}
-	}
 	return draw
+}
+
+// repointFutureSeedEpoch re-points a draw whose seed epoch is past the next
+// beacon epoch at the next epoch (or the block hash when that epoch yields
+// no beacon), exactly as a draw queued now would be (REP-R-206). Only an
+// imported draw can be that far ahead: newPendingJuryDraw always names the
+// next epoch. Reports whether the draw changed.
+// next is the beacon epoch after the current one, read once per pass.
+func (k Keeper) repointFutureSeedEpoch(ctx context.Context, draw types.PendingJuryDraw, next uint64) (types.PendingJuryDraw, bool) {
+	if draw.SeedEpoch == 0 || k.late.beacon == nil {
+		return draw, false
+	}
+	if draw.SeedEpoch <= next {
+		return draw, false
+	}
+	draw.SeedEpoch = next
+	if k.late.beacon.BeaconStatus(ctx, next) == shieldtypes.BeaconStatus_BEACON_STATUS_UNAVAILABLE {
+		draw.SeedEpoch = 0
+	}
+	return draw, true
 }

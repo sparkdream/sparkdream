@@ -6,7 +6,24 @@ import (
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
+
+// RequiredInvitationStakeForTest is the stake CreateInvitation requires of
+// inviter now: the floor, escalated per credit already used on the network
+// builds (InvitationCostMultiplier). Tests pass it instead of a fixed amount
+// so they hold under every build tag.
+func (k Keeper) RequiredInvitationStakeForTest(ctx context.Context, inviter sdk.AccAddress) math.Int {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		panic(err)
+	}
+	member, err := k.Member.Get(ctx, inviter.String())
+	if err != nil {
+		panic(err)
+	}
+	return computeRequiredInvitationStake(params, member)
+}
 
 // RoleRewardDailyAllowanceForTest exposes the unexported allowance computation
 // so the share arithmetic can be asserted directly rather than inferred from a

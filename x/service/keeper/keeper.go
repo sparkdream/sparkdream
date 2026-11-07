@@ -162,6 +162,13 @@ type Keeper struct {
 	// deadline_height; reverse index of CheckpointDeadlines.
 	CheckpointDeadlineByOperator collections.Map[collections.Pair[string, []byte], int64]
 
+	// SweepParked: (retry_at, sweep, item) for EndBlocker items whose last
+	// attempt failed, and its reverse SweepParkedAt: (sweep, item) ->
+	// retry_at. Not exported: a parked item imported fresh is simply
+	// retried once more (sweep_parking.go).
+	SweepParked   collections.KeySet[collections.Triple[int64, string, string]]
+	SweepParkedAt collections.Map[collections.Pair[string, string], int64]
+
 	// ----- Counters -----
 
 	NextReportID collections.Sequence
@@ -395,6 +402,19 @@ func NewKeeper(
 			types.CheckpointDeadlineByOperatorKey,
 			"checkpoint_deadline_by_operator",
 			collections.PairKeyCodec(collections.StringKey, collections.BytesKey),
+			collections.Int64Value,
+		),
+		SweepParked: collections.NewKeySet(
+			sb,
+			types.SweepParkedKey,
+			"sweep_parked",
+			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.StringKey),
+		),
+		SweepParkedAt: collections.NewMap(
+			sb,
+			types.SweepParkedAtKey,
+			"sweep_parked_at",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			collections.Int64Value,
 		),
 

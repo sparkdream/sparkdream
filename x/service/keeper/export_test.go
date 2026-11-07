@@ -18,5 +18,8 @@ func (k Keeper) OpenSystemReportAsServiceForTest(ctx context.Context, moduleAddr
 // RunIsolatedForTest exposes the EndBlocker item isolation (SVC-105 /
 // SVC-202) so tests can drive it with a panicking item.
 func (k Keeper) RunIsolatedForTest(ctx context.Context, sweep string, fn func(ctx context.Context) (bool, error)) bool {
-	return k.runIsolated(ctx, sweep, fn)
+	return k.runIsolated(ctx, sweep, "test-item", fn)
 }
+
+// SweepRetryBlocksForTest is how long a failed EndBlocker item stays parked.
+const SweepRetryBlocksForTest = sweepRetryBlocks

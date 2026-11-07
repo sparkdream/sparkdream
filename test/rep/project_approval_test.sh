@@ -393,6 +393,59 @@ print(math.ceil(Decimal('$DREAM_BEFORE')*r))" 2>/dev/null || echo 0)
 fi
 
 # ========================================================================
+# TEST 7 - Abandoning a review seat drops that seat's share of the budget
+# ========================================================================
+# MsgAbandonInterim on a project review drops only the abandoning seat, and
+# the budget shrinks with it to budget / seats * (seats - 1), so the seats
+# left are paid what they were at opening. Without the cut, members who
+# would not vote could abandon and hand the whole budget to the one who did.
+echo "--- TEST 7: abandoned review seat takes its share with it ---"
+
+PID=$(propose_project "approval-test-abandon" "Technical Council" "$SMALL_BUDGET" bob)
+INTERIM_ID=""
+[ -n "$PID" ] && INTERIM_ID=$($BINARY query rep get-project "$PID" --output json 2>/dev/null | jq -r '.project.approval_interim_id // "0"')
+if [ -z "$PID" ] || [ -z "$INTERIM_ID" ] || [ "$INTERIM_ID" = "0" ]; then
+    echo "  [FAIL] could not open a review interim (project=$PID interim=$INTERIM_ID)"
+    record_result "TEST 7: abandoned seat share" "FAIL"
+else
+    INTERIM=$($BINARY query rep get-interim "$INTERIM_ID" --output json 2>/dev/null)
+    SEATS=$(echo "$INTERIM" | jq -r '.interim.assignees | length')
+    BUDGET_BEFORE=$(echo "$INTERIM" | jq -r '.interim.budget // "0"')
+    # The first assignee whose key is in the local keyring abandons.
+    QUITTER="" QUITTER_ADDR=""
+    for addr in $(echo "$INTERIM" | jq -r '.interim.assignees[]'); do
+        name=$($BINARY keys list --keyring-backend test --output json 2>/dev/null \
+            | jq -r --arg a "$addr" '.[] | select(.address == $a) | .name' | head -1)
+        if [ -n "$name" ]; then QUITTER="$name"; QUITTER_ADDR="$addr"; break; fi
+    done
+    if [ "$SEATS" -lt 2 ] || [ -z "$QUITTER" ]; then
+        echo "  [WARN] review interim #$INTERIM_ID has $SEATS seat(s), local key: ${QUITTER:-none}; needs 2+ seats and a local assignee key, skipped"
+        record_result "TEST 7: abandoned seat share" "PASS"
+    else
+        TX_RES=$($BINARY tx rep abandon-interim "$INTERIM_ID" "conflict of interest" \
+            --from "$QUITTER" --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} --gas 300000 -y --output json 2>&1)
+        if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+            AFTER=$($BINARY query rep get-interim "$INTERIM_ID" --output json 2>/dev/null)
+            SEATS_AFTER=$(echo "$AFTER" | jq -r '.interim.assignees | length')
+            BUDGET_AFTER=$(echo "$AFTER" | jq -r '.interim.budget // "0"')
+            STILL_SEATED=$(echo "$AFTER" | jq -r --arg a "$QUITTER_ADDR" '[.interim.assignees[] | select(. == $a)] | length')
+            WANT=$(( BUDGET_BEFORE / SEATS * (SEATS - 1) ))
+            if [ "$SEATS_AFTER" = "$((SEATS - 1))" ] && [ "$STILL_SEATED" = "0" ] && [ "$BUDGET_AFTER" = "$WANT" ]; then
+                echo "  [ OK ] $QUITTER's seat dropped ($SEATS -> $SEATS_AFTER seats), budget $BUDGET_BEFORE -> $BUDGET_AFTER (= budget / seats * seats left)"
+                record_result "TEST 7: abandoned seat share" "PASS"
+            else
+                echo "  [FAIL] seats $SEATS -> $SEATS_AFTER (quitter still seated: $STILL_SEATED), budget $BUDGET_BEFORE -> $BUDGET_AFTER, want $WANT"
+                record_result "TEST 7: abandoned seat share" "FAIL"
+            fi
+        else
+            echo "  [FAIL] abandon-interim failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""' | head -c 300)"
+            record_result "TEST 7: abandoned seat share" "FAIL"
+        fi
+    fi
+fi
+
+# ========================================================================
 # Results
 # ========================================================================
 echo "============================================"

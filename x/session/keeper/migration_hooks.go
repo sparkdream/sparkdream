@@ -98,15 +98,14 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 	// ListGrantsByGrantee walks; apply the grantee-side policy to them too:
 	// a pending session key is dropped (its deposit goes back to its
 	// granter, who is not the migrating member), a pending sign-in is
-	// re-keyed and stays pending for the new address to accept.
-	pending, err := k.listPendingGrantsForGrantee(ctx, fromStr)
+	// re-keyed and stays pending for the new address to accept. At most
+	// MaxMigratedPendingGrants of them: the rest stay inert under the old
+	// address until their TTL.
+	pending, err := k.listPendingGrantsForGrantee(ctx, fromStr, toStr, types.MaxMigratedPendingGrants)
 	if err != nil {
 		return err
 	}
 	for _, g := range pending {
-		if g.Granter == toStr {
-			continue
-		}
 		if g.Type == types.GrantType_GRANT_TYPE_SESSION_KEY {
 			if err := k.dropPendingForMigration(ctx, g, fromStr, toStr); err != nil {
 				return err
@@ -149,12 +148,15 @@ func (k Keeper) migrateAllowedGranters(ctx context.Context, fromStr, toStr strin
 	return nil
 }
 
-// listPendingGrantsForGrantee returns the PENDING grants naming grantee,
-// from the query-only PendingGrantsByGrantee index. Pending grants are
-// capped per granter, not per grantee, so this walk is bounded only by
-// how many distinct granters named the address; it runs inside a
-// migration tx, which is rare and signed by the member.
-func (k Keeper) listPendingGrantsForGrantee(ctx context.Context, grantee string) ([]types.Grant, error) {
+// listPendingGrantsForGrantee returns up to limit PENDING grants naming
+// grantee, from the query-only PendingGrantsByGrantee index. Pending grants
+// are capped per granter, not per grantee, so the walk itself is capped:
+// it runs inside the member's migration tx, and an unbounded one let
+// anyone who named the address enough times block the migration.
+//
+// Grants from skipGranter (the migration target, whose grants the caller
+// already handled) are left out and do not count against limit.
+func (k Keeper) listPendingGrantsForGrantee(ctx context.Context, grantee, skipGranter string, limit int) ([]types.Grant, error) {
 	var out []types.Grant
 	rng := collections.NewPrefixedPairRange[string, uint64](grantee)
 	err := k.PendingGrantsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
@@ -162,10 +164,10 @@ func (k Keeper) listPendingGrantsForGrantee(ctx context.Context, grantee string)
 		if err != nil {
 			return true, err
 		}
-		if g.Status == types.GrantStatus_GRANT_STATUS_PENDING {
+		if g.Status == types.GrantStatus_GRANT_STATUS_PENDING && g.Granter != skipGranter {
 			out = append(out, g)
 		}
-		return false, nil
+		return len(out) >= limit, nil
 	})
 	return out, err
 }

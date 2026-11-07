@@ -38,7 +38,7 @@ func TestPendingInvitationExpires(t *testing.T) {
 		Status:            types.MemberStatus_MEMBER_STATUS_ACTIVE,
 	}))
 
-	stake := params.MinInvitationStake
+	stake := k.RequiredInvitationStakeForTest(ctx, inviter)
 	invID, err := k.CreateInvitation(ctx, inviter, invitee, stake, nil)
 	require.NoError(t, err)
 

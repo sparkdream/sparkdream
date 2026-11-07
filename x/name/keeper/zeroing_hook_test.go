@@ -244,3 +244,67 @@ func TestNAM102_UnreviewedDisputeDismissed(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, has)
 }
+
+// A batch's worth of overdue review disputes whose dismissal keeps failing
+// does not freeze the overdue disputes behind them: the failing ones are
+// parked and the walk reads past them in the next block, then retries them
+// once their park runs out.
+func TestUnreviewedDisputeFailuresAreParked(t *testing.T) {
+	f := initFixture(t)
+	owner := sdk.AccAddress([]byte("owner_address_______")).String()
+	bad := sdk.AccAddress([]byte("bad_claimant________")).String()
+	good := sdk.AccAddress([]byte("good_claimant_______")).String()
+	seed := func(name, claimant string, filedAt int64) {
+		require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: name, Owner: owner}))
+		require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, name)))
+		require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
+			Name: name, Claimant: claimant, FiledAt: filedAt, StakeAmount: math.NewInt(50),
+			Active: true, AwaitingReview: true,
+		}))
+		id := fmt.Sprintf("name_dispute:%s:%d", name, filedAt)
+		require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, id, types.DisputeStake{
+			ChallengeId: id, Staker: claimant, Amount: math.NewInt(50),
+		}))
+	}
+	for i := 0; i < keeper.MaxDisputesResolvedPerBlock; i++ {
+		seed(fmt.Sprintf("stuck%02d", i), bad, 100)
+	}
+	seed("behind", good, 101)
+	f.mockRep.BurnFailFor = map[string]bool{bad: true}
+	timeout := int64(f.keeper.GetParams(f.ctx).DisputeTimeoutBlocks)
+
+	h := 101 + 2*timeout + 1
+	require.NoError(t, f.keeper.BeginBlocker(f.ctx.WithBlockHeight(h)))
+	d, _ := f.keeper.GetDispute(f.ctx, "behind")
+	require.True(t, d.Active, "the failing disputes took this block's batch")
+
+	require.NoError(t, f.keeper.BeginBlocker(f.ctx.WithBlockHeight(h+1)))
+	d, _ = f.keeper.GetDispute(f.ctx, "behind")
+	require.False(t, d.Active, "dismissed past the parked disputes")
+	d, _ = f.keeper.GetDispute(f.ctx, "stuck00")
+	require.True(t, d.Active, "the failing dispute is parked, not dropped")
+
+	// Once the failure clears, a parked dispute is dismissed at its retry.
+	delete(f.mockRep.BurnFailFor, bad)
+	require.NoError(t, f.keeper.BeginBlocker(f.ctx.WithBlockHeight(h+2)))
+	d, _ = f.keeper.GetDispute(f.ctx, "stuck00")
+	require.True(t, d.Active, "still parked")
+	require.NoError(t, f.keeper.BeginBlocker(f.ctx.WithBlockHeight(h+keeper.ReviewDisputeRetryBlocksForTest)))
+	d, _ = f.keeper.GetDispute(f.ctx, "stuck00")
+	require.False(t, d.Active, "retried and dismissed")
+
+	// Every park is gone once its dispute is dismissed or its retry passed.
+	require.NoError(t, f.keeper.BeginBlocker(f.ctx.WithBlockHeight(h+2*keeper.ReviewDisputeRetryBlocksForTest)))
+	n := 0
+	require.NoError(t, f.keeper.ParkedReviewDisputes.Walk(f.ctx, nil, func(collections.Triple[int64, int64, string]) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n)
+	n = 0
+	require.NoError(t, f.keeper.ParkedReviewDisputeAt.Walk(f.ctx, nil, func(collections.Pair[int64, string], int64) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n)
+}

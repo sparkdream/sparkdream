@@ -678,7 +678,7 @@ func (k Keeper) ObjectMigration(ctx context.Context, member string, id uint64, r
 	if err != nil {
 		return errorsmod.Wrap(err, "failed to open objection jury review")
 	}
-	// Seat a jury that excludes both parties, drawn at the end of the block
+	// Seat a jury that excludes both parties, drawn in the next BeginBlocker
 	// so the objector cannot pick it (REP-R-102). Best effort, like appeals:
 	// a review nobody can be seated on resolves INCONCLUSIVE at its deadline.
 	if err := k.openAppealJury(ctx, reviewID, []string{m.FromAddress, m.ToAddress}); err != nil {

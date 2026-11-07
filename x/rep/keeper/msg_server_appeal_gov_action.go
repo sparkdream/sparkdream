@@ -145,7 +145,7 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 	// appellant, the action target, and (for moderation actions) the accused
 	// sentinel. The owning module marks its record appealed before calling
 	// here, so GetActionSentinel already sees it (COL-102). The jurors are
-	// drawn at the end of the block (REP-R-102). Best-effort — if no jury can
+	// drawn in the next BeginBlocker (REP-R-102). Best-effort — if no jury can
 	// be seated the appeal still stands and falls back to committee resolution
 	// or timeout.
 	excludes := []string{appellant.String(), actionTarget}

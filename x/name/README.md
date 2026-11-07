@@ -110,12 +110,13 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 
 ## BeginBlocker
 
-Processes expired disputes each block:
+Processes disputes each block, at most 50 per pass:
 
-- Iterates all active uncontested disputes
-- Auto-upholds disputes where `current_height > filed_at + dispute_timeout_blocks`
-- Uncontested expired disputes: name transfers to claimant, claimant's DREAM stake unlocked
-- Contested disputes are skipped (await jury/council resolution via `MsgResolveDispute`)
+- **Contest window** (`PendingDisputes`): an uncontested dispute past `filed_at + dispute_timeout_blocks` is upheld when the owner is expired (name transfers to an eligible claimant, stake unlocked); otherwise it waits for the council (`awaiting_review`).
+- **Review window** (`ReviewDisputes`): a dispute left to the council (awaiting review, or contested) past `filed_at + 2 * dispute_timeout_blocks` is dismissed like a `MsgResolveDispute` dismissal (name stays, claimant stake burned, contest stake returned).
+- Each resolution runs in a cache context. A review-window dismissal that fails is parked for 100 blocks (`ParkedReviewDisputes`, not exported) and the walk reads past parked disputes, so failing ones cannot freeze the overdue disputes behind them.
+
+See [docs/x-name-spec.md](../../docs/x-name-spec.md) for the full rules.
 
 ## Client
 

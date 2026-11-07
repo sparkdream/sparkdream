@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,12 +32,15 @@ import (
 //     more than their type's checkpoint_max_lag_blocks get a system
 //     report; see checkpoints.go).
 //  6. System-report dedup pruning (sweepSystemReportDedup).
+//  7. Expired-park pruning (sweepExpiredParks, sweep_parking.go).
 //
 // Unbond completion is NOT swept — it's lazy via
 // MsgClaimUnbondedBond (§3.6).
 //
 // Each record runs in its own cache context (runIsolated): a record that
-// fails is logged and skipped, and stays queued for the next block. A
+// fails is logged and skipped, stays queued, and is parked for
+// sweepRetryBlocks so it cannot hold the head of its queue (see
+// sweep_parking.go); the sweeps read past parked entries. A
 // sweep-level error (a queue walk failing) is logged too and the other
 // sweeps still run. The EndBlocker never returns an error, so a store or
 // bank failure on one record cannot halt the chain (SVC-105).
@@ -89,6 +93,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	runSweep("system_report_dedup", func() (int, error) {
 		return k.sweepSystemReportDedup(ctx, params, currentHeight, limit)
 	})
+	runSweep("expired_parks", func() (int, error) {
+		return k.sweepExpiredParks(ctx, currentHeight, sweepScanCap(limit))
+	})
 
 	return nil
 }
@@ -110,16 +117,20 @@ func (k Keeper) sweepUnderfunded(ctx context.Context, params types.Params, curre
 		dueKey collections.Triple[int64, []byte, string]
 	}
 	var batch []pending
+	scanned := 0
 	if err := k.UnderfundedDue.Walk(ctx, collections.NewPrefixUntilTripleRange[int64, []byte, string](currentHeight),
 		func(key collections.Triple[int64, []byte, string]) (bool, error) {
-			batch = append(batch, pending{dueKey: key})
-			return len(batch) >= limit, nil
+			scanned++
+			if !k.isSweepParked(ctx, sweepUnderfundedName, dueItem(key.K1(), operatorItem(key.K2(), key.K3())), currentHeight) {
+				batch = append(batch, pending{dueKey: key})
+			}
+			return len(batch) >= limit || scanned >= sweepScanCap(limit), nil
 		}); err != nil {
 		return 0, err
 	}
 
 	for _, p := range batch {
-		if k.runIsolated(ctx, "sweepUnderfunded", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepUnderfundedName, dueItem(p.dueKey.K1(), operatorItem(p.dueKey.K2(), p.dueKey.K3())), func(ctx context.Context) (bool, error) {
 			opAddr := p.dueKey.K2()
 			serviceType := p.dueKey.K3()
 
@@ -200,7 +211,7 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 		filedAt  int64
 	}
 	var batch []pending
-	for ; iter.Valid() && len(batch) < limit; iter.Next() {
+	for scanned := 0; iter.Valid() && len(batch) < limit && scanned < sweepScanCap(limit); iter.Next() {
 		key, err := iter.Key()
 		if err != nil {
 			return processed, err
@@ -210,11 +221,15 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 			// Sorted by filed_at — no further items will be eligible.
 			break
 		}
+		scanned++
+		if k.isSweepParked(ctx, sweepPendingReportsName, idItem(key.K2()), currentHeight) {
+			continue
+		}
 		batch = append(batch, pending{queueKey: key, reportID: key.K2(), filedAt: filedAt})
 	}
 
 	for _, p := range batch {
-		if k.runIsolated(ctx, "sweepPendingReports", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepPendingReportsName, idItem(p.reportID), func(ctx context.Context) (bool, error) {
 			report, err := k.Reports.Get(ctx, p.reportID)
 			if err != nil {
 				if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
@@ -358,7 +373,7 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		escalatedAt int64
 	}
 	var batch []pending
-	for ; iter.Valid() && len(batch) < limit; iter.Next() {
+	for scanned := 0; iter.Valid() && len(batch) < limit && scanned < sweepScanCap(limit); iter.Next() {
 		key, err := iter.Key()
 		if err != nil {
 			return processed, err
@@ -367,11 +382,15 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		if currentHeight < escalatedAt+params.MaxEscalatedBlocks {
 			break
 		}
+		scanned++
+		if k.isSweepParked(ctx, sweepEscalatedReportsName, idItem(key.K2()), currentHeight) {
+			continue
+		}
 		batch = append(batch, pending{queueKey: key, reportID: key.K2(), escalatedAt: escalatedAt})
 	}
 
 	for _, p := range batch {
-		if k.runIsolated(ctx, "sweepEscalatedReports", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepEscalatedReportsName, idItem(p.reportID), func(ctx context.Context) (bool, error) {
 			report, err := k.Reports.Get(ctx, p.reportID)
 			if err != nil {
 				if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
@@ -388,17 +407,36 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 
 			// SVC-101: a jury that upheld the report decides the outcome
 			// even when no resolver relayed it. Apply the proposed slash
-			// (ACCEPT, no dissolve) instead of timing the report out.
+			// (ACCEPT, no dissolve) instead of timing the report out. A
+			// verdict with nothing left to apply it to (the operator is
+			// gone, so there is no bond to slash) would fail the same way
+			// every block, holding the report ESCALATED and the reporter's
+			// deposit for good, so it falls through to AUTO_TIMEOUT. Any
+			// other failure keeps the verdict: the report is parked and
+			// retried, never timed out with the slash dropped.
 			if k.juryUpheld(ctx, report.JuryCaseId) {
-				if err := k.applyJuryVerdict(ctx, report, types.JuryVerdict_JURY_VERDICT_ACCEPT, report.ProposedSlashBps, false); err != nil {
+				verdictCtx, write := sdk.UnwrapSDKContext(ctx).CacheContext()
+				err := k.applyJuryVerdict(verdictCtx, report, types.JuryVerdict_JURY_VERDICT_ACCEPT, report.ProposedSlashBps, false)
+				if err == nil {
+					write()
+					return true, nil
+				}
+				if !errors.Is(err, types.ErrOperatorNotFound) {
 					return false, err
 				}
-				return true, nil
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: upheld verdict could not be applied; timing the report out",
+					"report_id", report.ReportId, "err", err)
+				sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("service_upheld_verdict_unapplied",
+					sdk.NewAttribute("report_id", fmt.Sprintf("%d", report.ReportId)),
+					sdk.NewAttribute("error", err.Error()),
+				))
 			}
 
 			opBytes, err := k.addrBytes(report.OperatorAddress)
 			if err != nil {
-				return false, nil
+				// Reported as a failure so the entry is parked instead of
+				// holding a batch slot every block.
+				return false, err
 			}
 
 			// Release any contested-T1 escrow back to the operator's bond.
@@ -521,18 +559,22 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.Params, currentHeight int64, limit int) (int, error) {
 	var expired []types.ControllerTransferCase
 	var stale []collections.Pair[int64, uint64]
+	scanned := 0
 	err := k.ControllerTransferCasesByOpenedAt.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
 		if currentHeight < key.K1()+params.MaxEscalatedBlocks {
 			return true, nil
 		}
+		scanned++
 		c, err := k.ControllerTransferCases.Get(ctx, key.K2())
 		if err != nil {
 			// The case is gone; drop its index entry.
 			stale = append(stale, key)
-			return false, nil
+			return scanned >= sweepScanCap(limit), nil
 		}
-		expired = append(expired, c)
-		return len(expired) >= limit, nil
+		if !k.isSweepParked(ctx, sweepControllerTransferCasesName, idItem(c.JuryCaseId), currentHeight) {
+			expired = append(expired, c)
+		}
+		return len(expired) >= limit || scanned >= sweepScanCap(limit), nil
 	})
 	if err != nil {
 		return 0, err
@@ -545,7 +587,7 @@ func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.P
 
 	processed := 0
 	for _, c := range expired {
-		if k.runIsolated(ctx, "sweepControllerTransferCases", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepControllerTransferCasesName, idItem(c.JuryCaseId), func(ctx context.Context) (bool, error) {
 			sdkCtx := sdk.UnwrapSDKContext(ctx)
 			if !c.Deposit.IsNil() && c.Deposit.IsPositive() {
 				openerBytes, err := k.addrBytes(c.Opener)
@@ -664,7 +706,7 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 		escrowID uint64
 	}
 	var batch []pending
-	for ; iter.Valid() && len(batch) < limit; iter.Next() {
+	for scanned := 0; iter.Valid() && len(batch) < limit && scanned < sweepScanCap(limit); iter.Next() {
 		key, err := iter.Key()
 		if err != nil {
 			return processed, err
@@ -673,11 +715,15 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 		if currentHeight < releaseAt {
 			break
 		}
+		scanned++
+		if k.isSweepParked(ctx, sweepTier1EscrowReleaseName, idItem(key.K2()), currentHeight) {
+			continue
+		}
 		batch = append(batch, pending{queueKey: key, escrowID: key.K2()})
 	}
 
 	for _, p := range batch {
-		if k.runIsolated(ctx, "sweepTier1EscrowRelease", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepTier1EscrowReleaseName, idItem(p.escrowID), func(ctx context.Context) (bool, error) {
 			escrow, err := k.Tier1Escrow.Get(ctx, p.escrowID)
 			if err != nil {
 				if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
@@ -700,7 +746,9 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 			// — defensive guard.
 			if report.Status == types.ReportStatus_REPORT_STATUS_PENDING ||
 				report.Status == types.ReportStatus_REPORT_STATUS_ESCALATED {
-				return false, nil
+				// Reported as a failure so the entry is parked instead of
+				// holding the head of the queue every block.
+				return false, fmt.Errorf("escrow %d: report %d is still %s", p.escrowID, escrow.ReportId, report.Status)
 			}
 
 			if err := k.releaseTier1Escrow(ctx, p.escrowID, escrow, currentHeight); err != nil {
@@ -772,14 +820,16 @@ func (k Keeper) findTier1EscrowForReportK(
 
 // runIsolated runs one EndBlocker item in a cache context, so its writes
 // and events land only if it succeeds. A failing item is logged and skipped
-// (it stays queued and is retried next block) instead of failing
-// FinalizeBlock and halting the chain (SVC-105). A panic inside the item
+// (it stays queued) instead of failing FinalizeBlock and halting the chain
+// (SVC-105), and is parked for sweepRetryBlocks so it cannot hold the head
+// of its queue; a success drops any park. item names the record within its
+// sweep (sweep_parking.go). A panic inside the item
 // (a nil late-wired keeper, a negative coin, a rep-side panic while seating
 // a jury) is recovered the same way (SVC-202); only out-of-gas is re-raised,
 // as in federation's hook isolation, because the block gas meter owns that
 // decision. fn reports whether the item counts as processed; the return is
 // that flag, false on error or panic.
-func (k Keeper) runIsolated(ctx context.Context, sweep string, fn func(ctx context.Context) (bool, error)) (counted bool) {
+func (k Keeper) runIsolated(ctx context.Context, sweep, item string, fn func(ctx context.Context) (bool, error)) (counted bool) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	cacheCtx, write := sdkCtx.CacheContext()
 	defer func() {
@@ -787,16 +837,19 @@ func (k Keeper) runIsolated(ctx context.Context, sweep string, fn func(ctx conte
 			if _, oog := r.(storetypes.ErrorOutOfGas); oog {
 				panic(r)
 			}
-			sdkCtx.Logger().Error("x/service EndBlocker: item panicked and was skipped", "sweep", sweep, "panic", fmt.Sprintf("%v", r))
+			sdkCtx.Logger().Error("x/service EndBlocker: item panicked and was skipped", "sweep", sweep, "item", item, "panic", fmt.Sprintf("%v", r))
+			k.parkSweepItem(ctx, sweep, item, sdkCtx.BlockHeight())
 			counted = false
 		}
 	}()
 	counted, err := fn(cacheCtx)
 	if err != nil {
-		sdkCtx.Logger().Error("x/service EndBlocker: item skipped", "sweep", sweep, "err", err)
+		sdkCtx.Logger().Error("x/service EndBlocker: item skipped", "sweep", sweep, "item", item, "err", err)
+		k.parkSweepItem(ctx, sweep, item, sdkCtx.BlockHeight())
 		return false
 	}
 	write()
+	k.unparkSweepItem(ctx, sweep, item)
 	return counted
 }
 

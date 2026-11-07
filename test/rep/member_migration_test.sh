@@ -13,6 +13,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 REP_ENV="$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/jury.sh"
 if [ -f "$REP_ENV" ]; then
     source "$REP_ENV"
 else
@@ -282,6 +283,7 @@ declare -A JUROR_NAME_BY_ADDR
 while IFS=$'\t' read -r kname kaddr; do
     [ -n "$kaddr" ] && JUROR_NAME_BY_ADDR["$kaddr"]="$kname"
 done < <($BINARY keys list --keyring-backend test --output json 2>/dev/null | jq -r '.[] | [.name, .address] | @tsv')
+wait_for_jury_seated "$REVIEW_ID"
 JURY_ADDRS=$($BINARY query rep get-jury-review "$REVIEW_ID" --output json 2>/dev/null | jq -r '.jury_review.jurors[]')
 D_BAL_BEFORE=$(spark_balance $D)
 VOTED=0

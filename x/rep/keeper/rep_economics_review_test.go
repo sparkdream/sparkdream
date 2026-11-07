@@ -366,6 +366,38 @@ func TestREPE206_ReviewPaysVotersNotProposer(t *testing.T) {
 		require.Empty(t, review.Assignees)
 	})
 
+	t.Run("abandoned seats do not raise the voter's share", func(t *testing.T) {
+		rf := newProjectReviewFixture(t, 3)
+		project := rf.propose(t, 1_000_000, 0)
+		opened := rf.interim(t, project.ApprovalInterimId)
+		require.Len(t, opened.Assignees, 3)
+		share := opened.Budget.QuoRaw(3)
+		for _, m := range rf.committee[1:] {
+			_, err := rf.ms.AbandonInterim(rf.ctx, &types.MsgAbandonInterim{
+				Creator: m.String(), InterimId: project.ApprovalInterimId, Reason: "will not vote",
+			})
+			require.NoError(t, err)
+		}
+		require.Equal(t, share.String(), rf.interim(t, project.ApprovalInterimId).Budget.String(),
+			"the budget keeps only the seat left")
+
+		rf.commonsKeeper.HasVotedFn = func(_ context.Context, proposalID uint64, voter string) bool {
+			return proposalID == 9 && voter == rf.committee[0].String()
+		}
+		ctx := sdk.UnwrapSDKContext(rf.ctx).WithValue(commontypes.ContextKeyExecutingProposal, uint64(9))
+		policy := sdk.AccAddress([]byte("ops-policy-------"))
+		rf.commonsKeeper.IsCouncilOrCommitteePolicyFn = func(_ context.Context, addr, _, _ string) bool {
+			return addr == policy.String()
+		}
+		_, err := rf.ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver: policy.String(), ProjectId: project.Id,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(1_000_000)), ApprovedSpark: keeper.PtrInt(math.ZeroInt()),
+		})
+		require.NoError(t, err)
+		require.Equal(t, share.String(), econGet(t, rf.fixture, rf.committee[0]).DreamBalance.String(),
+			"the one voter is paid a third, not the whole budget")
+	})
+
 	t.Run("review is assigned to the picked council's committee", func(t *testing.T) {
 		rf := newProjectReviewFixture(t, 1)
 		var asked string

@@ -206,3 +206,31 @@ func TestInviteExpertWitnessRules(t *testing.T) {
 		require.Equal(t, review.Deadline, interim.Deadline)
 	})
 }
+
+// A review written before expert_interim_ids existed lists a witness with no
+// interim. A new invitation pads the list first, so the new expert's interim
+// sits at the new expert's index and the verdict settles it, instead of
+// pairing it with the older witness.
+func TestExpertInterimIdsAlignedOnLegacyReview(t *testing.T) {
+	e := newExpertWitnessFixture(t)
+	k, ctx := e.keeper, e.ctx
+	review, err := k.JuryReview.Get(ctx, e.reviewID)
+	require.NoError(t, err)
+	review.ExpertWitnesses = []string{e.expert3.String()}
+	require.NoError(t, k.JuryReview.Set(ctx, e.reviewID, review))
+
+	interimID := e.inviteEndorsed(t, e.expert)
+	review, err = k.JuryReview.Get(ctx, e.reviewID)
+	require.NoError(t, err)
+	require.Equal(t, []string{e.expert3.String(), e.expert.String()}, review.ExpertWitnesses)
+	require.Equal(t, []uint64{0, interimID}, review.ExpertInterimIds)
+
+	_, err = e.ms.SubmitExpertTestimony(ctx, &types.MsgSubmitExpertTestimony{
+		Expert: e.expert.String(), JuryReviewId: e.reviewID, Opinion: sampleOpinion, Reasoning: "meets the criteria",
+	})
+	require.NoError(t, err)
+	require.NoError(t, k.TallyJuryVotes(ctx, e.reviewID))
+	interim, err := k.GetInterim(ctx, interimID)
+	require.NoError(t, err)
+	require.Equal(t, types.InterimStatus_INTERIM_STATUS_COMPLETED, interim.Status, "settled as the new expert's interim")
+}

@@ -188,7 +188,7 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 		"jury_duty_declined",
 		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", juryReviewID)),
 		sdk.NewAttribute("juror", seat),
-		// Replacements are drawn at the end of the block ("jury_seated").
+		// Replacements are drawn in the next BeginBlocker ("jury_seated").
 		sdk.NewAttribute("seats_pending", fmt.Sprintf("%d", queued)),
 		sdk.NewAttribute("seated", fmt.Sprintf("%d", len(review.Jurors))),
 	))
@@ -331,7 +331,7 @@ func (k Keeper) redrawUnansweredSeats(ctx context.Context, juryReviewID uint64) 
 	review.Jurors = keep
 
 	// The silent jurors are never drawn onto this review again (REP-E-102),
-	// and the EndBlocker draws their replacements after this sweep. Only
+	// and the next BeginBlocker draws their replacements. Only
 	// initiative-challenge juries are refilled: content and appeal juries
 	// keep the seats they were drawn with, which lowers quorum rather than
 	// stranding it against absent jurors.

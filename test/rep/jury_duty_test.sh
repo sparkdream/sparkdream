@@ -22,6 +22,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 source "$SCRIPT_DIR/../lib/denoms.sh"
+source "$SCRIPT_DIR/../lib/jury.sh"
 
 TEST_1_RESULT="FAIL"   # criteria declared and stored
 TEST_2_RESULT="FAIL"   # empty deliverable rejected
@@ -347,6 +348,7 @@ if [ -z "$JURY_REVIEW_ID" ] || [ "$JURY_REVIEW_ID" == "null" ]; then
     TEST_5_RESULT="SKIP"
 else
     echo "  Jury review: #$JURY_REVIEW_ID"
+    wait_for_jury_seated "$JURY_REVIEW_ID"
     SEATED=$($BINARY query rep get-jury-review $JURY_REVIEW_ID --output json 2>&1 \
         | jq -r '.jury_review.jurors[]')
     SEAT_COUNT=$(echo "$SEATED" | grep -c . )
@@ -395,7 +397,9 @@ else
     # Re-read the roster immediately before acting. jury_size is now above
     # MinSeatedJurors, so the acceptance sweep genuinely vacates and replaces
     # seats, and a decline refills on the spot — a roster read a few blocks ago
-    # can already be stale.
+    # can already be stale. Replacements are seated a block after the
+    # vacancy, so wait for any pending draw first.
+    wait_for_jury_seated "$JURY_REVIEW_ID"
     SEATED=$($BINARY query rep get-jury-review $JURY_REVIEW_ID --output json 2>&1 \
         | jq -r '.jury_review.jurors[]?')
     if [ -z "$SEATED" ]; then

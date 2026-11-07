@@ -16,8 +16,6 @@ func TestRevokeInvitation(t *testing.T) {
 	k := f.keeper
 	ctx := sdk.UnwrapSDKContext(f.ctx)
 	srv := keeper.NewMsgServerImpl(k)
-	params, err := k.Params.Get(ctx)
-	require.NoError(t, err)
 
 	inviter := sdk.AccAddress([]byte("inviter_revoke_1____"))
 	stranger := sdk.AccAddress([]byte("stranger_revoke_1___"))
@@ -36,7 +34,7 @@ func TestRevokeInvitation(t *testing.T) {
 		}))
 	}
 
-	invID, err := k.CreateInvitation(ctx, inviter, invitee, params.MinInvitationStake, nil)
+	invID, err := k.CreateInvitation(ctx, inviter, invitee, k.RequiredInvitationStakeForTest(ctx, inviter), nil)
 	require.NoError(t, err)
 
 	// Only the inviter may revoke.
@@ -64,6 +62,6 @@ func TestRevokeInvitation(t *testing.T) {
 	require.ErrorIs(t, k.AcceptInvitation(ctx, invID, invitee, "CC0-1.0"), types.ErrInvitationNotPending)
 
 	// The invitee can be invited again.
-	_, err = k.CreateInvitation(ctx, inviter, invitee, params.MinInvitationStake, nil)
+	_, err = k.CreateInvitation(ctx, inviter, invitee, k.RequiredInvitationStakeForTest(ctx, inviter), nil)
 	require.NoError(t, err)
 }

@@ -855,10 +855,15 @@ on `project.approval_interim_id`:
   never fails the approval; the interim stays live and the deadline sweep
   expires it unpaid.
 - **A seat can be given up, the review cannot be voided.** `MsgAbandonInterim`
-  by an assignee drops only that assignee's seat (`interim_assignee_removed`);
-  the review stays live for the rest and the budget is split over the seats
-  left at settlement. Only the last seat abandoning expires it. Zeroing an
-  assignee drops their seat the same way (see Zeroing).
+  by an assignee drops only that assignee's seat (`interim_assignee_removed`)
+  and its share of the budget: the budget becomes `budget / seats` times the
+  seats left, so each remaining seat is paid what it was before the abandon.
+  Without the cut, members who would not vote could abandon before the
+  approval and hand the whole budget to the one who did. The review stays
+  live for the rest; only the last seat abandoning expires it. Zeroing an
+  assignee drops their seat without the cut: the budget is split over the
+  seats left at settlement (see Zeroing), which a member cannot trigger at
+  will.
 - **Ends unpaid without an approval**: a proposal cancelled by its creator or
   a council body (`MsgCancelProject`) or expired by the EndBlocker
   (`proposed_project_expiry_blocks`) moves its live review interim to EXPIRED
@@ -1910,7 +1915,7 @@ message GovActionAppeal {
 // MsgDisputePin), x/collect MsgAppealHide and x/artifact MsgAppealHide are
 // facades that call CreateGovActionAppeal; it charges the
 // refundable appeal bond and queues a jury draw (parties recorded in
-// excluded_jurors; DrawPendingJuries seats the jury at the end of the block). Resolution runs applyGovActionAppealVerdict, reached either:
+// excluded_jurors; DrawPendingJuries seats the jury in the next BeginBlocker). Resolution runs applyGovActionAppealVerdict, reached either:
 //   - automatically by JURY VERDICT — TallyJuryVotes when a supermajority of
 //     votes is cast, or at the deadline via TimeoutExpiredAppeals (which tallies
 //     if a quorum of the seated jury voted, else TIMEOUT); the no-quorum guard
@@ -2904,8 +2909,16 @@ REP-E-102):
   beacon", trust assumption), so the draw's unpredictability rests on the
   same honest-threshold assumption as TLE secrecy: such a coalition could
   know a seed in advance, never choose it.
-  `DrawPendingJuries` runs in the EndBlocker (after the unanswered-seat sweep)
-  and, per queued draw, asks the beacon (`BeaconStatus(seed_epoch)`):
+  `DrawPendingJuries` runs in x/rep's BeginBlocker, before the block's
+  transactions, so seats queued in a block (including those the EndBlocker's
+  unanswered-seat sweep vacates) are drawn in the next one. The beacon value
+  is rebuilt in x/shield's PreBlocker from the previous block's vote
+  extensions, which anyone can read before the block's transactions are
+  chosen; drawn in the EndBlocker, a proposer who computed the outcome could
+  include transactions that change the juror pool or its weights and move
+  who is seated. Drawn in the BeginBlocker, the pool is the state at the end
+  of the previous block, settled before any validator signed the shares.
+  Per queued draw it asks the beacon (`BeaconStatus(seed_epoch)`):
   `AVAILABLE` seats the review with SHA-256 over the domain
   `sparkdream/jury-draw/beacon/v1`, the beacon key and the review id (a pure
   function of key and review: two reviews seeded from one epoch do not share
@@ -2938,10 +2951,13 @@ REP-E-102):
   Genesis exports `pending_jury_draw_list`; a review with `pending_seats` and
   no entry is queued with `seed_epoch = 0` at `InitGenesis`. An imported
   entry is clamped to the chain it lands on (REP-R-206): a `queued_at_height`
-  ahead of the import height becomes the import height, and a `seed_epoch`
-  past the next beacon epoch is re-pointed at the next epoch (0 when that
-  epoch yields no beacon), so a draw exported from a longer-running chain
-  cannot sit unseated until the new chain catches up. The beacon is
+  ahead of the import height becomes the import height at `InitGenesis`, and
+  a `seed_epoch` past the next beacon epoch is re-pointed at the next epoch
+  (0 when that epoch yields no beacon) by the first draw pass that reads it,
+  so a draw exported from a longer-running chain cannot sit unseated until
+  the new chain catches up. The epoch is not clamped at import: x/rep's
+  `InitGenesis` runs before x/shield's, so the beacon would read epoch 0 and
+  no value for every epoch and send every imported draw to the block hash. The beacon is
   late-wired (`SetBeaconSource` in `app.go`, since x/shield depends on
   x/rep); a chain without it keeps the block-hash floor. With batch mode on,
   an epoch carrying a batch under `min_batch_size` releases its value only
@@ -2974,7 +2990,7 @@ seat, the silence is charged to their participation record, the juror joins
 EndBlocker.
 
 **The window counts from the seating.** `acceptance_deadline` is first set
-when the review opens, but the seats are filled by a later EndBlocker draw,
+when the review opens, but the seats are filled by a later BeginBlocker draw,
 with the beacon pending up to `JuryBeaconWaitBlocks` later. Whenever the draw
 seats at least one juror on an initiative jury that still has redraws left,
 it restarts the window from that block (`restartAcceptanceWindow`, clamped

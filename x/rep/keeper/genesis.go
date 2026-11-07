@@ -130,8 +130,8 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.AddJuryReviewToJurorIndex(ctx, elem); err != nil {
 			return err
 		}
-		// Seats opened by another module's EndBlocker after x/rep's draw wait
-		// for the next block's draw; rebuild that queue from the reviews
+		// Seats queued in the exported block wait for the next block's draw
+		// (BeginBlocker); rebuild that queue from the reviews
 		// (block-hash seed), then let pending_jury_draw_list restore the
 		// beacon epoch of each draw it names.
 		if elem.PendingSeats > 0 && elem.Verdict == types.Verdict_VERDICT_PENDING {
@@ -150,8 +150,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			// seatPendingJury returns at PendingSeats == 0 anyway.
 			continue
 		}
-		// Heights and epochs ahead of this chain are clamped so the draw
-		// cannot wait for a height the exporting chain had reached (REP-R-206).
+		// A height ahead of this chain is clamped so the draw cannot wait for
+		// a height the exporting chain had reached; a seed epoch ahead of it
+		// is clamped by the first draw pass, once x/shield's genesis has run
+		// (REP-R-206).
 		if err := k.PendingJuryDraws.Set(ctx, draw.JuryReviewId, k.clampImportedJuryDraw(ctx, draw)); err != nil {
 			return err
 		}

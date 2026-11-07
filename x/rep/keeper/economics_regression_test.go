@@ -205,7 +205,7 @@ func TestREPE06_ZeroingTerminatesEscrows(t *testing.T) {
 	m.InvitationCredits = 3
 	require.NoError(t, k.Member.Set(ctx, challenger.String(), m))
 	invitee := sdk.AccAddress([]byte("repe06-invitee------"))
-	invID, err := k.CreateInvitation(ctx, challenger, invitee, math.NewInt(100_000_000), nil)
+	invID, err := k.CreateInvitation(ctx, challenger, invitee, k.RequiredInvitationStakeForTest(ctx, challenger), nil)
 	require.NoError(t, err)
 
 	require.NoError(t, k.ZeroMember(ctx, challenger, "test"))
@@ -246,7 +246,7 @@ func TestREPE07_MigratedInviterRevokes(t *testing.T) {
 	m.InvitationCredits = 2
 	require.NoError(t, k.Member.Set(ctx, oldAddr.String(), m))
 	invitee := sdk.AccAddress([]byte("repe07-invitee------"))
-	invID, err := k.CreateInvitation(ctx, oldAddr, invitee, math.NewInt(100_000_000), nil)
+	invID, err := k.CreateInvitation(ctx, oldAddr, invitee, k.RequiredInvitationStakeForTest(ctx, oldAddr), nil)
 	require.NoError(t, err)
 
 	// Migrate old -> new (the record moves, the invitation stays under old).

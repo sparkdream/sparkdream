@@ -340,11 +340,15 @@ func (k Keeper) sweepSystemReportDedup(ctx context.Context, params types.Params,
 	// Keys sort by eligible height first, so the walk stops at the first
 	// entry not yet due.
 	var due []collections.Triple[int64, string, []byte]
+	scanned := 0
 	err := k.SystemReportDedupExpiry.Walk(ctx, nil, func(key collections.Triple[int64, string, []byte]) (bool, error) {
-		if key.K1() > currentHeight || len(due) >= limit {
+		if key.K1() > currentHeight || len(due) >= limit || scanned >= sweepScanCap(limit) {
 			return true, nil
 		}
-		due = append(due, key)
+		scanned++
+		if !k.isSweepParked(ctx, sweepSystemReportDedupName, dueItem(key.K1(), dedupItem(key.K2(), key.K3())), currentHeight) {
+			due = append(due, key)
+		}
 		return false, nil
 	})
 	if err != nil {
@@ -352,7 +356,7 @@ func (k Keeper) sweepSystemReportDedup(ctx context.Context, params types.Params,
 	}
 	processed := 0
 	for _, key := range due {
-		if k.runIsolated(ctx, "system_report_dedup", func(ctx context.Context) (bool, error) {
+		if k.runIsolated(ctx, sweepSystemReportDedupName, dueItem(key.K1(), dedupItem(key.K2(), key.K3())), func(ctx context.Context) (bool, error) {
 			if err := k.SystemReportDedupExpiry.Remove(ctx, key); err != nil {
 				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Remove failed", "err", err)
 			}

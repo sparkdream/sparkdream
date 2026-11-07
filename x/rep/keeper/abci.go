@@ -10,17 +10,31 @@ import (
 
 const maxTagExpirations = 50
 
-// BeginBlocker tops up the bonded-role reward pools from the community pool.
+// BeginBlocker tops up the bonded-role reward pools from the community pool
+// and draws the jury seats queued by earlier blocks.
 //
-// BeginBlock rather than EndBlock so a pool is funded before the same block's
-// reward distribution reads its balance — funding that landed one block late
-// would silently shrink the epoch payout it was meant to cover.
+// Funding runs in BeginBlock rather than EndBlock so a pool is funded before
+// the same block's reward distribution reads its balance — funding that
+// landed one block late would silently shrink the epoch payout it was meant
+// to cover.
 //
-// A funding failure must never halt the chain, so FundRoleRewardPools swallows
-// its own recoverable errors and anything that escapes is logged, not returned.
+// The draw runs in BeginBlock so it sees only state fixed before its seed
+// was knowable. x/shield's PreBlocker rebuilds a beacon value from the
+// previous block's vote extensions, which anyone can read before this
+// block's transactions are chosen; drawn in the EndBlocker, a proposer who
+// computed the outcome could include transactions that change the juror
+// pool or its weights and move who is seated. Here the pool is the state at
+// the end of the previous block, settled before any validator signed the
+// shares.
+//
+// A failure must never halt the chain: both steps swallow their own
+// recoverable errors and anything that escapes is logged, not returned.
 func (k Keeper) BeginBlocker(ctx context.Context) error {
 	if err := k.FundRoleRewardPools(ctx); err != nil {
 		sdk.UnwrapSDKContext(ctx).Logger().Error("failed to fund role reward pools", "error", err)
+	}
+	if err := k.DrawPendingJuries(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("failed to draw pending jury seats", "error", err)
 	}
 	return nil
 }
@@ -95,15 +109,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to sweep unanswered jury seats", "error", err)
 	}
 
-	// 6b'. Draw every seat queued this block: new reviews, declined seats and
-	// the seats the sweep above just vacated. Drawing here rather than in
-	// the transaction that asked for the seats keeps the draw out of the
-	// hands of the party who sent it (REP-R-102); the seed is the hash of
-	// this block. Seats queued by a module whose EndBlocker runs after this
-	// one are drawn in the next block.
-	if err := k.DrawPendingJuries(ctx); err != nil {
-		sdkCtx.Logger().Error("failed to draw pending jury seats", "error", err)
-	}
+	// 6b'. Seats queued this block (new reviews, declined seats, the seats
+	// the sweep above just vacated) are drawn in the next BeginBlocker, never
+	// in the transaction that asked for them (REP-R-102); see BeginBlocker.
 
 	// 6c. Escalate review rounds nobody finished. With the staker veto retired,
 	// reviewers are the quality gate — so if nobody reviews, nothing completes.

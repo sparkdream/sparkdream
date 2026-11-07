@@ -66,6 +66,12 @@ type Keeper struct {
 	// review. Maintained by SetDispute; the BeginBlocker dismisses the ones
 	// past the review window (NAM-102, NAM-201).
 	ReviewDisputes collections.KeySet[collections.Pair[int64, string]]
+	// ParkedReviewDisputes: (RetryAt, FiledAtHeight, Name) for review
+	// disputes whose dismissal failed, and its reverse ParkedReviewDisputeAt:
+	// (FiledAtHeight, Name) -> RetryAt. Not exported: an imported dispute is
+	// simply tried once more (review_dispute_parking.go).
+	ParkedReviewDisputes  collections.KeySet[collections.Triple[int64, int64, string]]
+	ParkedReviewDisputeAt collections.Map[collections.Pair[int64, string], int64]
 	// late holds the keepers wired after depinject (app.go Set*Keeper).
 	// It is a pointer so the AppModule's value copy of the keeper sees
 	// them too (docs/development-conventions.md, AppModule value-copy bug).
@@ -146,6 +152,10 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
 		ReviewDisputes: collections.NewKeySet(sb, types.KeyReviewDisputes, "review_disputes",
 			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
+		ParkedReviewDisputes: collections.NewKeySet(sb, types.KeyParkedReviewDisputes, "parked_review_disputes",
+			collections.TripleKeyCodec(collections.Int64Key, collections.Int64Key, collections.StringKey)),
+		ParkedReviewDisputeAt: collections.NewMap(sb, types.KeyParkedReviewDisputeAt, "parked_review_dispute_at",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey), collections.Int64Value),
 	}
 
 	schema, err := sb.Build()

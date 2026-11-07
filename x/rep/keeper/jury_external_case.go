@@ -25,7 +25,7 @@ func isExternalJuryCase(review types.JuryReview) bool {
 
 // CreateSeatedAppeal opens a jury case for another module and queues its jury
 // draw, the way gov-action appeals and migration objections do; the jurors
-// are seated by DrawPendingJuries at the end of the block (REP-R-102).
+// are seated by DrawPendingJuries in the next BeginBlocker (REP-R-102).
 // CreateAppealInitiative alone writes a review with no jurors that nothing
 // ever tallies, so a case opened that way can never reach a verdict.
 //

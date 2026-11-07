@@ -38,17 +38,29 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 //
 // Walks only the ReviewDisputes index, capped at MaxDisputesResolvedPerBlock;
 // each dismissal runs in a cache context and a failing one is logged and
-// retried next block.
+// parked for reviewDisputeRetryBlocks. The walk reads past parked disputes
+// (at most reviewDisputeScanFactor times the cap), so disputes whose
+// dismissal keeps failing cannot fill every block's batch and freeze every
+// overdue dispute behind them.
 func (k Keeper) processUnreviewedDisputes(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	height := sdkCtx.BlockHeight()
+	if err := k.pruneParkedReviewDisputes(ctx, height); err != nil {
+		sdkCtx.Logger().Error("processUnreviewedDisputes: pruning parked disputes failed", "err", err)
+	}
 	timeout := commontypes.Saturate[int64](k.GetParams(ctx).DisputeTimeoutBlocks)
 	// Due: currentHeight > filed_at + 2*timeout.
 	rng := new(collections.Range[collections.Pair[int64, string]]).
-		EndExclusive(collections.Join(sdkCtx.BlockHeight()-2*timeout, ""))
+		EndExclusive(collections.Join(height-2*timeout, ""))
 	var due []collections.Pair[int64, string]
+	scanned := 0
 	if err := k.ReviewDisputes.Walk(ctx, rng, func(key collections.Pair[int64, string]) (bool, error) {
-		due = append(due, key)
-		return len(due) >= MaxDisputesResolvedPerBlock, nil
+		scanned++
+		if !k.reviewDisputeParked(ctx, key, height) {
+			due = append(due, key)
+		}
+		return len(due) >= MaxDisputesResolvedPerBlock ||
+			scanned >= MaxDisputesResolvedPerBlock*reviewDisputeScanFactor, nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate disputes awaiting review: %w", err)
 	}
@@ -59,14 +71,17 @@ func (k Keeper) processUnreviewedDisputes(ctx context.Context) error {
 			if err := k.ReviewDisputes.Remove(ctx, key); err != nil {
 				sdkCtx.Logger().Error("processUnreviewedDisputes: ReviewDisputes.Remove failed", "err", err)
 			}
+			k.unparkReviewDispute(ctx, key)
 			continue
 		}
 		cacheCtx, write := sdkCtx.CacheContext()
 		if err := k.resolveDisputeInternal(cacheCtx, dispute, false); err != nil {
-			sdkCtx.Logger().Error("failed to dismiss unreviewed dispute", "name", dispute.Name, "error", err)
+			sdkCtx.Logger().Error("failed to dismiss unreviewed dispute; parked", "name", dispute.Name, "error", err)
+			k.parkReviewDispute(ctx, key, height)
 			continue
 		}
 		write()
+		k.unparkReviewDispute(ctx, key)
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"name_dispute_review_expired",
 			sdk.NewAttribute("name", dispute.Name),

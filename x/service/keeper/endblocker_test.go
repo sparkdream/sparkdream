@@ -11,6 +11,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/service/keeper"
 	"sparkdream/x/service/types"
 )
 
@@ -161,6 +162,52 @@ func TestEndBlocker_EscalatedUpheldVerdictApplied(t *testing.T) {
 	require.False(t, has)
 }
 
+// An upheld verdict with nothing left to apply it to (the operator is gone,
+// so there is no bond to slash) times the report out instead of failing
+// every block with the report ESCALATED and the deposit held.
+func TestEndBlocker_EscalatedUpheldVerdictUnappliableTimesOut(t *testing.T) {
+	f := initFixture(t)
+	reportID := f.seedEscalatedReport(t, 200)
+	require.NoError(t, f.keeper.Operators.Remove(f.ctx, collections.Join(testOperator1Addr.Bytes(), testServiceType)))
+
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxEscalatedBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	r, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_TIMEOUT, r.Status)
+	has, err := f.keeper.EscalatedReportsQueue.Has(f.ctx, collections.Join(r.EscalatedAt, reportID))
+	require.NoError(t, err)
+	require.False(t, has)
+}
+
+// Any other failure applying an upheld verdict keeps the verdict: the report
+// is parked and retried, never timed out with the slash dropped while the
+// operator still holds its bond.
+func TestEndBlocker_EscalatedUpheldVerdictFailureKeepsVerdict(t *testing.T) {
+	f := initFixture(t)
+	reportID := f.seedEscalatedReport(t, 200)
+	cfg, err := f.keeper.ServiceTypes.Get(f.ctx, testServiceType)
+	require.NoError(t, err)
+	require.NoError(t, f.keeper.ServiceTypes.Remove(f.ctx, testServiceType))
+
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxEscalatedBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	r, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_ESCALATED, r.Status, "not timed out")
+
+	// Once the type is back, the parked report is retried and slashed.
+	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, testServiceType, cfg))
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + keeper.SweepRetryBlocksForTest)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	r, err = f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_RESOLVED_T2, r.Status)
+}
+
 // SVC-105: a record whose processing fails is logged and skipped, stays
 // queued, and does not stop the EndBlocker or the other records.
 func TestEndBlocker_FailingItemIsSkippedNotFatal(t *testing.T) {
@@ -181,12 +228,110 @@ func TestEndBlocker_FailingItemIsSkippedNotFatal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status)
 
-	// once the bank recovers, the queued record is processed
+	// The failed record is parked: the bank recovering does not bring it
+	// back before its retry height, so it cannot hold the queue's head.
 	f.bankKeeper.SendCoinsFromModuleToAccountFn = nil
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	r, err = f.keeper.Reports.Get(f.ctx, failing)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status, "parked until its retry height")
+
+	// At the retry height it is processed and its park dropped.
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + keeper.SweepRetryBlocksForTest)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
 	r, err = f.keeper.Reports.Get(f.ctx, failing)
 	require.NoError(t, err)
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, r.Status)
+	n := 0
+	require.NoError(t, f.keeper.SweepParked.Walk(f.ctx, nil, func(collections.Triple[int64, string, string]) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n, "no park left behind")
+}
+
+// A park whose record left its queue another way (here the report is
+// removed from the queue as a resolver would) is dropped by the
+// expired-park pass once its retry height comes, instead of staying in
+// state for good.
+func TestEndBlocker_ExpiredParkIsPruned(t *testing.T) {
+	f := initFixture(t)
+	f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
+	reportID := f.seedPendingReport(t)
+	report, err := f.keeper.Reports.Get(f.ctx, reportID)
+	require.NoError(t, err)
+
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(context.Context, string, sdk.AccAddress, sdk.Coins) error {
+		return types.ErrInvalidVerdict.Wrap("bank down")
+	}
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxPendingBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	parks := func() int {
+		n := 0
+		require.NoError(t, f.keeper.SweepParked.Walk(f.ctx, nil, func(collections.Triple[int64, string, string]) (bool, error) {
+			n++
+			return false, nil
+		}))
+		return n
+	}
+	require.Equal(t, 1, parks(), "the failed report is parked")
+
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = nil
+	require.NoError(t, f.keeper.PendingReportsQueue.Remove(f.ctx, collections.Join(report.FiledAt, reportID)))
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + keeper.SweepRetryBlocksForTest)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	require.Zero(t, parks(), "the expired park is pruned")
+	n := 0
+	require.NoError(t, f.keeper.SweepParkedAt.Walk(f.ctx, nil, func(collections.Pair[string, string], int64) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n, "and its reverse entry")
+}
+
+// A parked failing record does not hold the head of its queue: with the
+// batch limit at 1, the record behind a failing one is processed in the
+// next block instead of waiting behind it.
+func TestEndBlocker_ParkedItemDoesNotBlockQueue(t *testing.T) {
+	f := initFixture(t)
+	f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
+	failing := f.seedPendingReport(t)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + 1)
+	behind := f.seedPendingReport(t)
+	require.Less(t, failing, behind)
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.EndblockerSweepLimit = 1
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	// Only the first report's refund fails: give it its own reporter.
+	failingReport, err := f.keeper.Reports.Get(f.ctx, failing)
+	require.NoError(t, err)
+	failingReport.Reporter = testController
+	require.NoError(t, f.keeper.Reports.Set(f.ctx, failing, failingReport))
+	reporter := failingReport.Reporter
+	f.bankKeeper.SendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, to sdk.AccAddress, _ sdk.Coins) error {
+		if to.String() == reporter {
+			return types.ErrInvalidVerdict.Wrap("refund to this reporter fails")
+		}
+		return nil
+	}
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxPendingBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx)) // the failing one is tried and parked
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx)) // the next one gets the slot
+
+	r, err := f.keeper.Reports.Get(f.ctx, failing)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status)
+	r, err = f.keeper.Reports.Get(f.ctx, behind)
+	require.NoError(t, err)
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, r.Status, "processed past the parked record")
 }
 
 // TestEndBlocker_Tier1EscrowReleaseToCommunityPool simulates an expired
@@ -457,10 +602,11 @@ func TestEndBlocker_PanickingItemIsSkippedNotFatal(t *testing.T) {
 	require.Equal(t, types.ReportStatus_REPORT_STATUS_PENDING, r.Status, "the panicking item rolled back")
 
 	f.bankKeeper.SendCoinsFromModuleToAccountFn = nil
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + keeper.SweepRetryBlocksForTest)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
 	r, err = f.keeper.Reports.Get(f.ctx, stuck)
 	require.NoError(t, err)
-	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, r.Status, "retried once the panic is gone")
+	require.Equal(t, types.ReportStatus_REPORT_STATUS_AUTO_DISMISSED, r.Status, "retried once the panic is gone, after its park")
 }
 
 // SVC-202: out-of-gas is the block gas meter's decision and is re-raised,

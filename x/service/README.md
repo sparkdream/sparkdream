@@ -131,13 +131,17 @@ Stranded operators (controller Group dissolved or empty) recover via `MsgOpenCon
 
 ## EndBlocker
 
-Five sweeps, gas-bounded by `endblocker_sweep_limit`:
+Seven sweeps, gas-bounded by `endblocker_sweep_limit`:
 
 1. **Underfunded sweep** — force-unbond operators whose grace window expired.
 2. **Pending report auto-action** — DISMISS or ESCALATE based on per-type `report_timeout_action`.
 3. **Escalated report auto-timeout** — REJECT-equivalent if no jury verdict within `max_escalated_blocks`; release contested-T1 escrow back to bond.
 4. **Tier-1 escrow release** — move uncontested escrowed slashes to community pool after `report_contest_window_blocks`.
 5. **Checkpoint liveness** — for types with `checkpoint_max_lag_blocks > 0`, file a system report (reporter: x/service) against an ACTIVE/UNDERFUNDED operator whose checkpoint (or registration) height trails the chain by more than the lag; at most once per lag window.
+6. **System-report dedup pruning** — drop dedup entries whose retention elapsed.
+7. **Expired-park pruning** — drop failure parks whose retry height has come.
+
+Each record runs in its own cache context; a failing (or panicking) one is rolled back, logged and **parked** for 100 blocks (`SweepParked` / `SweepParkedAt`, not exported), and the sweeps read past parked entries (at most `endblocker_sweep_limit * 10` per block), so records that keep failing cannot starve the ones queued behind them. An ESCALATED report whose upheld verdict has nothing left to apply to (operator gone) times out instead of retrying forever; any other failure applying the verdict is parked and retried.
 
 `ServiceTypeConfig` also carries the client-read attestation knobs `attestation_quorum` and `elevated_attestation_quorum` (how many independent operators must agree; the elevated value applies to low-trust sources).
 
@@ -163,7 +167,7 @@ Init order: x/commons → x/service → x/federation.
 | `x/auth` | Forward-derive auth for `OpenSystemReport` |
 | `x/bank` | Bond escrow, slash transfers |
 | `x/commons` | `IsGroupAddress`, controller validation |
-| `x/rep` | Jury via `CreateSeatedAppeal` (jury seated at open, parties excluded, voting deadline at half of `max_escalated_blocks`), `service-operator` reputation tag |
+| `x/rep` | Jury via `CreateSeatedAppeal` (jury drawn in x/rep's next BeginBlocker, parties excluded, voting deadline at half of `max_escalated_blocks`), `service-operator` reputation tag |
 | `x/distribution` | Community pool deposit for finalized slashes |
 | `x/session` | Operator key delegation |
 

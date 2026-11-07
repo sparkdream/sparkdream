@@ -258,6 +258,8 @@ type MockRepKeeper struct {
 	// Gone holds zeroed addresses: their locks no longer exist, so an
 	// unlock fails with ErrInsufficientStake, as in x/rep.
 	Gone map[string]bool
+	// BurnFailFor makes BurnDREAM fail for these addresses only.
+	BurnFailFor map[string]bool
 }
 
 func NewMockRepKeeper() *MockRepKeeper {
@@ -345,6 +347,9 @@ func (m *MockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amou
 		return m.burnErr
 	}
 	key := addr.String()
+	if m.BurnFailFor[key] {
+		return fmt.Errorf("burn refused for %s", key)
+	}
 	current, ok := m.BurnedDREAM[key]
 	if !ok {
 		current = math.ZeroInt()
