@@ -508,6 +508,7 @@
       },
       "policy_permissions_map": [],
       "policy_versions": [],
+      "poll_open_counts": [],
       "poll_voter_trees": [],
       "poll_votes": [],
       "polls": [],
@@ -700,6 +701,7 @@
       "promotion_queue": [],
       "proposal_count_map": [],
       "sentinel_activity_map": [],
+      "tag_prune_queue": [],
       "thread_follow_count_map": [],
       "thread_follow_map": [],
       "thread_lock_record_map": [],
@@ -1283,7 +1285,6 @@
         },
         "author_bond_slash_on_moderation": true,
         "budget_review_threshold": "5000000000",
-        "max_proposed_projects_per_creator": 3,
         "challenge_response_deadline_epochs": "2",
         "challenger_reward_rate": "0.200000000000000000",
         "completer_share": "0.900000000000000000",
@@ -1351,6 +1352,7 @@
         "max_key_migrations_per_window": 2,
         "max_project_requested_budget": "1000000000000",
         "max_project_requested_spark": "100000000000",
+        "max_proposed_projects_per_creator": 3,
         "max_reputation_gain_per_epoch": "50.000000000000000000",
         "max_review_rounds": 3,
         "max_reviewer_reward_pool": "150000000000",
@@ -1468,6 +1470,7 @@
         "verifier_reward_pool_overflow_burn_ratio": "0.500000000000000000",
         "zk_key_activation_delay": "14"
       },
+      "pending_jury_draw_list": [],
       "project_count": "1",
       "project_list": [],
       "project_stake_info_list": [],
@@ -1786,7 +1789,7 @@
         "max_guild_members": 100,
         "max_guild_officers": 5,
         "max_guilds_per_season": 3,
-        "max_nominations_per_member": 5,
+        "max_nominations_per_member": "5",
         "max_objective_description_length": 200,
         "max_pending_invites": 20,
         "max_quest_objectives": 5,
@@ -1840,6 +1843,7 @@
         "theme": "The Beginning",
         "total_extension_epochs": 0
       },
+      "season_history_list": [],
       "season_snapshot_map": [],
       "season_stats_counters_list": [],
       "season_title_eligibility_map": [],
@@ -1978,6 +1982,7 @@
     },
     "session": {
       "active_grant_counts": [],
+      "allowed_granters": [],
       "epoch_spends": [],
       "grant_creators": [],
       "grant_seq": "0",
@@ -2172,7 +2177,8 @@
         "oneshot_gas_price": "0.0025",
         "paused_oneshot_ttl_seconds": "604800",
         "pending_grant_deposit": "1000000"
-      }
+      },
+      "pending_grant_deposits": []
     },
     "shield": {
       "day_fundings": [],
@@ -2200,6 +2206,7 @@
         "epoch": "0",
         "paid": "0"
       },
+      "identity_epoch_fees": [],
       "identity_rate_limits": [],
       "next_pending_op_id": "0",
       "params": {
