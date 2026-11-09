@@ -108,7 +108,7 @@ FOUNDERS = [
      "spark":  "450000000000", "dream": "2500000000",
      "trust_level": "TRUST_LEVEL_ESTABLISHED", "invitation_credits":  5,
      "display_name": "Houri",            "username": "houri"},
-    {"address": "sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu", "name": "gilda",
+    {"address": "sprkdrm1a7qwr6cvu5s37g6n23668rd9kmnq387h58aw5t", "name": "gilda",
      "spark":  "450000000000", "dream": "2500000000",
      "trust_level": "TRUST_LEVEL_ESTABLISHED", "invitation_credits":  5,
      "display_name": "Gilda",            "username": "gilda"},

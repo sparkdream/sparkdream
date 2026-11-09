@@ -15,7 +15,7 @@ var GenesisNames = map[string]string{
 	"sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge": "Uyen",
 	"sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9": "N/A",
 	"sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak": "Houri",
-	"sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu": "Gilda",
+	"sprkdrm1a7qwr6cvu5s37g6n23668rd9kmnq387h58aw5t": "Gilda",
 	"sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs": "N/A",
 }
 
@@ -32,7 +32,7 @@ var GenesisHandles = map[string][]string{
 	"sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8": {"viorika", "viorika_art"},
 	"sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge": {"uyen", "uyentrangjerde", "utgdeergirl"},
 	"sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak": {"houri", "hourinaeimi"},
-	"sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu": {"gilda", "atefatg"},
+	"sprkdrm1a7qwr6cvu5s37g6n23668rd9kmnq387h58aw5t": {"gilda", "atefatg"},
 	// N/A founders intentionally omitted; can be added by chain upgrade.
 }
 

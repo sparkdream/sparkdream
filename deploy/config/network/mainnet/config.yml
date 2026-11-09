@@ -31,7 +31,7 @@ accounts:
   address: sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak
   coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 - name: gilda
-  address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu
+  address: sprkdrm1a7qwr6cvu5s37g6n23668rd9kmnq387h58aw5t
   coins: [450000000000uspark.sparkdream]   # 450,000 SPARK
 # Tier 4 (Anon)
 - name: anon1
@@ -259,7 +259,7 @@ genesis:
         jury_duties_completed: 0
         votes_cast: 0
         forum_helpful_count: 0
-      - address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu  # Gilda
+      - address: sprkdrm1a7qwr6cvu5s37g6n23668rd9kmnq387h58aw5t  # Gilda
         display_name: "Gilda"
         username: "gilda"
         display_title: ""
@@ -469,7 +469,7 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      - address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu  # Gilda
+      - address: sprkdrm1a7qwr6cvu5s37g6n23668rd9kmnq387h58aw5t  # Gilda
         content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
