@@ -147,6 +147,20 @@ func (l *ChainList) Sorted() []keyedChain {
 	return out
 }
 
+// defaultChain returns the key of the chain the login page preselects: the
+// one whose chain id (or key) is want, else the first of the sorted list.
+func defaultChain(sorted []keyedChain, want string) string {
+	if len(sorted) == 0 {
+		return ""
+	}
+	for _, c := range sorted {
+		if want != "" && (c.ChainID == want || c.ID == want) {
+			return c.ID
+		}
+	}
+	return sorted[0].ID
+}
+
 type keyedChain struct {
 	ID string `json:"id"`
 	Chain

@@ -234,11 +234,12 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	err := pageTmpl.Execute(w, map[string]any{
 		"Host": hostOf(s.cfg.RedirectURI),
 		"Page": map[string]any{
-			"request":     id,
-			"challenge":   req.challenge,
-			"chains":      chains,
-			"verifyUrl":   s.cfg.Issuer + "/authorize/verify",
-			"accountsUrl": s.cfg.Issuer + "/authorize/accounts",
+			"request":      id,
+			"challenge":    req.challenge,
+			"chains":       chains,
+			"defaultChain": defaultChain(chains, s.cfg.DefaultChain),
+			"verifyUrl":    s.cfg.Issuer + "/authorize/verify",
+			"accountsUrl":  s.cfg.Issuer + "/authorize/accounts",
 		},
 	})
 	if err != nil {

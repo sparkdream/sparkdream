@@ -20,7 +20,10 @@
 //
 // The chain list is not configured here: the launcher stores it in the
 // instance (mastodon-bootstrap login-chain sync) and the instance serves it
-// at LOGIN_CHAINS_URL, re-read every LOGIN_REFRESH. /membership/{sub} answers
+// at LOGIN_CHAINS_URL, re-read every LOGIN_REFRESH. The page lists the chains
+// by name and preselects the one whose chain id is LOGIN_DEFAULT_CHAIN (the
+// testnet unless set), or the first when that chain is not linked.
+// /membership/{sub} answers
 // the instance's hourly sweep, which disables the login of accounts that are
 // no longer members.
 //
@@ -64,6 +67,7 @@ type Config struct {
 	Listen       string        // LOGIN_LISTEN (default ":8080")
 	EmailDomain  string        // LOGIN_EMAIL_DOMAIN: placeholder email domain (default "wallet.invalid")
 	Refresh      time.Duration // LOGIN_REFRESH: chain list refresh (default 60s)
+	DefaultChain string        // LOGIN_DEFAULT_CHAIN: chain id preselected on the login page (default "sparkdream-test-1")
 }
 
 func loadConfig() Config {
@@ -77,6 +81,7 @@ func loadConfig() Config {
 		Listen:       env("LOGIN_LISTEN", ":8080"),
 		EmailDomain:  env("LOGIN_EMAIL_DOMAIN", "wallet.invalid"),
 		Refresh:      envDuration("LOGIN_REFRESH", 60*time.Second),
+		DefaultChain: env("LOGIN_DEFAULT_CHAIN", "sparkdream-test-1"),
 	}
 }
 

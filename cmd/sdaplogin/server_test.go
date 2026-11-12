@@ -642,3 +642,26 @@ func TestChainListRefresh(t *testing.T) {
 		t.Fatal("a failed fetch dropped the cached list")
 	}
 }
+
+func TestDefaultChain(t *testing.T) {
+	l := NewChainList("unused", http.DefaultClient)
+	l.chains = map[string]Chain{
+		"fleet-dev":  {ChainID: "sparkdream-dev-1", ChainName: "Spark Dream Devnet"},
+		"fleet-test": {ChainID: "sparkdream-test-1", ChainName: "Spark Dream Testnet"},
+	}
+	sorted := l.Sorted()
+	for want, got := range map[string]string{
+		"sparkdream-test-1": "fleet-test", // by chain id
+		"fleet-test":        "fleet-test", // by key
+		"sparkdream-dev-1":  "fleet-dev",
+		"aurora-1":          "fleet-dev", // not linked: first by name
+		"":                  "fleet-dev",
+	} {
+		if d := defaultChain(sorted, want); d != got {
+			t.Errorf("defaultChain(%q) = %q, want %q", want, d, got)
+		}
+	}
+	if d := defaultChain(nil, "sparkdream-test-1"); d != "" {
+		t.Errorf("no chains: %q", d)
+	}
+}

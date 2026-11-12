@@ -61,6 +61,7 @@
       opt.textContent = c.chainName || c.chainId;
       select.appendChild(opt);
     });
+    if (page.defaultChain) select.value = page.defaultChain;
     if (page.chains.length === 1) select.disabled = true;
 
     function say(msg, isError) {
