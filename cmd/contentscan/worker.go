@@ -43,7 +43,10 @@ type Worker struct {
 
 	// done maps a subject key to when its verdict stops counting (zero:
 	// never; a body version or content-addressed reference is immutable).
-	done           map[string]time.Time
+	done map[string]time.Time
+	// skip maps a subject key to when it may be tried again, for subjects
+	// whose media the classifier cannot check. In memory only.
+	skip           map[string]time.Time
 	lastCheckpoint int64
 }
 
@@ -123,6 +126,11 @@ func (w *Worker) isDone(s subject) bool {
 	return true
 }
 
+// unsupportedRetry is how long a subject whose media the classifier cannot
+// check is left alone before it is fetched again (a URL may serve something
+// else by then, and an upgraded worker may support more).
+const unsupportedRetry = 6 * time.Hour
+
 // latestHeight reads the chain's latest block height.
 func (w *Worker) latestHeight(ctx context.Context) (int64, error) {
 	var out struct {
@@ -153,13 +161,24 @@ func (w *Worker) poll(ctx context.Context) error {
 	for len(queue) > 0 {
 		s := queue[0]
 		queue = queue[1:]
-		if w.isDone(s) {
+		if w.isDone(s) || w.now().Before(w.skip[s.key()]) {
 			continue
 		}
 		a, extra, err := w.judge(ctx, s, height)
 		queue = append(queue, extra...)
 		if errors.Is(err, contentscan.ErrNoClassifier) {
 			continue // stays unchecked: no clean verdict without a classifier
+		}
+		if errors.Is(err, contentscan.ErrUnsupportedMedia) {
+			// Stays unchecked too. The bytes will not become checkable by
+			// asking again, so leave the subject alone for a while instead
+			// of fetching it on every poll.
+			log.Printf("contentscan: %s %s: %v", s.kind, firstNonEmpty(s.record, s.uri), err)
+			if w.skip == nil {
+				w.skip = map[string]time.Time{}
+			}
+			w.skip[s.key()] = w.now().Add(unsupportedRetry)
+			continue
 		}
 		if err != nil {
 			log.Printf("contentscan: %s %s: %v", s.kind, firstNonEmpty(s.record, s.uri), err)
@@ -309,9 +328,15 @@ func (w *Worker) judge(ctx context.Context, s subject, height int64) (contentsca
 
 // blobsOf turns fetched bytes into blobs: the bytes themselves, plus any data
 // URIs inside them when they are text. It fails like ExtractDataURIsStrict
-// when a data URI in the text can't be decoded.
+// when a data URI in the text can't be decoded. An SVG document is named as
+// one, so that Judge refuses it instead of passing it over as text: whether a
+// browser draws these bytes depends on the host's content type, which may be
+// image/svg+xml whatever a sniffer makes of them.
 func blobsOf(data []byte, maxBytes int64) ([]contentscan.Blob, error) {
 	mt := http.DetectContentType(data)
+	if contentscan.IsSVG(data) {
+		mt = contentscan.SVGMediaType
+	}
 	blobs := []contentscan.Blob{{Data: data, MediaType: mt, Source: "fetch"}}
 	if !contentscan.IsMedia(mt) {
 		inner, err := contentscan.ExtractDataURIsStrict(data, maxBytes)

@@ -17,7 +17,11 @@
 # and publish its CS_FEED_DIR (e.g. /data/feed) with any static host, or
 # set CS_LISTEN (e.g. :8080) to have the worker serve it itself. It keeps
 # fetched media in memory only; its private state goes to CS_STATE_FILE on
-# /data, outside the feed directory.
+# /data, outside the feed directory. The image carries the worker's
+# image-safety model (deploy/docker/sdap/image-safety-model.txt: weights
+# fetched at build time and checked against a pinned sha256) and points
+# CS_IMAGE_MODEL at it, so images are classified in-process with no model
+# server. Unset CS_IMAGE_MODEL, or set CS_CLASSIFIER_URL, to turn that off.
 #
 # All four are configured purely by env (see cmd/sdapbridge/config.go,
 # cmd/sdapverify/main.go, cmd/sdaplogin/main.go and cmd/contentscan/main.go). None depends on a
@@ -51,10 +55,20 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/sdapbridge ./cmd/sdapbridge \
 FROM alpine
 RUN apk add --no-cache ca-certificates su-exec \
  && adduser -D -u 10001 sdap \
- && mkdir -p /data \
+ && mkdir -p /data /usr/share/contentscan \
  && chown sdap /data
 COPY --from=build /out/sdapbridge /out/sdapverify /out/sdaplogin /out/contentscan /usr/local/bin/
 COPY deploy/docker/sdap/sdap-entry.sh /usr/local/bin/sdap-entry
+# The pinned image-safety weights (tools/contentscan/vision PinnedWeights).
+# BuildKit refuses the layer if the download does not match the checksum.
+# Its directory is made above, not by this ADD: --chmod also sets the mode of
+# every directory the ADD creates, and a 644 directory cannot be entered, so
+# the worker (which runs as sdap) died at boot with "permission denied".
+ADD --checksum=sha256:6bf2e0f64a1d20169736c2836e3a787b12379fdc08ba87f7d94a7a3d58eeefce --chmod=644 \
+    https://huggingface.co/Marqo/nsfw-image-detection-384/resolve/0c26ec22111b83f106d72a55f611ec35962bcb65/model.safetensors \
+    /usr/share/contentscan/image-safety.safetensors
+COPY deploy/docker/sdap/image-safety-model.txt /usr/share/contentscan/
+ENV CS_IMAGE_MODEL=/usr/share/contentscan/image-safety.safetensors
 WORKDIR /data
 ENV SDA_STATE=/data/sdapbridge-state.json
 ENTRYPOINT ["sdap-entry"]

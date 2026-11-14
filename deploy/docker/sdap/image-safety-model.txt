@@ -1,0 +1,13 @@
+Image-safety model shipped with contentscan
+===========================================
+
+File:     /usr/share/contentscan/image-safety.safetensors
+Model:    Marqo/nsfw-image-detection-384 (a ViT-tiny/16 at 384x384, classes NSFW and SFW)
+Source:   https://huggingface.co/Marqo/nsfw-image-detection-384
+Revision: 0c26ec22111b83f106d72a55f611ec35962bcb65 (model.safetensors, unmodified)
+sha256:   6bf2e0f64a1d20169736c2836e3a787b12379fdc08ba87f7d94a7a3d58eeefce
+License:  Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
+
+contentscan runs it in-process (tools/contentscan/vision in the chain
+repository) and publishes the sha256 above as models["image-safety"] in its
+verdicts. It scores sexual content only. See docs/content-scanning.md.

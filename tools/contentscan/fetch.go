@@ -149,6 +149,14 @@ func checkScheme(u *url.URL, allowPrivate bool) error {
 	return fmt.Errorf("contentscan: refusing scheme %q", u.Scheme)
 }
 
+// UserAgent is what the scanner calls itself when it fetches. Go's default
+// ("Go-http-client/2.0") is refused outright by common CDN bot rules, so a
+// worker using it gets 403 for files any browser can load. The name is
+// honest rather than a browser's: a host that serves the scanner different
+// bytes gains nothing, since a client only shows bytes whose hash matches
+// the verdict (docs/content-scanning.md §6).
+const UserAgent = "sparkdream-contentscan/1.0"
+
 // Fetch GETs rawURL into memory under the limits.
 func Fetch(ctx context.Context, client *http.Client, rawURL string, l FetchLimits) ([]byte, error) {
 	u, err := url.Parse(rawURL)
@@ -162,6 +170,8 @@ func Fetch(ctx context.Context, client *http.Client, rawURL string, l FetchLimit
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("Accept", "*/*")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

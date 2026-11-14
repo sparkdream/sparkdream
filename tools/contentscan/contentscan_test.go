@@ -561,3 +561,63 @@ func TestSVGSniffAssumption(t *testing.T) {
 		t.Fatalf("media blobs %v, want the nested png only", media)
 	}
 }
+
+func TestIsSVG(t *testing.T) {
+	utf16le := func(s string) []byte {
+		out := []byte{0xff, 0xfe}
+		for _, r := range s {
+			out = append(out, byte(r), byte(r>>8))
+		}
+		return out
+	}
+	yes := map[string][]byte{
+		"bare":        []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
+		"declaration": []byte("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"><rect/></svg>"),
+		"doctype":     []byte("\xef\xbb\xbf \n<!-- zenith -->\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\" [<!ENTITY a \"b\">]>\n<svg width=\"8\">"),
+		"prefixed":    []byte(`<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:rect/></s:svg>`),
+		"utf-16":      utf16le(`<?xml version="1.0" encoding="UTF-16"?><svg xmlns="http://www.w3.org/2000/svg"/>`),
+		"truncated":   []byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0`),
+	}
+	for name, data := range yes {
+		if !IsSVG(data) {
+			t.Errorf("%s: not recognised as SVG", name)
+		}
+	}
+	no := map[string][]byte{
+		"empty":     nil,
+		"text":      []byte("a dream about <svg> elements"),
+		"html":      []byte(`<!doctype html><html><body><svg width="8"/></body></html>`),
+		"other xml": []byte(`<?xml version="1.0"?><feed><svg/></feed>`),
+		"json":      []byte(`{"svg":"<svg/>"}`),
+		"png":       []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRaurora"),
+	}
+	for name, data := range no {
+		if IsSVG(data) {
+			t.Errorf("%s: recognised as SVG", name)
+		}
+	}
+}
+
+// An SVG is never called clean, with or without a classifier, and whatever a
+// classifier would say about it. The hash lists still apply.
+func TestJudgeRefusesSVG(t *testing.T) {
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>`)
+	blob := Blob{Data: svg, MediaType: "image/svg+xml; charset=utf-8", Source: "fetch"}
+	for name, d := range map[string]Detector{
+		"no classifier": {},
+		"classifier":    {Classifier: noScores{}},
+	} {
+		if v, _, err := d.Judge(context.Background(), []Blob{blob}); !errors.Is(err, ErrUnsupportedMedia) {
+			t.Errorf("%s: verdict %q, err %v, want ErrUnsupportedMedia", name, v, err)
+		}
+	}
+	listed := Detector{Takedown: NewHashList(map[string]string{SHA256Hex(svg): CategorySexual})}
+	if v, c, err := listed.Judge(context.Background(), []Blob{blob}); err != nil || v != VerdictRemoved || c != CategorySexual {
+		t.Errorf("listed SVG: %q %q %v, want removed", v, c, err)
+	}
+}
+
+// noScores is a classifier that finds nothing in anything.
+type noScores struct{}
+
+func (noScores) Classify(context.Context, Blob) (map[string]float64, error) { return nil, nil }

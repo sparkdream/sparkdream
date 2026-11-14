@@ -33,10 +33,23 @@
 //	                      address (e.g. :8080), for hosts with no separate
 //	                      static server; the state and key files must lie
 //	                      outside CS_FEED_DIR
+//	CS_PRECHECK_TOKEN     shared secret that turns on POST /precheck on
+//	                      CS_LISTEN: an upload service posts image bytes
+//	                      with "Authorization: Bearer <token>" and gets the
+//	                      verdict this worker would give them, before it
+//	                      stores them. At least 32 characters.
+//	CS_PRECHECK_MAX_BYTES largest pre-check body (default 4 MiB)
 //	CS_STATE_FILE         private state file (default ./contentscan-state.json)
 //	CS_TAKEDOWN_LIST      takedown hash list (takedown-hashes.json or hex lines)
 //	CS_CANARY_LIST        council canary hash list (hex lines)
-//	CS_CLASSIFIER_URL     model server for media (POST bytes -> {"scores":{...}})
+//	CS_IMAGE_MODEL        weights file of the built-in image-safety model
+//	                      (tools/contentscan/vision); the reference image
+//	                      ships one and sets this. Its sha256 is published
+//	                      as models["image-safety"].
+//	CS_CLASSIFIER_URL     model server for media (POST bytes -> {"scores":{...}}),
+//	                      used instead of the built-in model when set
+//	CS_MAX_IMAGE_PIXELS   largest image the built-in model decodes
+//	                      (default 40000000)
 //	CS_RULESET_VERSION    ruleset version stamped into verdicts
 //	CS_MODELS             JSON object of model name -> weights hash
 //	CS_THRESHOLDS         JSON object of score thresholds (sexual, minor, violence, spam)
@@ -59,6 +72,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -69,6 +83,7 @@ import (
 
 	"sparkdream/internal/sdaptx"
 	"sparkdream/tools/contentscan"
+	"sparkdream/tools/contentscan/vision"
 )
 
 // Config is the worker configuration.
@@ -83,10 +98,14 @@ type Config struct {
 	FeedDir        string
 	FeedURL        string
 	Listen         string
+	PrecheckToken  string
+	PrecheckMax    int64
 	StateFile      string
 	TakedownList   string
 	CanaryList     string
 	ClassifierURL  string
+	ImageModel     string
+	MaxImagePixels int64
 	RulesetVersion string
 	Models         map[string]string
 	Thresholds     map[string]float64
@@ -150,10 +169,14 @@ func loadConfig() (Config, error) {
 		FeedDir:        env("CS_FEED_DIR", "feed"),
 		FeedURL:        os.Getenv("CS_FEED_URL"),
 		Listen:         os.Getenv("CS_LISTEN"),
+		PrecheckToken:  os.Getenv("CS_PRECHECK_TOKEN"),
+		PrecheckMax:    envInt("CS_PRECHECK_MAX_BYTES", 4<<20),
 		StateFile:      env("CS_STATE_FILE", "contentscan-state.json"),
 		TakedownList:   os.Getenv("CS_TAKEDOWN_LIST"),
 		CanaryList:     os.Getenv("CS_CANARY_LIST"),
 		ClassifierURL:  os.Getenv("CS_CLASSIFIER_URL"),
+		ImageModel:     os.Getenv("CS_IMAGE_MODEL"),
+		MaxImagePixels: envInt("CS_MAX_IMAGE_PIXELS", 0),
 		RulesetVersion: env("CS_RULESET_VERSION", "dev"),
 		Thresholds:     map[string]float64{"sexual": 0.8, "minor": 0.6, "violence": 0.9, "spam": 0.95},
 		Gateways: map[string]string{
@@ -229,6 +252,76 @@ func keygen(path string) error {
 	return nil
 }
 
+// loadClassifier picks the media classifier: a model server when
+// CS_CLASSIFIER_URL is set, else the built-in image model when
+// CS_IMAGE_MODEL is. The built-in model's weights hash is added to
+// cfg.Models, so it is stamped into verdicts and operator metadata. Nil
+// means media stays unchecked.
+func loadClassifier(cfg *Config) (contentscan.Classifier, error) {
+	if cfg.ClassifierURL != "" {
+		return contentscan.HTTPClassifier{URL: cfg.ClassifierURL}, nil
+	}
+	if cfg.ImageModel == "" {
+		return nil, nil
+	}
+	c, err := vision.Load(cfg.ImageModel)
+	if err != nil {
+		return nil, fmt.Errorf("CS_IMAGE_MODEL: %w", err)
+	}
+	c.Limits.MaxPixels = int(cfg.MaxImagePixels)
+	models := map[string]string{}
+	for k, v := range cfg.Models {
+		models[k] = v
+	}
+	models[vision.ModelName] = c.ModelHash()
+	if c.ModelHash() != "sha256:"+vision.PinnedWeights {
+		log.Printf("contentscan: CS_IMAGE_MODEL is not the reference weights (sha256:%s); workers with different weights can disagree", vision.PinnedWeights)
+	}
+	cfg.Models = models
+	return c, nil
+}
+
+// classifyFiles prints what the configured classifier and thresholds make of
+// local files: a dry run for operators, with no chain or feed involved.
+func classifyFiles(cfg Config, paths []string) error {
+	c, err := loadClassifier(&cfg)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errors.New("no classifier: set CS_IMAGE_MODEL or CS_CLASSIFIER_URL")
+	}
+	det := contentscan.Detector{
+		Classifier: c,
+		Ruleset:    contentscan.Ruleset{Version: cfg.RulesetVersion, Models: cfg.Models, Thresholds: cfg.Thresholds},
+	}
+	failed := false
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		blob := contentscan.Blob{Data: data, MediaType: "application/octet-stream", Source: "file"}
+		start := time.Now()
+		scores, err := c.Classify(context.Background(), blob)
+		if err != nil {
+			fmt.Printf("%s: no verdict: %v\n", p, err)
+			failed = true
+			continue
+		}
+		verdict, category, err := det.Judge(context.Background(), []contentscan.Blob{blob})
+		if err != nil {
+			return err
+		}
+		out, _ := json.Marshal(scores)
+		fmt.Printf("%s: %s %s scores=%s (%s)\n", p, verdict, category, out, time.Since(start).Round(time.Millisecond))
+	}
+	if failed {
+		return errors.New("some files got no verdict")
+	}
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC)
 	cfg, err := loadConfig()
@@ -246,9 +339,20 @@ func main() {
 				log.Fatalf("contentscan: %v", err)
 			}
 			return
+		case "classify":
+			if len(os.Args) < 3 {
+				log.Fatal("usage: contentscan classify <file>...")
+			}
+			if err := classifyFiles(cfg, os.Args[2:]); err != nil {
+				log.Fatalf("contentscan: %v", err)
+			}
+			return
 		case "metadata":
 			key, err := loadVerdictKey(cfg.VerdictKeyFile)
 			if err != nil {
+				log.Fatalf("contentscan: %v", err)
+			}
+			if _, err := loadClassifier(&cfg); err != nil {
 				log.Fatalf("contentscan: %v", err)
 			}
 			md, err := contentscan.OperatorMetadata{
@@ -272,6 +376,16 @@ func main() {
 			log.Fatalf("contentscan: %v", err)
 		}
 	}
+	if cfg.PrecheckToken != "" {
+		// A short token on a public port invites guessing, and without a
+		// listener the setting does nothing: both are mistakes worth a stop.
+		if len(cfg.PrecheckToken) < 32 {
+			log.Fatalf("contentscan: CS_PRECHECK_TOKEN must be at least 32 characters")
+		}
+		if cfg.Listen == "" {
+			log.Fatalf("contentscan: CS_PRECHECK_TOKEN needs CS_LISTEN")
+		}
+	}
 	w, err := newWorker(cfg)
 	if err != nil {
 		log.Fatalf("contentscan: %v", err)
@@ -279,7 +393,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if cfg.Listen != "" {
-		go serveFeed(ctx, cfg.Listen, cfg.FeedDir)
+		var precheck http.Handler
+		if cfg.PrecheckToken != "" {
+			precheck = precheckHandler(w.detector, cfg.PrecheckToken, cfg.PrecheckMax)
+			log.Printf("contentscan: pre-checks on %s%s", cfg.Listen, precheckPath)
+		}
+		go serveFeed(ctx, cfg.Listen, cfg.FeedDir, precheck)
 	}
 	log.Printf("contentscan: worker %s scanning %s every %s", w.operator, cfg.LCD, cfg.Poll)
 	for {
@@ -316,8 +435,13 @@ func newWorker(cfg Config) (*Worker, error) {
 	}
 	client := contentscan.NewFetchClient(limits)
 
+	classifier, err := loadClassifier(&cfg)
+	if err != nil {
+		return nil, err
+	}
 	det := contentscan.Detector{
-		Ruleset: contentscan.Ruleset{Version: cfg.RulesetVersion, Models: cfg.Models, Thresholds: cfg.Thresholds},
+		Classifier: classifier,
+		Ruleset:    contentscan.Ruleset{Version: cfg.RulesetVersion, Models: cfg.Models, Thresholds: cfg.Thresholds},
 	}
 	if cfg.TakedownList != "" {
 		if det.Takedown, err = contentscan.LoadHashList(cfg.TakedownList, contentscan.CategoryIllegal); err != nil {
@@ -329,10 +453,13 @@ func newWorker(cfg Config) (*Worker, error) {
 			return nil, fmt.Errorf("canary list: %w", err)
 		}
 	}
-	if cfg.ClassifierURL != "" {
-		det.Classifier = contentscan.HTTPClassifier{URL: cfg.ClassifierURL}
-	} else {
-		log.Printf("contentscan: no CS_CLASSIFIER_URL: media will stay unchecked (hash lists still apply)")
+	switch {
+	case cfg.ClassifierURL != "":
+		log.Printf("contentscan: media goes to the model server at CS_CLASSIFIER_URL")
+	case classifier != nil:
+		log.Printf("contentscan: built-in image model %s; other media stays unchecked", cfg.Models[vision.ModelName])
+	default:
+		log.Printf("contentscan: no CS_IMAGE_MODEL or CS_CLASSIFIER_URL: media will stay unchecked (hash lists still apply)")
 	}
 
 	operator := chain.Address()
@@ -344,6 +471,7 @@ func newWorker(cfg Config) (*Worker, error) {
 		cfg: cfg, chain: chain, feed: feed, detector: det, key: key, operator: operator,
 		now:  time.Now,
 		done: map[string]time.Time{},
+		skip: map[string]time.Time{},
 		fetch: func(ctx context.Context, rawURL string) ([]byte, error) {
 			return contentscan.Fetch(ctx, client, rawURL, limits)
 		},

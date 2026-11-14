@@ -24,3 +24,4 @@
 !x/shield/types
 !x/vault/types
 !deploy/docker/sdap/sdap-entry.sh
+!deploy/docker/sdap/image-safety-model.txt

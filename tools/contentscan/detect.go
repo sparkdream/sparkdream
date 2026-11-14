@@ -7,8 +7,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/klauspost/compress/zstd"
 
@@ -200,6 +203,81 @@ func ExtractURLs(text []byte) []string {
 	return out
 }
 
+// SVGMediaType is the media type of an SVG document.
+const SVGMediaType = "image/svg+xml"
+
+// isSVGType reports whether a media type, parameters and all, is SVG.
+func isSVGType(mediaType string) bool {
+	mt, _, _ := strings.Cut(mediaType, ";")
+	return strings.EqualFold(strings.TrimSpace(mt), SVGMediaType)
+}
+
+// svgSniffBytes bounds how far IsSVG reads to find the root element.
+const svgSniffBytes = 64 << 10
+
+// IsSVG reports whether data is an SVG document: XML whose root element is
+// "svg". The XML declaration, comments, a doctype and a byte order mark may
+// come first. UTF-16 is decoded, since browsers accept it.
+//
+// Sniffing never yields SVG (its bytes are text), so this is how fetched
+// bytes are recognised: for those the type that decides whether a browser
+// draws them is the host's, which the scanner does not see. A data URI states
+// its own type, and EffectiveMediaType goes by that.
+//
+// The scanner never signs "clean" for SVG (docs/content-scanning.md §5.2). An
+// SVG is drawing instructions, not pixels: judging it means rendering it
+// exactly as the reader's browser will, and any difference between the two
+// renderers is a place to hide a picture.
+func IsSVG(data []byte) bool {
+	if len(data) > svgSniffBytes {
+		data = data[:svgSniffBytes]
+	}
+	data = utf16ToUTF8(data)
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec.Strict = false
+	dec.AutoClose = xml.HTMLAutoClose
+	dec.Entity = xml.HTMLEntity
+	// Any declared encoding is read as it stands: element names are ASCII.
+	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	for {
+		tok, err := dec.RawToken()
+		if err != nil {
+			return false
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			return t.Name.Local == "svg"
+		case xml.CharData:
+			if len(bytes.TrimSpace(t)) != 0 {
+				return false
+			}
+		}
+	}
+}
+
+// utf16ToUTF8 decodes data that starts with a UTF-16 byte order mark, and
+// returns anything else unchanged.
+func utf16ToUTF8(data []byte) []byte {
+	if len(data) < 2 {
+		return data
+	}
+	var order binary.ByteOrder
+	switch {
+	case data[0] == 0xff && data[1] == 0xfe:
+		order = binary.LittleEndian
+	case data[0] == 0xfe && data[1] == 0xff:
+		order = binary.BigEndian
+	default:
+		return data
+	}
+	units := make([]uint16, 0, len(data)/2)
+	for i := 2; i+1 < len(data); i += 2 {
+		units = append(units, order.Uint16(data[i:]))
+	}
+	return []byte(string(utf16.Decode(units)))
+}
+
 // IsMedia reports whether a media type is something the classifier must
 // see (images, video, audio, archives, anything not plain text).
 func IsMedia(mediaType string) bool {
@@ -313,6 +391,12 @@ func (c HTTPClassifier) Classify(ctx context.Context, b Blob) (map[string]float6
 // stays unchecked.
 var ErrNoClassifier = errors.New("contentscan: media needs a classifier before it can be called clean")
 
+// ErrUnsupportedMedia means a classifier was handed media it cannot look at
+// in full (video, audio, an archive, a format it has no decoder for). Like
+// ErrNoClassifier, the worker then issues no verdict and the subject stays
+// unchecked.
+var ErrUnsupportedMedia = errors.New("contentscan: media the classifier cannot check")
+
 // Detector judges the blobs found in one subject.
 type Detector struct {
 	Takedown   *HashList
@@ -340,7 +424,12 @@ func (d Detector) Judge(ctx context.Context, blobs []Blob) (verdict, category st
 	}
 	held := ""
 	for _, b := range blobs {
-		if !IsMedia(EffectiveMediaType(b.MediaType, b.Data)) {
+		mt := EffectiveMediaType(b.MediaType, b.Data)
+		if isSVGType(mt) {
+			// Refused whatever classifier is configured: see IsSVG.
+			return "", "", fmt.Errorf("%w: SVG", ErrUnsupportedMedia)
+		}
+		if !IsMedia(mt) {
 			continue
 		}
 		if d.Classifier == nil {

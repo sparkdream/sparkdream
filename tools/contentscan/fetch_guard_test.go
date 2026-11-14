@@ -1,7 +1,11 @@
 package contentscan
 
 import (
+	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -27,5 +31,22 @@ func TestDisallowedIP(t *testing.T) {
 		if disallowedIP(net.ParseIP(s)) {
 			t.Errorf("%s should be allowed", s)
 		}
+	}
+}
+
+// A fetch names the scanner: CDNs refuse Go's default user agent.
+func TestFetchUserAgent(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte("aurora"))
+	}))
+	defer srv.Close()
+	data, err := Fetch(context.Background(), srv.Client(), srv.URL, FetchLimits{MaxBytes: 1 << 10, AllowPrivate: true})
+	if err != nil || string(data) != "aurora" {
+		t.Fatalf("fetch: %q, %v", data, err)
+	}
+	if got != UserAgent || strings.HasPrefix(got, "Go-http-client") {
+		t.Errorf("User-Agent = %q, want %q", got, UserAgent)
 	}
 }
