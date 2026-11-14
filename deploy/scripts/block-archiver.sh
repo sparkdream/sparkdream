@@ -20,6 +20,9 @@
 # covering the same starting height. The two files overlap on purpose;
 # `sparkdreamd replay-from-archive` skips already-applied blocks, and this
 # script deletes a superseded local tail once the complete file is written.
+# A repeated finalize extends the previous tail (it fetches only the blocks
+# after it), so it is cheap enough to run on every pass of an off-fleet
+# mirror (see archive-mirror.sh).
 #
 # Finalize is for cold restores — rebuilding a sentry or validator from block
 # history alone, with no live peer to catch up from. A node that can reach the
@@ -38,6 +41,8 @@
 #   BATCH_SIZE      - Max blocks per archive file (default: 10000)
 #   SLEEP_MS        - Milliseconds between RPC calls to avoid overload (default: 10)
 #   FINALIZE        - Set to "true" to write the tail file (same as --finalize)
+#   RPC_TIMEOUT     - Seconds allowed per RPC request (default: 30)
+#   RPC_RETRIES     - Retries per RPC request on a transient failure (default: 3)
 #
 set -eo pipefail
 
@@ -51,6 +56,8 @@ START_HEIGHT="${START_HEIGHT:-1}"
 BATCH_SIZE="${BATCH_SIZE:-10000}"
 SLEEP_MS="${SLEEP_MS:-10}"
 FINALIZE="${FINALIZE:-false}"
+RPC_TIMEOUT="${RPC_TIMEOUT:-30}"
+RPC_RETRIES="${RPC_RETRIES:-3}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -102,6 +109,16 @@ trap cleanup_lock EXIT
 # Block fetching
 # ---------------------------------------------------------------------------
 
+# rpc_get <url>
+#
+# One RPC request, bounded and retried. The archiver also runs off the fleet
+# against a public endpoint, where a stalled connection would otherwise hang
+# the run forever and a single dropped request would cut a batch short.
+rpc_get() {
+    curl -s --connect-timeout 10 --max-time "$RPC_TIMEOUT" \
+        --retry "$RPC_RETRIES" --retry-delay 2 --retry-all-errors "$1"
+}
+
 # Highest height successfully appended by the last fetch_blocks_into call.
 LAST_FETCHED=0
 
@@ -118,14 +135,14 @@ fetch_blocks_into() {
     LAST_FETCHED=$(( from - 1 ))
 
     while [ "$h" -le "$to" ]; do
-        BLOCK_JSON=$(curl -s "${RPC_URL}/block?height=${h}")
+        BLOCK_JSON=$(rpc_get "${RPC_URL}/block?height=${h}")
 
         # Validate we got a proper response
         BLOCK_HEIGHT_CHECK=$(echo "$BLOCK_JSON" | jq -r '.result.block.header.height // empty' 2>/dev/null)
         if [ -z "$BLOCK_HEIGHT_CHECK" ]; then
             echo "WARNING: Failed to fetch block ${h}, retrying in 2s..." >&2
             sleep 2
-            BLOCK_JSON=$(curl -s "${RPC_URL}/block?height=${h}")
+            BLOCK_JSON=$(rpc_get "${RPC_URL}/block?height=${h}")
             BLOCK_HEIGHT_CHECK=$(echo "$BLOCK_JSON" | jq -r '.result.block.header.height // empty' 2>/dev/null)
             if [ -z "$BLOCK_HEIGHT_CHECK" ]; then
                 echo "ERROR: Failed to fetch block ${h} after retry. Stopping." >&2
@@ -134,7 +151,7 @@ fetch_blocks_into() {
         fi
 
         # Fetch block_results for this height (needed for replay)
-        RESULTS_JSON=$(curl -s "${RPC_URL}/block_results?height=${h}")
+        RESULTS_JSON=$(rpc_get "${RPC_URL}/block_results?height=${h}")
         RESULTS_CHECK=$(echo "$RESULTS_JSON" | jq -r '.result.height // empty' 2>/dev/null)
         if [ -z "$RESULTS_CHECK" ]; then
             echo "ERROR: Failed to fetch block_results for height ${h}. Stopping." >&2
@@ -142,7 +159,7 @@ fetch_blocks_into() {
         fi
 
         # Fetch commit for this height (needed to save last block to block store during replay)
-        COMMIT_JSON=$(curl -s "${RPC_URL}/commit?height=${h}")
+        COMMIT_JSON=$(rpc_get "${RPC_URL}/commit?height=${h}")
         COMMIT_CHECK=$(echo "$COMMIT_JSON" | jq -r '.result.signed_header.commit.height // empty' 2>/dev/null)
         if [ -z "$COMMIT_CHECK" ]; then
             echo "WARNING: Failed to fetch commit for height ${h}, continuing without it" >&2
@@ -170,6 +187,42 @@ fetch_blocks_into() {
     done
 
     return 0
+}
+
+# seed_from_tail <from> <max_to> <outfile>
+#
+# Starts <outfile> from the longest intact tail file that begins at <from>
+# and ends at or before <max_to>, so its blocks are not fetched a second
+# time. Sets SEEDED_TO to the last height written (from - 1 if no tail was
+# usable). An off-fleet mirror keeps a tail up to date on every run; without
+# this, each completed range would cost a second fetch of up to 10,000
+# blocks over a public endpoint.
+SEEDED_TO=0
+seed_from_tail() {
+    local from="$1" max_to="$2" outfile="$3"
+    local candidate cand_to best="" best_to=0
+
+    SEEDED_TO=$(( from - 1 ))
+    for candidate in "${OUTPUT_DIR}/blocks_${from}_to_"*.partial.jsonl.gz; do
+        [ -f "$candidate" ] || continue
+        cand_to="${candidate##*_to_}"
+        cand_to="${cand_to%.partial.jsonl.gz}"
+        case "$cand_to" in ''|*[!0-9]*) continue ;; esac
+        if [ "$cand_to" -gt "$best_to" ] && [ "$cand_to" -le "$max_to" ]; then
+            best="$candidate"
+            best_to="$cand_to"
+        fi
+    done
+    [ -n "$best" ] || return 0
+
+    if gzip -dc "$best" > "$outfile" 2>/dev/null \
+        && [ "$(wc -l < "$outfile")" -eq $(( best_to - from + 1 )) ]; then
+        SEEDED_TO=$best_to
+        echo "  Reusing $(basename "$best") (blocks ${from} to ${best_to})."
+    else
+        echo "  WARNING: $(basename "$best") is damaged or short, fetching its blocks again." >&2
+        rm -f "$outfile"
+    fi
 }
 
 # prune_superseded_partials <from>
@@ -201,7 +254,7 @@ else
 fi
 
 # Get the current chain height
-CURRENT_HEIGHT=$(curl -s "${RPC_URL}/status" | jq -r '.result.sync_info.latest_block_height')
+CURRENT_HEIGHT=$(rpc_get "${RPC_URL}/status" | jq -r '.result.sync_info.latest_block_height')
 
 if [ -z "$CURRENT_HEIGHT" ] || [ "$CURRENT_HEIGHT" = "null" ]; then
     echo "ERROR: Could not fetch current block height from ${RPC_URL}/status" >&2
@@ -271,7 +324,10 @@ while [ "$FROM" -le "$CURRENT_HEIGHT" ]; do
 
     echo "Archiving blocks ${FROM} to ${TO}..."
 
-    if ! fetch_blocks_into "$FROM" "$TO" "$BATCH_FILE"; then
+    # A tail from an earlier --finalize already holds the start of this range.
+    seed_from_tail "$FROM" "$TO" "$BATCH_FILE"
+
+    if [ "$SEEDED_TO" -lt "$TO" ] && ! fetch_blocks_into "$(( SEEDED_TO + 1 ))" "$TO" "$BATCH_FILE"; then
         # Save progress up to the last successful block. The state file is
         # advanced to match, so the next run resumes cleanly from there and
         # this short file never overlaps anything.
@@ -330,11 +386,21 @@ if [ "$FINALIZE" = "true" ]; then
         TAIL_TMP="${OUTPUT_DIR}/.blocks_${TAIL_FROM}_to_${TAIL_TO}.partial.jsonl.tmp"
         rm -f "$TAIL_TMP" "${TAIL_TMP}.gz"
 
-        if ! fetch_blocks_into "$TAIL_FROM" "$TAIL_TO" "$TAIL_TMP"; then
-            if [ "$LAST_FETCHED" -ge "$TAIL_FROM" ]; then
+        # Extend the newest earlier tail from the same starting height rather
+        # than fetching its blocks again.
+        seed_from_tail "$TAIL_FROM" "$(( TAIL_TO - 1 ))" "$TAIL_TMP"
+        FETCH_FROM=$(( SEEDED_TO + 1 ))
+
+        if ! fetch_blocks_into "$FETCH_FROM" "$TAIL_TO" "$TAIL_TMP"; then
+            if [ "$LAST_FETCHED" -ge "$FETCH_FROM" ]; then
                 # Keep what we got — a shorter tail is still a valid tail.
                 echo "  WARNING: Tail truncated at block ${LAST_FETCHED} (wanted ${TAIL_TO})." >&2
                 TAIL_TO=$LAST_FETCHED
+            elif [ "$FETCH_FROM" -gt "$TAIL_FROM" ]; then
+                # Nothing new, but the earlier tail is intact: leave it alone.
+                echo "  ERROR: Could not extend the tail past block ${SEEDED_TO}." >&2
+                rm -f "$TAIL_TMP"
+                exit 1
             else
                 echo "  ERROR: Could not fetch any tail blocks." >&2
                 rm -f "$TAIL_TMP"

@@ -138,6 +138,74 @@ replacing it. Files are encrypted client-side and replicated across
 Requires a running `jackalapi` instance and an active storage plan.
 See `deploy/scripts/jackal-upload.sh` for details.
 
+## Off-Fleet Mirror (the copy that survives a redeploy)
+
+Layer 2 as described above writes to the node's own volume. That is
+not a backup: when a provider disappears and the node is redeployed,
+the archive files, the progress marker (`.last_archived_height`) and
+the cron job installed by `setup-archive-cron` all go with the volume,
+and nothing reinstalls them.
+
+`archive-mirror.sh` removes the fleet from the picture. It runs on a
+machine that is not part of the deployment and uses only a public RPC
+endpoint, so a redeployed, replaced or renamed node changes nothing:
+
+- **sync** (hourly) runs the same `block-archiver` against the RPC
+  endpoint, writing complete 10,000-block ranges plus a `.partial`
+  tail up to the chain tip. At most one sync interval of blocks is
+  ever unarchived. Every node returns identical `/block`,
+  `/block_results` and `/commit` data for a height, so any endpoint
+  can serve any range; `RPC_URLS` takes several and uses the first
+  that is on the right chain, in sync and still holds the next block
+  needed.
+- Every complete range is checked once (gzip integrity, one line per
+  height, first and last heights as named) and pinned in
+  `SHA256SUMS`. Every later run re-checks the checksums and that the
+  ranges run from block 1 without a gap.
+- **rebuild** (weekly) proves the vault is sufficient on its own: it
+  builds the chain's running version from the release tag
+  (`git archive`, the working tree is never touched), replays every
+  archived block from the vault's `genesis.json` into a throwaway
+  home with app-hash validation, and compares the final app hash with
+  the header of the next block on the live chain.
+- A failed sync, vault check or rebuild exits non-zero (the systemd
+  unit shows as failed) and is posted to `NTFY_URL` when that is set.
+
+The vault holds everything a rebuild needs: the block ranges, the
+genesis (fetched from the chain on the first sync), and the binaries
+built for the rebuild checks.
+
+```bash
+# On the archive machine, from a checkout of this repo
+mkdir -p ~/sparkdream/testnet
+CHAIN_ID=sparkdream-test-1 RPC_URLS="https://rpc-test.sparkdream.io" \
+  deploy/scripts/setup-archive-mirror.sh ~/sparkdream/testnet
+
+# Timers and the last sync / rebuild results
+deploy/scripts/setup-archive-mirror.sh ~/sparkdream/testnet --status
+
+# Run either by hand
+~/sparkdream/testnet/bin/archive-mirror sync    -c ~/sparkdream/testnet/mirror.env
+~/sparkdream/testnet/bin/archive-mirror rebuild -c ~/sparkdream/testnet/mirror.env
+```
+
+**Network resets.** A reset keeps the chain id but starts a different
+chain. sync notices (the endpoint's block hash at the vault's last
+height no longer matches) and refuses to continue rather than mix two
+chains in one vault. Move the old vault aside, create an empty
+directory and run `setup-archive-mirror.sh` on it again.
+
+**What an endpoint must provide.** Full block history is only needed
+for the first fill. Afterwards the mirror asks for blocks above its
+own tip, so a node restored from a chain-data backup, or even a
+state-synced one, serves it as long as its earliest block is not
+above the mirror's next height. If every endpoint has pruned past
+that height the sync fails loudly instead of leaving a gap.
+
+**The mirror is one copy.** Upload the vault's complete ranges to
+permanent storage with the scripts under "Manual workflow" for a
+second one; they skip files already uploaded.
+
 ## Archival Workflow
 
 ### Automated (recommended)
@@ -152,7 +220,10 @@ ssh -p <port> root@<sentry_provider> setup-archive-cron
 
 This installs a dcron job that runs `block-archiver` every 6 hours,
 saving archives to `/root/.sparkdream/archives` on the persistent
-volume. Customize the schedule:
+volume. The job is not reinstalled when the node is redeployed, and
+the archives do not survive losing the volume: treat it as a
+convenience copy next to the node and rely on the off-fleet mirror
+above. Customize the schedule:
 
 ```bash
 # Archive every hour instead
@@ -176,10 +247,11 @@ For upload to permanent/redundant storage, periodically download
 archives from the sentry and upload from your local machine:
 
 ```bash
-# 1. Download new archives to local machine
-scp -O -P <port> -i ~/.ssh/key \
-  root@<sentry_provider>:/root/.sparkdream/archives/*.jsonl.gz \
-  ./archives/
+# 1. Download new archives to local machine (the node image has no
+#    scp or rsync, so stream a tar over ssh). With the off-fleet mirror
+#    the vault directory already is this copy.
+ssh -p <port> -i ~/.ssh/key root@<sentry_provider> \
+  'cd /root/.sparkdream/archives && tar cf - *.jsonl.gz' | tar xf - -C ./archives/
 
 # 2. Upload to Arweave (permanent)
 ./arweave-upload.sh -w ~/arweave-wallet.json ./archives/

@@ -96,6 +96,8 @@ deploy/
 │
 ├── scripts/                    Operational scripts
 │   ├── block-archiver.sh       Incremental block archival via RPC
+│   ├── archive-mirror.sh       Off-fleet archive mirror + weekly rebuild check
+│   ├── setup-archive-mirror.sh Install the mirror's systemd timers
 │   ├── storacha-upload.sh      Upload archives to Storacha/IPFS
 │   └── arweave-upload.sh       Upload archives to Arweave
 │

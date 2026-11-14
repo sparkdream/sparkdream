@@ -475,13 +475,24 @@ OUTPUT_DIR=/root/.sparkdream/archives \
   ./block-archiver.sh --finalize
 ```
 
-Download archives to your local machine and upload to Arweave:
+Archives on the sentry are lost with its volume when it is redeployed.
+Keep the durable copy on a machine outside the fleet, which archives
+over the public RPC and replays the chain from genesis every week to
+prove the copy is complete (see "Off-Fleet Mirror" in
+[archival-strategy.md](archival-strategy.md)):
 
 ```bash
-# Download
-scp -O -P <sentry_ssh_port> -i ~/.ssh/your_key \
-  root@<sentry_provider>:/root/.sparkdream/archives/*.jsonl.gz \
-  ./archives/
+# On the archive machine
+CHAIN_ID=<chain-id> RPC_URLS="https://<public-rpc>" \
+  deploy/scripts/setup-archive-mirror.sh ~/sparkdream/<network>
+```
+
+To copy the sentry's own archives by hand and upload to Arweave:
+
+```bash
+# Download (the node image has no scp or rsync: stream a tar over ssh)
+ssh -p <sentry_ssh_port> -i ~/.ssh/your_key root@<sentry_provider> \
+  'cd /root/.sparkdream/archives && tar cf - *.jsonl.gz' | tar xf - -C ./archives/
 
 # Upload to Arweave
 ./arweave-upload.sh -w ~/arweave-wallet.json ./archives/

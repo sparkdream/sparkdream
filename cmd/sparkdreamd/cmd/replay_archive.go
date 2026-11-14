@@ -108,7 +108,17 @@ func replayFromArchive(cmd *cobra.Command, _ []string) error {
 	cmtCfg := serverCtx.Config
 	homeDir := cmtCfg.RootDir
 
-	logger := log.NewLogger(os.Stdout, log.ColorOption(false))
+	// Build the logger the way the server does, so --log_level (default
+	// info) and --log_format are honoured: a bare logger prints everything
+	// down to debug, and the store logs every write at that level, gigabytes
+	// over a full chain. Colour stays off because this output is captured to
+	// a file and parsed (the launcher's restore op, archive-mirror.sh), and
+	// escape codes inside "height=..." break that.
+	serverCtx.Viper.Set(flags.FlagLogNoColor, true)
+	logger, err := server.CreateSDKLogger(serverCtx, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 	cmtLogger := newCmtLogAdapter(logger)
 
 	// -----------------------------------------------------------------------
