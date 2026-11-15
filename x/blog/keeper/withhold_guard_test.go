@@ -39,6 +39,8 @@ func TestEveryContentQueryWithholdsFlaggedBodies(t *testing.T) {
 		ContentType: commontypes.ContentType_CONTENT_TYPE_MARKDOWN,
 	})
 	require.NoError(t, err)
+	_, err = ms.PinPost(ctx, &types.MsgPinPost{Creator: mediaTestCreator, Id: post.Id})
+	require.NoError(t, err)
 	k.AddToExpiryIndex(ctx, 1_000, "post", post.Id)
 	k.AddToExpiryIndex(ctx, 1_000, "reply", reply.Id)
 
@@ -50,6 +52,9 @@ func TestEveryContentQueryWithholdsFlaggedBodies(t *testing.T) {
 		},
 		"ListPostsByTag": func() (any, error) {
 			return qs.ListPostsByTag(ctx, &types.QueryListPostsByTagRequest{Tag: "aurora"})
+		},
+		"ListPinnedPosts": func() (any, error) {
+			return qs.ListPinnedPosts(ctx, &types.QueryListPinnedPostsRequest{})
 		},
 		"ShowReply": func() (any, error) { return qs.ShowReply(ctx, &types.QueryShowReplyRequest{Id: reply.Id}) },
 		"ListReplies": func() (any, error) {

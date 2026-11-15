@@ -61,6 +61,7 @@ func (k msgServer) PinPost(ctx context.Context, msg *types.MsgPinPost) (*types.M
 	post.PinnedBy = msg.Creator
 	post.PinnedAt = sdkCtx.BlockTime().Unix()
 	k.SetPost(ctx, post)
+	k.addPinnedPostIndex(ctx, post)
 
 	// Increment rate limit
 	k.incrementRateLimit(ctx, "pin", creatorAddr)

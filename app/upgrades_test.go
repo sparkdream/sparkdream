@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/app/upgrades"
+	blogkeeper "sparkdream/x/blog/keeper"
+	blogtypes "sparkdream/x/blog/types"
 )
 
 // A plan whose name has no handler halts every node at its height with
@@ -56,4 +58,36 @@ func TestRunMigrationsHandlerApplies(t *testing.T) {
 	done, err := app.UpgradeKeeper.GetDoneHeight(ctx, "phoenix-test")
 	require.NoError(t, err)
 	require.Equal(t, int64(10), done)
+}
+
+// blog-pinned-index on a chain still at x/blog v1 runs the v1 -> v2
+// migration: a post pinned before the index existed becomes listed.
+func TestBlogPinnedIndexUpgradeBackfills(t *testing.T) {
+	app := testApp(t)
+	ctx := app.NewUncachedContext(false, cmtproto.Header{Height: 10}).
+		WithHeaderInfo(header.Info{Height: 10})
+
+	id := app.BlogKeeper.AppendPost(ctx, blogtypes.Post{
+		Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan", Title: "Pinned", Body: "body",
+		Status:   blogtypes.PostStatus_POST_STATUS_ACTIVE,
+		PinnedBy: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan", PinnedAt: 100,
+	})
+	_, broken := blogkeeper.PinnedIndexInvariant(app.BlogKeeper)(ctx)
+	require.True(t, broken)
+
+	vm := app.ModuleManager.GetVersionMap()
+	vm[blogtypes.ModuleName] = 1
+	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "blog-pinned-index", Height: 10}))
+
+	msg, broken := blogkeeper.PinnedIndexInvariant(app.BlogKeeper)(ctx)
+	require.False(t, broken, msg)
+	resp, err := blogkeeper.NewQueryServerImpl(app.BlogKeeper).ListPinnedPosts(ctx, &blogtypes.QueryListPinnedPostsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Posts, 1)
+	require.Equal(t, id, resp.Posts[0].Id)
+
+	after, err := app.UpgradeKeeper.GetModuleVersionMap(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), after[blogtypes.ModuleName])
 }

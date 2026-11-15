@@ -52,6 +52,7 @@ func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*typ
 	}
 
 	prevPinnedBy := post.PinnedBy
+	k.removePinnedPostIndex(ctx, post)
 	post.PinnedBy = ""
 	post.PinnedAt = 0
 	k.SetPost(ctx, post)

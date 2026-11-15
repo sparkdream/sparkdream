@@ -75,6 +75,12 @@ service Query {
     option (google.api.http).get = "/sparkdream/blog/v1/list_posts_by_tag/{tag}";
   }
 
+  // ListPinnedPosts returns paginated pinned posts, most recently pinned
+  // first. Hidden and deleted posts are left out.
+  rpc ListPinnedPosts(QueryListPinnedPostsRequest) returns (QueryListPinnedPostsResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/list_pinned_posts";
+  }
+
   // PostBody returns the full body of one post. List and show queries return
   // the body as "" whenever media_flags != 0; clients fetch it here once
   // scanner verdicts say it is clean (docs/content-scanning.md §3.4).
@@ -229,6 +235,17 @@ message QueryListPostsByTagRequest {
 
 // QueryListPostsByTagResponse defines the QueryListPostsByTagResponse message.
 message QueryListPostsByTagResponse {
+  repeated Post posts = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListPinnedPostsRequest defines the QueryListPinnedPostsRequest message.
+message QueryListPinnedPostsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryListPinnedPostsResponse defines the QueryListPinnedPostsResponse message.
+message QueryListPinnedPostsResponse {
   repeated Post posts = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

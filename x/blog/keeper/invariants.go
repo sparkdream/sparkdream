@@ -18,6 +18,7 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "counter-consistency", CounterConsistencyInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "expiry-index", ExpiryIndexInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "high-water-mark", HighWaterMarkInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "pinned-index", PinnedIndexInvariant(k))
 }
 
 // ReactionCountsInvariant checks that stored ReactionCounts match the counts
@@ -361,4 +362,45 @@ func parseExpiryKey(key []byte) (contentType string, id uint64, ts int64, ok boo
 		return "", 0, 0, false
 	}
 	return string(rest[:sep]), bytesToUint64(rest[sep+1:]), commontypes.Saturate[int64](bytesToUint64(key[:8])), true
+}
+
+// PinnedIndexInvariant checks that the pinned post index holds exactly the
+// posts whose pinned_by is set, each under its pinned_at.
+func PinnedIndexInvariant(k Keeper) sdk.Invariant {
+	return func(ctx sdk.Context) (string, bool) {
+		storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
+
+		var broken int
+		var msg string
+
+		expected := make(map[string]uint64)
+		postIter := prefix.NewStore(storeAdapter, []byte(types.PostKey)).Iterator(nil, nil)
+		defer postIter.Close()
+		for ; postIter.Valid(); postIter.Next() {
+			var post types.Post
+			k.cdc.MustUnmarshal(postIter.Value(), &post)
+			if post.PinnedBy != "" {
+				expected[string(pinnedPostIndexKey(post.PinnedAt, post.Id))] = post.Id
+			}
+		}
+
+		idxIter := prefix.NewStore(storeAdapter, []byte(types.PinnedPostKey)).Iterator(nil, nil)
+		defer idxIter.Close()
+		for ; idxIter.Valid(); idxIter.Next() {
+			key := string(idxIter.Key())
+			if _, ok := expected[key]; !ok {
+				broken++
+				msg += fmt.Sprintf("  pinned index entry %x matches no pinned post\n", idxIter.Key())
+				continue
+			}
+			delete(expected, key)
+		}
+		for _, id := range expected {
+			broken++
+			msg += fmt.Sprintf("  pinned post %d is missing from the pinned index\n", id)
+		}
+
+		return sdk.FormatInvariant(types.ModuleName, "pinned-index",
+			fmt.Sprintf("found %d pinned index violations\n%s", broken, msg)), broken > 0
+	}
 }

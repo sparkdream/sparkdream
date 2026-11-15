@@ -26,6 +26,11 @@ const (
 	// Tag post index: (tag, postID) -> nothing. Maintained by Create/Update/Delete.
 	TagPostKey = "Post/tag/"
 
+	// Pinned post index: (MaxInt64 - pinned_at, postID) -> nothing, so a
+	// forward walk lists the most recently pinned post first. Maintained by
+	// PinPost/UnpinPost and rebuilt at genesis import.
+	PinnedPostKey = "Post/pinned/"
+
 	// Reply storage
 	ReplyKey      = "Reply/value/"
 	ReplyCountKey = "Reply/count/"

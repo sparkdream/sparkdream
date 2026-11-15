@@ -37,8 +37,7 @@ func RunMigrations(mm *module.Manager, cfg module.Configurator) upgradetypes.Upg
 }
 
 // All is every upgrade this binary can apply, oldest first.
-//
-// Empty while the networks are still reset for consensus-breaking releases
-// (docs/chain-upgrades.md); the first entry lands with the first release a
-// running network upgrades to instead.
-var All = []Upgrade{}
+var All = []Upgrade{
+	// x/blog v2: builds the pinned post index behind Query/ListPinnedPosts.
+	{Name: "blog-pinned-index", Handler: RunMigrations},
+}

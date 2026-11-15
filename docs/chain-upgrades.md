@@ -2,13 +2,12 @@
 
 How a release that changes the state machine reaches a running chain without
 a reset. The machinery is wired (handler registration, store loader, the
-Technical Council's `MsgForceUpgrade`) but no upgrade has been applied yet:
-while the networks hold little content, consensus-affecting releases still
-ship by resetting them (or by swapping binaries at a `halt-height`, which
-works only when replaying old blocks on the new binary gives the same
-results), and `upgrades.All` stays empty. Everything below applies from the
-first release a running network upgrades to instead. A reset needs no
-migrations: a fresh genesis starts every module at its current
+Technical Council's `MsgForceUpgrade`), and the first entry in
+`upgrades.All`, `blog-pinned-index`, is listed for the next release. Until a
+network applies it, earlier consensus-affecting releases shipped by resetting
+the networks (or by swapping binaries at a `halt-height`, which works only
+when replaying old blocks on the new binary gives the same results). A reset
+needs no migrations: a fresh genesis starts every module at its current
 `ConsensusVersion`.
 
 ## When a release needs a named upgrade

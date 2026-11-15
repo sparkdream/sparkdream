@@ -108,7 +108,7 @@ List and show queries keep their signatures, but return the body as `""` wheneve
 
 | Module | Queries that withhold | New query |
 |---|---|---|
-| blog | `ShowPost`, `ListPost`, `ListPostsByCreator`, `ListPostsByTag`, `ShowReply`, `ListReplies`, `ListExpiringContent` | `PostBody(id)`, `ReplyBody(id)` |
+| blog | `ShowPost`, `ListPost`, `ListPostsByCreator`, `ListPostsByTag`, `ListPinnedPosts`, `ShowReply`, `ListReplies`, `ListExpiringContent` | `PostBody(id)`, `ReplyBody(id)` |
 | forum | `GetPost`, `AllPost`, `Posts`, `Thread`, `UserPosts`, `TopPosts`, `PinnedPosts`, `LockedThreads` | `PostContent(id)` |
 | federation | queries returning `FederatedContent` | `FederatedContentBody(id)` |
 
