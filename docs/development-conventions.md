@@ -129,7 +129,12 @@ Additional rationale worth knowing:
 - Amino names are part of the signing contract with wallets — never rename one once clients depend on it; the regression test pins the exact strings.
 - Client side: `@sparkdreamnft/sparkdreamjs` must be regenerated/republished after amino-name additions so its amino converters emit the same `type` strings the chain produces.
 - Messages that nest `repeated google.protobuf.Any` (e.g. `MsgSubmitProposal`, `MsgSubmitAnonymousProposal`) need CUSTOM client-side amino converters: the default `Any` encoder base64-dumps proto bytes, which Ledger's strict validator rejects. Each inner message must be recursively amino-encoded as `{type: <amino.name>, value: <amino-form>}` with alphabetically sorted keys at every nesting level.
-- [cmd/aminogolden](../cmd/aminogolden/main.go) exports what a client needs to sign exactly as the chain renders: `schema` (descriptors of every sparkdream Msg with the options aminojson acts on), `golden` (sample messages as bytes next to the chain's amino JSON, five variants each) and `verify` (checks amino-signed txs from stdin with the SDK's own sign-mode handler). sparkdreamjs (0.0.47+) builds every module's amino converters from the schema and tests them against the golden records, and sparkdream-ui tests its signing setup against them, so rerun `schema` and `golden` after any proto change (the sparkdreamjs sync-protos skill does; commands in the tool's header comment).
+- **The chain signs from re-encoded messages, not from the client's bytes.** Decoding a tx, the SDK unpacks each message into its gogoproto Go type and replaces its bytes with that value's re-encoding (`UnpackAny` ends in `NewAnyWithValue`); the aminojson handler renders from those. A `gogoproto.nullable = false` field is a plain value in the Go type and is always written, so the sign bytes carry it even when the client left it out: an embedded message comes back present (a `Coin` as `{"amount":"0"}`, a `stdtime` as `0001-01-01T00:00:00Z`), an empty `Int`/`LegacyDec` customtype as `"0"`. A JS client that omits such a field signs a document the chain never rebuilds, and a Ledger user gets "signature verification failed". This is what broke session keys and spending allowances over amino (`SessionKeyPayload.spent`/`last_used_at`, `SpendingAllowancePayload.spent_in_current_period`: server-side counters the client never sets). sparkdreamjs renders these fields the way the chain does, and `aminogolden` applies the same re-encoding in `golden` and `verify` (`gogoCanonical`); the `absent_non_nullable` and `bare` golden variants pin it, and [app/amino_reencode_test.go](../app/amino_reencode_test.go) pins the chain side.
+- **Request messages carry client inputs only.** Do not embed a stored record type in a new Msg (as `MsgCreateGrant` does with `SessionKeyPayload`): its server-side fields (counters, timestamps the keeper sets) become part of every client's sign bytes, and each client must know to render them. Give the Msg its own input type and build the stored record in the keeper. Existing messages stay as they are (protos are append-only); clients handle them through the re-encoding rule above.
+- **The golden records are tied to the chain by a test.** The rendering lives in [tools/aminogolden](../tools/aminogolden/aminogolden.go) (`cmd/aminogolden` is a thin wrapper). [app/amino_golden_test.go](../app/amino_golden_test.go) pushes every golden record, in every variant, through the app's own `TxDecoder` and sign mode handler and requires the same JSON, so "a client matches the golden records" means "the chain accepts its signatures". If it fails (an SDK bump, a tool change), fix the tool, never the test, then regenerate the clients.
+- **Clients must be regenerated with the chain.** [deploy/scripts/check-amino-clients.sh](../deploy/scripts/check-amino-clients.sh) regenerates schema and golden from the current tree and fails when the copies in `../sparkdreamjs` or `../sparkdream-ui` are stale, when sparkdream-ui depends on an older sparkdreamjs than the checkout, or when a transaction sparkdream-ui amino-signs in its tests does not pass `aminogolden verify`. `prepare-release.sh` runs it as step 0, before anything is rewritten. sparkdream-ui signs the messages its forms really build (pure builders the forms call, e.g. `src/lib/grantMsgs.ts`), so a new form gets chain-checked signing by adding its builder to `aminoSigning.test.ts`.
+- **Two characters cannot be amino-signed.** Go's JSON encoder escapes U+2028 and U+2029 and JavaScript's does not, so a text field holding either (they arrive by paste) signs bytes the chain never rebuilds. Clients replace them with line breaks before signing (sparkdream-ui: `src/lib/signText.ts`, applied to every message in `signAndBroadcast`); a new client must do the same.
+- [cmd/aminogolden](../cmd/aminogolden/main.go) exports what a client needs to sign exactly as the chain renders: `schema` (descriptors of every sparkdream Msg with the options aminojson acts on), `golden` (sample messages as bytes next to the chain's amino JSON, seven variants each) and `verify` (checks amino-signed txs from stdin with the SDK's own sign-mode handler). sparkdreamjs (0.0.47+) builds every module's amino converters from the schema and tests them against the golden records, and sparkdream-ui tests its signing setup against them, so rerun `schema` and `golden` after any proto change (the sparkdreamjs sync-protos skill does; commands in the tool's header comment).
 
 ---
 
@@ -189,29 +194,30 @@ Traps, all of them learned the hard way:
   path multiplying by it panics. Either guard at the read site or accept that
   genesis is the only supported route.
 
-  **For x/rep the answer is settled: genesis is the only supported route.** The
-  module has no migration handlers and `ConsensusVersion` stays at 1 by
-  decision, not by omission — the chain has not launched and its networks are
-  reset rather than upgraded, so param additions land in the three
-  `genesis.json` files and running nodes are re-initialised. Do not add a
-  migration handler for a parameter; add the genesis value and reset. Guarding
-  nil reads at the call site is still worth doing where it is cheap, because it
-  keeps a stale devnet from panicking mid-block instead of simply reporting a
-  default.
+  **Networks are upgraded in place, so genesis is no longer enough.** A new
+  param on an existing module needs a migration handler on a bumped
+  `ConsensusVersion` that writes its value, run by the release's entry in
+  `upgrades.All` ([chain-upgrades.md](chain-upgrades.md)). The genesis default
+  still has to be added, for new chains and tests. Guarding nil reads at the
+  call site is still worth doing where it is cheap, because it keeps a node
+  from panicking mid-block if a migration missed a value.
 - **Editing `genesis.json` with Python's `json.dumps` mangles it.** Pass
   `ensure_ascii=False`, or every emoji and em dash in unrelated seed content
   becomes `\uXXXX` and you get a several-hundred-line diff.
 
 ## Proto Field Numbering
 
-Before adding a field, compute the next free tag rather than trusting a comment:
-brace-match the message body, collect every `= N`, and check that `max(tags)`
-equals the field count with no gaps and no duplicates.
+Proto messages are append-only: never renumber a field. Networks are upgraded
+in place, so stored records and signed txs keep the tags they were written
+with, and a renumbering would need a migration that re-encodes every record.
 
-This is the same check the no-`reserved` rule implies (see CLAUDE.md). Removing
-a field means renumbering so the message stays dense — the chain has not
-launched and its networks can be reset, so a gapped tag buys wire compatibility
-nobody is asking for and carries the gap forever.
+- **Adding a field:** take `max(tag) + 1`, counting `reserved` tags. Compute it
+  rather than trusting a comment: brace-match the message body, collect every
+  `= N` and every `reserved` tag, and check there are no duplicates.
+- **Removing a field:** leave `reserved N;` and `reserved "name";` so neither
+  the tag nor the name is reused. Add a migration only if the stored value has
+  to be cleared.
+- **Never renumber to close a gap**, whether or not the field has shipped.
 
 `make proto-gen` runs `ignite generate proto-go`.
 

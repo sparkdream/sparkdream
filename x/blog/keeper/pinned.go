@@ -9,13 +9,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/runtime"
 
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // pinnedPostIndexKey orders the index newest pin first: the leading 8 bytes
 // are MaxInt64 - pinned_at, the trailing 8 the post id.
 func pinnedPostIndexKey(pinnedAt int64, postID uint64) []byte {
 	key := make([]byte, 16)
-	binary.BigEndian.PutUint64(key[:8], uint64(math.MaxInt64-max(pinnedAt, 0)))
+	binary.BigEndian.PutUint64(key[:8], commontypes.Saturate[uint64](math.MaxInt64-max(pinnedAt, 0)))
 	binary.BigEndian.PutUint64(key[8:], postID)
 	return key
 }

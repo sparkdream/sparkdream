@@ -4,6 +4,12 @@
 # ============================================================================
 # Runs the four mechanical steps that go into every version bump:
 #
+#   0. AMINO CLIENTS        — pre-flight: run deploy/scripts/check-amino-clients.sh,
+#      which regenerates the amino schema and golden records from this tree
+#      and aborts if the copies in ../sparkdreamjs or ../sparkdream-ui are
+#      stale, or if a transaction sparkdream-ui amino-signs in its tests does
+#      not verify. A stale client breaks Ledger signing for the changed
+#      messages. Checkouts that are not there are skipped.
 #   1. BUMP DEPLOY VERSIONS — rewrite v<old> -> v<new> in the seven deploy
 #      files (3× sentry.sdl.yaml, 3× validator.sdl.yaml, deploy/docs/DEPLOYMENT.md).
 #   2. AUDIT CONFIGS        — run deploy/scripts/audit-configs.py to catch any
@@ -36,6 +42,7 @@
 #   deploy/scripts/prepare-release.sh <new-version> --no-regen  # skip step 3+4
 #   deploy/scripts/prepare-release.sh <new-version> --strict    # treat audit WARN as failure
 #   deploy/scripts/prepare-release.sh <new-version> --no-zk     # skip step 5
+#   deploy/scripts/prepare-release.sh <new-version> --no-amino-check    # skip step 0
 #   deploy/scripts/prepare-release.sh <new-version> --zk-publish <dir>  # copy the prover to <dir>/<version>/
 #   deploy/scripts/prepare-release.sh <new-version> --no-zk-publish     # build the prover but don't copy it
 #   deploy/scripts/prepare-release.sh --help
@@ -72,6 +79,7 @@ NEW_VERSION=""
 DO_BUMP=true
 DO_REGEN=true
 DO_ZK=true
+DO_AMINO_CHECK=true
 ZK_PUBLISH=""
 ZK_PUBLISH_OFF=false
 # The sparkdream-ui checkout beside this repo: the default --zk-publish target.
@@ -91,6 +99,7 @@ while [ $# -gt 0 ]; do
         --no-bump) DO_BUMP=false ;;
         --no-regen) DO_REGEN=false ;;
         --no-zk) DO_ZK=false ;;
+        --no-amino-check) DO_AMINO_CHECK=false ;;
         --zk-publish)
             if [ $# -lt 2 ]; then
                 fail "--zk-publish needs a directory"
@@ -180,6 +189,19 @@ for cmd in python3 jq go make; do
 done
 python3 -c 'import yaml' 2>/dev/null || { fail "missing required Python module: yaml (pip install pyyaml)"; exit 2; }
 ok "tools available"
+
+# Amino clients: a release whose protos moved past what sparkdreamjs and
+# sparkdream-ui were generated from breaks Ledger signing. Checked before
+# anything is rewritten.
+if [ "$DO_AMINO_CHECK" = true ]; then
+    section "0. AMINO CLIENTS"
+    if ! "$SCRIPT_DIR/check-amino-clients.sh"; then
+        fail "amino client check failed (rerun with --no-amino-check to release anyway)"
+        exit 1
+    fi
+else
+    note "--no-amino-check: not checking sparkdreamjs / sparkdream-ui amino files"
+fi
 
 # --- 1. bump deploy versions ------------------------------------------------
 if [ "$DO_BUMP" = true ]; then

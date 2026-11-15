@@ -16,6 +16,15 @@ type tensor struct {
 // maxHeaderBytes bounds the JSON header of a weights file.
 const maxHeaderBytes = 16 << 20
 
+// sizeOf converts a length, count or index to uint64. They are never
+// negative; the guard keeps the conversion from wrapping if one ever were.
+func sizeOf(n int) uint64 {
+	if n < 0 {
+		return 0
+	}
+	return uint64(n)
+}
+
 // parseSafetensors reads every F32 tensor from a safetensors file: an 8-byte
 // little-endian header length, a JSON header of name -> {dtype, shape,
 // data_offsets}, then the raw little-endian data.
@@ -24,7 +33,7 @@ func parseSafetensors(raw []byte) (map[string]tensor, error) {
 		return nil, fmt.Errorf("vision: weights file is too short")
 	}
 	n := binary.LittleEndian.Uint64(raw[:8])
-	if n > maxHeaderBytes || uint64(len(raw)-8) < n {
+	if n > maxHeaderBytes || n > sizeOf(len(raw)-8) {
 		return nil, fmt.Errorf("vision: weights file has a bad header length")
 	}
 	var header map[string]json.RawMessage
@@ -56,12 +65,12 @@ func parseSafetensors(raw []byte) (map[string]tensor, error) {
 			count *= d
 		}
 		lo, hi := e.Offsets[0], e.Offsets[1]
-		if lo > hi || hi > uint64(len(body)) || hi-lo != uint64(count)*4 {
+		if lo > hi || hi > sizeOf(len(body)) || hi-lo != sizeOf(count)*4 {
 			return nil, fmt.Errorf("vision: tensor %q has bad data offsets", name)
 		}
 		data := make([]float32, count)
 		for i := range data {
-			data[i] = math.Float32frombits(binary.LittleEndian.Uint32(body[lo+uint64(i)*4:]))
+			data[i] = math.Float32frombits(binary.LittleEndian.Uint32(body[lo+sizeOf(i)*4:]))
 		}
 		out[name] = tensor{shape: e.Shape, data: data}
 	}
