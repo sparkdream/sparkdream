@@ -26,6 +26,10 @@ func (k msgServer) CloseInitiative(ctx context.Context, msg *types.MsgCloseIniti
 	}
 
 	if !k.Keeper.CanActAs(ctx, msg.Creator, project.Creator) {
+		// The committee path is closed to session keys (see opsStanding).
+		if sessionDelegated(ctx) {
+			return nil, errorsmod.Wrap(types.ErrUnauthorized, "a session key cannot act with operations committee standing")
+		}
 		isOps, opsErr := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), "commons", "operations")
 		if opsErr != nil {
 			return nil, errorsmod.Wrap(opsErr, "failed to check operations committee membership")

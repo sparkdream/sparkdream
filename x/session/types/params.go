@@ -98,8 +98,10 @@ var (
 	// operation safe for ephemeral key delegation. Excluded across all modules:
 	// any message that locks/burns/transfers SPARK or DREAM, requires a bonded
 	// role / committee / council privilege (except sentinel hide/unhide, see the
-	// x/forum entries), or initiates a dispute that escrows fees. Only expandable
-	// via chain upgrade.
+	// x/forum entries), or initiates a dispute that escrows fees. The x/rep
+	// work and staking entries are the stated exception to the DREAM rule (see
+	// their comment). Only expandable via chain upgrade; RepWorkMsgTypes shows
+	// how an upgrade adds entries to a running chain.
 	DefaultAllowedMsgTypes = []string{
 		// x/blog — content CRUD + reactions (DREAM author_bond fields stripped at dispatch)
 		"/sparkdream.blog.v1.MsgCreatePost",
@@ -298,8 +300,69 @@ var (
 		"/sparkdream.artifact.v1.MsgCancelRentalOffer",
 		"/sparkdream.artifact.v1.MsgCancelOffer",
 		"/sparkdream.artifact.v1.MsgCancelOutgoing",
+		// x/rep — day-to-day project work and staking (RepWorkMsgTypes below).
+		"/sparkdream.rep.v1.MsgCreateInitiative",
+		"/sparkdream.rep.v1.MsgAssignInitiative",
+		"/sparkdream.rep.v1.MsgSubmitInitiativeWork",
+		"/sparkdream.rep.v1.MsgCompleteInitiative",
+		"/sparkdream.rep.v1.MsgUnassignInitiative",
+		"/sparkdream.rep.v1.MsgCloseInitiative",
+		"/sparkdream.rep.v1.MsgStake",
+		"/sparkdream.rep.v1.MsgUnstake",
+		"/sparkdream.rep.v1.MsgClaimStakingRewards",
+		"/sparkdream.rep.v1.MsgCompoundStakingRewards",
 	}
 )
+
+// RepWorkMsgTypes are the x/rep messages a session key may send: running the
+// initiatives of the granter's own projects, doing the granter's own assigned
+// work, and managing the granter's stakes. They let a member hand routine
+// coordination (commissioning and assigning tasks, backing work and content)
+// to a hot key or an assistant without the main wallet signing every step.
+//
+// They are an exception to the "nothing that locks or burns DREAM" rule, and a
+// session's SpendLimit budgets fees only, so nothing but the granter's own
+// balance and the rep caps bounds what a leaked key commits:
+//
+//   - MsgCreateInitiative draws on the approved budget of the granter's own
+//     project and, in a permissionless project, burns the creation fee.
+//   - MsgAssignInitiative locks the self-assignment bond when the granter is
+//     the assignee, and can hand the granter's initiatives to any member.
+//   - MsgStake locks liquid DREAM in a stake (never burned by this path;
+//     MsgUnstake returns it), within max_initiative_stake_per_member, the
+//     content-stake caps and MaxStakeRecordsPerMember. Stakes carry
+//     conviction, so a leaked key can also back somebody else's initiative
+//     or content with the granter's weight until the stakes are withdrawn.
+//   - MsgSubmitInitiativeWork, MsgCompleteInitiative, MsgUnassignInitiative,
+//     MsgCloseInitiative, MsgUnstake, MsgClaimStakingRewards and
+//     MsgCompoundStakingRewards release or pay to the granter; none moves
+//     DREAM to anybody else.
+//
+// The key carries the granter's personal standing only. Each handler's
+// Operations Committee path is refused under MsgExecSession (x/rep's
+// opsStanding), so a committee member's hot key cannot commission work against
+// other members' budgets, complete, close or unassign their initiatives.
+//
+// Everything else in x/rep stays out: proposing, cancelling and completing
+// projects, budget approval, initiative approval and review, bounties, DREAM
+// transfers, invitations, challenges, jury duty, role bonds, tags, reports and
+// appeals (and the identity messages, which are forbidden outright). Guard:
+// rep_allowlist_test.go fails on a new x/rep message until it is classified.
+//
+// The list was added after the first networks started, so the x/session
+// v1 -> v2 migration appends it to both stored lists.
+var RepWorkMsgTypes = []string{
+	"/sparkdream.rep.v1.MsgCreateInitiative",
+	"/sparkdream.rep.v1.MsgAssignInitiative",
+	"/sparkdream.rep.v1.MsgSubmitInitiativeWork",
+	"/sparkdream.rep.v1.MsgCompleteInitiative",
+	"/sparkdream.rep.v1.MsgUnassignInitiative",
+	"/sparkdream.rep.v1.MsgCloseInitiative",
+	"/sparkdream.rep.v1.MsgStake",
+	"/sparkdream.rep.v1.MsgUnstake",
+	"/sparkdream.rep.v1.MsgClaimStakingRewards",
+	"/sparkdream.rep.v1.MsgCompoundStakingRewards",
+}
 
 // ForbiddenAllowlistMsgs are other modules' msg types that may never appear
 // in max_allowed_msg_types or allowed_msg_types. Unlike

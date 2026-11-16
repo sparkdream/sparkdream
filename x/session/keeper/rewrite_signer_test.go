@@ -13,6 +13,7 @@ import (
 	federationtypes "sparkdream/x/federation/types"
 	forumtypes "sparkdream/x/forum/types"
 	nametypes "sparkdream/x/name/types"
+	reptypes "sparkdream/x/rep/types"
 	seasontypes "sparkdream/x/season/types"
 	servicetypes "sparkdream/x/service/types"
 	"sparkdream/x/session/keeper"
@@ -90,6 +91,7 @@ func TestDefaultAllowlistResolvesAndRewrites(t *testing.T) {
 	federationtypes.RegisterInterfaces(reg)
 	forumtypes.RegisterInterfaces(reg)
 	nametypes.RegisterInterfaces(reg)
+	reptypes.RegisterInterfaces(reg)
 	seasontypes.RegisterInterfaces(reg)
 	servicetypes.RegisterInterfaces(reg)
 	cdc := encCfg.Codec

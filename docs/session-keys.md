@@ -95,6 +95,25 @@ The SessionKey grant is scoped to specific message types. This means the session
 | `MsgFlagPost` | A compromised session key could mass-flag to grief creators |
 | `MsgAppealPost` | Initiates dispute resolution |
 
+#### x/rep (initiative work and staking)
+
+**Allow via session key:**
+
+| Message | Rationale |
+|---------|-----------|
+| `MsgCreateInitiative` | Commissioning a task under your own project |
+| `MsgAssignInitiative` | Taking a task, or handing one of your project's tasks to a member |
+| `MsgSubmitInitiativeWork` / `MsgCompleteInitiative` / `MsgUnassignInitiative` | Your own assigned work |
+| `MsgCloseInitiative` | Retiring an initiative of your project |
+| `MsgStake` / `MsgUnstake` | Staking on initiatives, projects, members, tags and content |
+| `MsgClaimStakingRewards` / `MsgCompoundStakingRewards` | Rewards of your stakes |
+
+> **These commit DREAM.** Creating an initiative draws on your project's budget, self-assignment locks a bond, and a stake locks DREAM until it is withdrawn. The grant's `spend_limit` covers fees only, so a leaked key is limited by your balance and the chain's per-target caps, not by the grant. Grant only what the key's holder needs (an assistant that plans tasks does not need the staking messages), keep the expiry short, and revoke when the work is done.
+>
+> **Personal standing only.** A session key acts as the project creator or assignee you are. If you sit on an Operations Committee, the committee's standing in these handlers stays with your wallet.
+
+**Keep behind main wallet:** proposing, cancelling and completing projects, approving initiatives, reviews, bounties, DREAM transfers, invitations, challenges, jury duty and role bonds.
+
 ---
 
 ## Fee Delegation

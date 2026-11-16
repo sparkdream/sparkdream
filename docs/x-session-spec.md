@@ -829,9 +829,48 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 
 These let the Mastodon-link daemons run under a session key instead of the raw operator key that holds the 1000 SPARK service bond. `MsgSubmitFederatedContent` and `MsgAttestOutbound` move no funds: submission only risks the operator's own reward eligibility, and attestation is a payloadless audit entry. `MsgVerifyContent` reserves the verifier's DREAM slash budget — closer to the line than any other entry, admitted so the verifier gets the same key hygiene; a compromised key can at worst burn the granter's own slash budget on content it did not submit, and `ErrSelfVerification` blocks the profitable version (verifying one's own submissions). Every other x/federation signer Msg stays out of the ceiling.
 
-### 12.7. Modules with no session-delegable messages
+### 12.7. x/rep (Initiative Work and Staking)
 
-x/rep, x/reveal, x/futarchy, x/commons, x/shield, x/ecosystem, x/split, x/sparkdream — every signer Msg in these modules either moves SPARK/DREAM, locks a bond, requires bonded-role / committee / council privilege, or is governance/admin infrastructure. They are deliberately not in the ceiling and adding any of them requires a chain upgrade.
+| Message Type | Purpose |
+|--------------|---------|
+| `/sparkdream.rep.v1.MsgCreateInitiative` | Commissioning a task under the granter's own project (or a permissionless one) |
+| `/sparkdream.rep.v1.MsgAssignInitiative` | Taking a task, or handing a task of the granter's project to a member |
+| `/sparkdream.rep.v1.MsgSubmitInitiativeWork` | Submitting the granter's deliverable |
+| `/sparkdream.rep.v1.MsgCompleteInitiative` | Completing the granter's assignment once conviction is met |
+| `/sparkdream.rep.v1.MsgUnassignInitiative` | Stepping down from the granter's assignment |
+| `/sparkdream.rep.v1.MsgCloseInitiative` | Retiring an initiative of the granter's project |
+| `/sparkdream.rep.v1.MsgStake` | Staking on an initiative, project, member, tag or content item |
+| `/sparkdream.rep.v1.MsgUnstake` | Withdrawing one of the granter's stakes |
+| `/sparkdream.rep.v1.MsgClaimStakingRewards` | Claiming a stake's rewards to the granter |
+| `/sparkdream.rep.v1.MsgCompoundStakingRewards` | Adding a stake's rewards to its principal |
+
+These let a member hand routine coordination to a hot key or an assistant: commissioning and assigning the tasks of their own projects, doing their own assigned work, and backing work and content with conviction. The list is `RepWorkMsgTypes` in [x/session/types/params.go](../x/session/types/params.go).
+
+They are the one exception to the rule that nothing which locks or burns DREAM is delegable, and `spend_limit` budgets fees only, so the exposure of a leaked key is bounded by the granter's balance and x/rep's own caps, not by the grant:
+
+- `MsgCreateInitiative` draws on the approved budget of the granter's own project and burns the creation fee in a permissionless project.
+- `MsgAssignInitiative` locks the self-assignment bond when the granter is the assignee, and can hand the granter's initiatives to any member.
+- `MsgStake` locks liquid DREAM (this path never burns it, and `MsgUnstake` returns it) within `max_initiative_stake_per_member`, the content-stake caps and `MaxStakeRecordsPerMember`. A stake carries conviction, so a leaked key can back somebody else's initiative or content with the granter's weight until the stakes are withdrawn.
+- The other seven release or pay to the granter. None moves DREAM to anybody else.
+
+A grant should list only the messages its holder needs: an assistant that plans work needs the first two and `MsgCloseInitiative`, not the staking entries.
+
+**Personal standing only.** The initiative handlers also accept the Operations Committee as an administrative escape hatch. That path is refused under `MsgExecSession` (x/rep's `opsStanding`, read from the session-dispatch context tag): the key acts as the project creator or the assignee the granter is, never with the granter's committee seat. A committee member's hot key therefore cannot commission work against other members' budgets, or complete, close or unassign their initiatives.
+
+**Excluded** (wallet-signed):
+- `MsgProposeProject` (burns the creation fee), `MsgCancelProject`, `MsgCompleteProject`, `MsgApproveProjectBudget` (council or governance)
+- `MsgApproveInitiative`, `MsgSubmitInitiativeReview` and the other review messages (a verdict on somebody's work)
+- `MsgFundInitiativeBounty` / `MsgReclaimInitiativeBounty`, `MsgFundReviewBounty` / `MsgReclaimReviewBounty`, `MsgTransferDream` (DREAM leaves the granter)
+- invitations, challenges, jury duty, expert witnesses, interims, role bonds, tags and tag budgets, member reports, appeals, params
+- the identity messages, which `ForbiddenAllowlistMsgs` refuses outright
+
+Guard: `x/session/types/rep_allowlist_test.go` walks the x/rep Msg service and fails on a new message until it is classified.
+
+**Upgrade.** These entries were added after the first networks started. The ceiling cannot be raised by a message, so the x/session `v1 -> v2` migration (`MigrateV1ToV2`) appends them to `max_allowed_msg_types` and to `allowed_msg_types`; the Commons Operations Committee can narrow the active list afterwards as with any entry.
+
+### 12.8. Modules with no session-delegable messages
+
+x/reveal, x/futarchy, x/commons, x/shield, x/ecosystem, x/split, x/sparkdream — every signer Msg in these modules either moves SPARK/DREAM, locks a bond, requires bonded-role / committee / council privilege, or is governance/admin infrastructure. They are deliberately not in the ceiling and adding any of them requires a chain upgrade.
 
 ---
 

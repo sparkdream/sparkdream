@@ -26,7 +26,7 @@ func (k msgServer) CompleteInitiative(ctx context.Context, msg *types.MsgComplet
 	}
 
 	isAssignee := k.Keeper.CanActAs(ctx, msg.Creator, initiative.Assignee)
-	isOpsCommittee := k.Keeper.IsOperationsCommittee(ctx, creatorAddr)
+	isOpsCommittee := k.Keeper.opsStanding(ctx, creatorAddr)
 	if !isAssignee && !isOpsCommittee {
 		return nil, errorsmod.Wrapf(types.ErrUnauthorized, "only the assignee or operations committee can complete an initiative")
 	}

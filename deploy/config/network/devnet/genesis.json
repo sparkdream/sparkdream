@@ -2066,7 +2066,17 @@
           "/sparkdream.artifact.v1.MsgDelistUnits",
           "/sparkdream.artifact.v1.MsgCancelRentalOffer",
           "/sparkdream.artifact.v1.MsgCancelOffer",
-          "/sparkdream.artifact.v1.MsgCancelOutgoing"
+          "/sparkdream.artifact.v1.MsgCancelOutgoing",
+          "/sparkdream.rep.v1.MsgCreateInitiative",
+          "/sparkdream.rep.v1.MsgAssignInitiative",
+          "/sparkdream.rep.v1.MsgSubmitInitiativeWork",
+          "/sparkdream.rep.v1.MsgCompleteInitiative",
+          "/sparkdream.rep.v1.MsgUnassignInitiative",
+          "/sparkdream.rep.v1.MsgCloseInitiative",
+          "/sparkdream.rep.v1.MsgStake",
+          "/sparkdream.rep.v1.MsgUnstake",
+          "/sparkdream.rep.v1.MsgClaimStakingRewards",
+          "/sparkdream.rep.v1.MsgCompoundStakingRewards"
         ],
         "authorized_grant_creators": [
           "sprkdrm1m0a2t448gsfxq5nr6el96jmm6svj43sym0derq",
@@ -2151,7 +2161,17 @@
           "/sparkdream.artifact.v1.MsgDelistUnits",
           "/sparkdream.artifact.v1.MsgCancelRentalOffer",
           "/sparkdream.artifact.v1.MsgCancelOffer",
-          "/sparkdream.artifact.v1.MsgCancelOutgoing"
+          "/sparkdream.artifact.v1.MsgCancelOutgoing",
+          "/sparkdream.rep.v1.MsgCreateInitiative",
+          "/sparkdream.rep.v1.MsgAssignInitiative",
+          "/sparkdream.rep.v1.MsgSubmitInitiativeWork",
+          "/sparkdream.rep.v1.MsgCompleteInitiative",
+          "/sparkdream.rep.v1.MsgUnassignInitiative",
+          "/sparkdream.rep.v1.MsgCloseInitiative",
+          "/sparkdream.rep.v1.MsgStake",
+          "/sparkdream.rep.v1.MsgUnstake",
+          "/sparkdream.rep.v1.MsgClaimStakingRewards",
+          "/sparkdream.rep.v1.MsgCompoundStakingRewards"
         ],
         "max_endblocker_dispatches_per_pass": 100,
         "max_exec_count": "10000",

@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -202,6 +203,23 @@ func (k Keeper) IsOperationsCommittee(ctx context.Context, address sdk.AccAddres
 	}
 
 	return false
+}
+
+// sessionDelegated reports whether the message is being dispatched by
+// x/session's MsgExecSession, i.e. signed by a session key of the member
+// rather than by the member's own key.
+func sessionDelegated(ctx context.Context) bool {
+	return commontypes.SessionExecGranter(ctx) != ""
+}
+
+// opsStanding reports whether the signer may use the Operations Committee
+// escape hatch of a project or initiative handler. A session key never can:
+// it carries the member's personal standing (project creator, assignee) and
+// nothing a committee seat adds, so a leaked hot key of a committee member
+// cannot commission work against other people's budgets, close or reassign
+// their initiatives (docs/x-session-spec.md §12.7).
+func (k Keeper) opsStanding(ctx context.Context, address sdk.AccAddress) bool {
+	return !sessionDelegated(ctx) && k.IsOperationsCommittee(ctx, address)
 }
 
 // IsGroupAccount returns true when addr is a known group-policy address.

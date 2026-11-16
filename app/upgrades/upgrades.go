@@ -39,5 +39,9 @@ func RunMigrations(mm *module.Manager, cfg module.Configurator) upgradetypes.Upg
 // All is every upgrade this binary can apply, oldest first.
 var All = []Upgrade{
 	// x/blog v2: builds the pinned post index behind Query/ListPinnedPosts.
-	{Name: "blog-pinned-index", Handler: RunMigrations},
+	// x/session v2: admits the x/rep work and staking messages to the session
+	// allowlist (sessiontypes.RepWorkMsgTypes), whose ceiling only an upgrade
+	// can raise. Not yet applied by any network, so later consensus changes of
+	// the same release fold in here.
+	{Name: "pinned-index-rep-sessions", Handler: RunMigrations},
 }

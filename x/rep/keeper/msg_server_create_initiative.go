@@ -43,7 +43,7 @@ func (k msgServer) CreateInitiative(ctx context.Context, msg *types.MsgCreateIni
 		return nil, errorsmod.Wrap(err, "failed to get parent project")
 	}
 	if !project.Permissionless && !k.Keeper.CanActAs(ctx, msg.Creator, project.Creator) &&
-		!k.Keeper.IsOperationsCommittee(ctx, sdk.AccAddress(creatorAddr)) {
+		!k.Keeper.opsStanding(ctx, sdk.AccAddress(creatorAddr)) {
 		return nil, errorsmod.Wrapf(types.ErrUnauthorized,
 			"only the creator of project %d or the operations committee may create initiatives under it",
 			msg.ProjectId)

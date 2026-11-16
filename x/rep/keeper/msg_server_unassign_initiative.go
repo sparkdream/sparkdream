@@ -37,6 +37,10 @@ func (k msgServer) UnassignInitiative(ctx context.Context, msg *types.MsgUnassig
 	// apprentice would leave the status at ASSIGNED rather than reopening.
 	forced := !k.Keeper.CanActAs(ctx, msg.Creator, initiative.Assignee)
 	if forced {
+		// The committee path is closed to session keys (see opsStanding).
+		if sessionDelegated(ctx) {
+			return nil, errorsmod.Wrap(types.ErrUnauthorized, "a session key cannot act with operations committee standing")
+		}
 		isOps, opsErr := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), "commons", "operations")
 		if opsErr != nil {
 			return nil, errorsmod.Wrap(opsErr, "failed to check operations committee membership")

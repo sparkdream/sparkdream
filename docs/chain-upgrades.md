@@ -3,7 +3,9 @@
 How a release that changes the state machine reaches a running chain without
 a reset. The machinery is wired (handler registration, store loader, the
 Technical Council's `MsgForceUpgrade`), and the first entry in
-`upgrades.All`, `blog-pinned-index`, is listed for the next release. Until a
+`upgrades.All`, `pinned-index-rep-sessions`, is listed for the next release: the
+x/blog v2 pinned post index and the x/session v2 migration that admits the
+x/rep work and staking messages to the session allowlist. Until a
 network applies it, earlier consensus-affecting releases shipped by resetting
 the networks (or by swapping binaries at a `halt-height`, which works only
 when replaying old blocks on the new binary gives the same results). A reset

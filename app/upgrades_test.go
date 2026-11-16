@@ -11,6 +11,7 @@ import (
 	"sparkdream/app/upgrades"
 	blogkeeper "sparkdream/x/blog/keeper"
 	blogtypes "sparkdream/x/blog/types"
+	sessiontypes "sparkdream/x/session/types"
 )
 
 // A plan whose name has no handler halts every node at its height with
@@ -60,7 +61,7 @@ func TestRunMigrationsHandlerApplies(t *testing.T) {
 	require.Equal(t, int64(10), done)
 }
 
-// blog-pinned-index on a chain still at x/blog v1 runs the v1 -> v2
+// pinned-index-rep-sessions on a chain still at x/blog v1 runs the v1 -> v2
 // migration: a post pinned before the index existed becomes listed.
 func TestBlogPinnedIndexUpgradeBackfills(t *testing.T) {
 	app := testApp(t)
@@ -78,7 +79,7 @@ func TestBlogPinnedIndexUpgradeBackfills(t *testing.T) {
 	vm := app.ModuleManager.GetVersionMap()
 	vm[blogtypes.ModuleName] = 1
 	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
-	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "blog-pinned-index", Height: 10}))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "pinned-index-rep-sessions", Height: 10}))
 
 	msg, broken := blogkeeper.PinnedIndexInvariant(app.BlogKeeper)(ctx)
 	require.False(t, broken, msg)
@@ -90,4 +91,49 @@ func TestBlogPinnedIndexUpgradeBackfills(t *testing.T) {
 	after, err := app.UpgradeKeeper.GetModuleVersionMap(ctx)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), after[blogtypes.ModuleName])
+}
+
+// The upgrade on a chain still at x/session v1 runs the v1 -> v2 migration:
+// the x/rep work and staking messages join the ceiling and the active list,
+// and a list the network narrowed keeps its other removals.
+func TestUpgradeAdmitsRepWorkSessionMsgs(t *testing.T) {
+	app := testApp(t)
+	ctx := app.NewUncachedContext(false, cmtproto.Header{Height: 10}).
+		WithHeaderInfo(header.Info{Height: 10})
+
+	// The lists as a v1 chain holds them, with one entry narrowed away.
+	const narrowed = "/sparkdream.blog.v1.MsgReact"
+	isRepWork := map[string]bool{}
+	for _, m := range sessiontypes.RepWorkMsgTypes {
+		isRepWork[m] = true
+	}
+	params := sessiontypes.DefaultParams()
+	var ceiling, active []string
+	for _, m := range params.MaxAllowedMsgTypes {
+		if !isRepWork[m] {
+			ceiling = append(ceiling, m)
+			if m != narrowed {
+				active = append(active, m)
+			}
+		}
+	}
+	params.MaxAllowedMsgTypes, params.AllowedMsgTypes = ceiling, active
+	require.NoError(t, params.Validate())
+	require.NoError(t, app.SessionKeeper.Params.Set(ctx, params))
+
+	vm := app.ModuleManager.GetVersionMap()
+	vm[sessiontypes.ModuleName] = 1
+	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "pinned-index-rep-sessions", Height: 10}))
+
+	after, err := app.SessionKeeper.Params.Get(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, sessiontypes.DefaultAllowedMsgTypes, after.MaxAllowedMsgTypes)
+	require.Subset(t, after.AllowedMsgTypes, sessiontypes.RepWorkMsgTypes)
+	require.NotContains(t, after.AllowedMsgTypes, narrowed)
+	require.Len(t, after.AllowedMsgTypes, len(sessiontypes.DefaultAllowedMsgTypes)-1)
+
+	versions, err := app.UpgradeKeeper.GetModuleVersionMap(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), versions[sessiontypes.ModuleName])
 }
