@@ -80,6 +80,16 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	types.RegisterMsgServer(registrar, keeper.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(registrar, keeper.NewQueryServerImpl(am.keeper))
 
+	if cfg, ok := registrar.(module.Configurator); ok {
+		// v2 -> v3: the x/storage council messages for the Commons Council
+		// and its Operations Committee.
+		if err := cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+			return am.keeper.MigrateV2ToV3(ctx)
+		}); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -132,7 +142,7 @@ func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
 }
 
 // ConsensusVersion is a sequence number for state-breaking change of the module.
-func (AppModule) ConsensusVersion() uint64 { return 2 }
+func (AppModule) ConsensusVersion() uint64 { return 3 }
 
 // BeginBlock contains the logic that is automatically triggered at the beginning of each block.
 func (am AppModule) BeginBlock(_ context.Context) error {

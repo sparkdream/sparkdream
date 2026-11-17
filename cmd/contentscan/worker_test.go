@@ -25,6 +25,7 @@ import (
 type fakeChain struct {
 	routes    map[string]string
 	broadcast []sdk.Msg
+	down      bool // every query fails as an unreachable node would
 }
 
 func (f *fakeChain) GetJSON(_ context.Context, path string, out any) error {
@@ -35,9 +36,12 @@ func (f *fakeChain) GetJSON(_ context.Context, path string, out any) error {
 			return json.Unmarshal([]byte(`{}`), out) // single page
 		}
 	}
+	if f.down {
+		return fmt.Errorf("sdaptx: get %s: connection refused", base)
+	}
 	body, ok := f.routes[base]
 	if !ok {
-		return fmt.Errorf("no route %s", base)
+		return fmt.Errorf("sdaptx: get %s: status 404: no route", base)
 	}
 	return json.Unmarshal([]byte(body), out)
 }

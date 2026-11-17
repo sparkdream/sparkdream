@@ -273,6 +273,15 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.artifact.v1.MsgMintUnits",
 			"/sparkdream.artifact.v1.MsgRevokeUnits",
 			"/sparkdream.artifact.v1.MsgFundEdition",
+			// x/storage (docs/x-storage-spec.md): a body that holds these
+			// can hire storage operators and scanners, void the completions
+			// it is paid for, and lift its scanners' flags.
+			"/sparkdream.storage.v1.MsgApproveOperator",
+			"/sparkdream.storage.v1.MsgRemoveOperator",
+			"/sparkdream.storage.v1.MsgApproveScanner",
+			"/sparkdream.storage.v1.MsgRemoveScanner",
+			"/sparkdream.storage.v1.MsgVoidCompletion",
+			"/sparkdream.storage.v1.MsgUnflagRemoved",
 		},
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -709,6 +718,16 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.artifact.v1.MsgHideContent",
 			"/sparkdream.artifact.v1.MsgUnhideContent",
 			"/sparkdream.artifact.v1.MsgUpdateOperationalParams",
+			// x/storage (docs/x-storage-spec.md): a body that holds these
+			// can hire storage operators and scanners, void the completions
+			// it is paid for, and lift its scanners' flags.
+			"/sparkdream.storage.v1.MsgApproveOperator",
+			"/sparkdream.storage.v1.MsgRemoveOperator",
+			"/sparkdream.storage.v1.MsgApproveScanner",
+			"/sparkdream.storage.v1.MsgRemoveScanner",
+			"/sparkdream.storage.v1.MsgVoidCompletion",
+			"/sparkdream.storage.v1.MsgUnflagRemoved",
+			"/sparkdream.storage.v1.MsgUpdateOperationalParams",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),

@@ -20,7 +20,12 @@
 //	CS_LCD                LCD base URL (default http://localhost:1317)
 //	CS_CHAIN_ID           chain id (default sparkdream)
 //	CS_PREFIX             bech32 prefix (default sprkdrm)
-//	CS_DENOM / CS_FEE / CS_GAS   fee denom, amount and gas for checkpoints
+//	CS_DENOM / CS_FEE / CS_GAS   fee denom, amount and gas for checkpoints and flags
+//	                      (defaults 5000 and 200000: the networks' minimum
+//	                      gas price of 0.025, so change both together). With
+//	                      a session key sdaptx adds its SessionGasOverhead and
+//	                      scales the fee to match. A flag on a completed
+//	                      x/storage request uses about 120000 on its own.
 //	                      (CS_DENOM default: the chain's bond denom, read
 //	                      from x/identity)
 //	CS_MNEMONIC           signing mnemonic (direct mode), or
@@ -56,6 +61,9 @@
 //	CS_IPFS_GATEWAY / CS_ARWEAVE_GATEWAY / CS_FILECOIN_GATEWAY / CS_JACKAL_GATEWAY
 //	                      URL templates with {id}
 //	CS_URI_TTL            lifetime of plain-URI verdicts (default 720h)
+//	CS_STORAGE            scan x/storage permanent-copy requests and flag removed
+//	                      hashes there (default true; needs MsgFlagRemoved in the
+//	                      worker's session key, and the scanner approved in x/storage)
 //	CS_POLL               poll interval (default 30s)
 //	CS_CHECKPOINT_EVERY   blocks between checkpoints (default 600; 0 disables)
 //	CS_MAX_FETCH_BYTES    fetch and decompression cap (default 16 MiB)
@@ -117,6 +125,8 @@ type Config struct {
 	MaxFetchBytes   int64
 	Proxy           string
 	AllowPrivate    bool
+	// Storage: scan x/storage requests and flag removed hashes there.
+	Storage bool
 }
 
 func env(k, def string) string {
@@ -191,6 +201,7 @@ func loadConfig() (Config, error) {
 		MaxFetchBytes:   envInt("CS_MAX_FETCH_BYTES", 16<<20),
 		Proxy:           os.Getenv("CS_PROXY"),
 		AllowPrivate:    env("CS_ALLOW_PRIVATE", "") == "true",
+		Storage:         env("CS_STORAGE", "true") == "true",
 	}
 	if v := os.Getenv("CS_MODELS"); v != "" {
 		if err := json.Unmarshal([]byte(v), &cfg.Models); err != nil {

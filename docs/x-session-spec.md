@@ -868,7 +868,19 @@ Guard: `x/session/types/rep_allowlist_test.go` walks the x/rep Msg service and f
 
 **Upgrade.** These entries were added after the first networks started. The ceiling cannot be raised by a message, so the x/session `v1 -> v2` migration (`MigrateV1ToV2`) appends them to `max_allowed_msg_types` and to `allowed_msg_types`; the Commons Operations Committee can narrow the active list afterwards as with any entry.
 
-### 12.8. Modules with no session-delegable messages
+### 12.8. x/storage (Operator and Scanner Workers)
+
+| Message Type | Purpose |
+|--------------|---------|
+| `/sparkdream.storage.v1.MsgClaimRequest` | Storage operator worker taking a request |
+| `/sparkdream.storage.v1.MsgExtendClaim` | Extending a claim while the storage network confirms |
+| `/sparkdream.storage.v1.MsgCompleteRequest` | Recording where the copy is |
+| `/sparkdream.storage.v1.MsgDeclineRequest` | Declining a file the operator cannot store |
+| `/sparkdream.storage.v1.MsgFlagRemoved` | Content-scanner worker flagging a removed hash |
+
+Storage operators and scanners run unattended beside a funded storage-network key, so they sign with a session key. None of these moves the signer's funds, and each closing power among them (completions, declines, flags) is capped per window by x/storage, which bounds what a stolen key can do ([x-storage-spec.md](x-storage-spec.md)). The list is `storagetypes.DelegableMsgTypeURLs`. Every other x/storage message is in `ForbiddenAllowlistMsgs` (`storagetypes.NonDelegableMsgTypeURLs`): requests, sources and disputes move the member's funds, and the rest are council or governance decisions. Guard: `x/storage/types/session_guard_test.go` fails on any x/storage message without a decision. The reference workers ([cmd/storageworker](../cmd/storageworker/main.go), [cmd/contentscan](../cmd/contentscan/main.go)) read the key from `STW_SESSION_KEY_FILE` / `CS_SESSION_KEY_FILE`; `test/storage/worker_test.sh` runs the operator worker through one.
+
+### 12.9. Modules with no session-delegable messages
 
 x/reveal, x/futarchy, x/commons, x/shield, x/ecosystem, x/split, x/sparkdream — every signer Msg in these modules either moves SPARK/DREAM, locks a bond, requires bonded-role / committee / council privilege, or is governance/admin infrastructure. They are deliberately not in the ceiling and adding any of them requires a chain upgrade.
 

@@ -245,6 +245,8 @@ message PolicyPermissions {
 Permissions are *additive on create*, *replaceable on update*, and
 *deletable*. Every change increments the policy version (see §3.7).
 
+The Commons Council and the Commons Operations Committee also hold the x/storage council messages (`MsgApproveOperator`, `MsgRemoveOperator`, `MsgApproveScanner`, `MsgRemoveScanner`, `MsgVoidCompletion`, `MsgUnflagRemoved`; `storagetypes.CouncilMsgTypeURLs`), added on a running chain by the x/commons v2 → v3 migration, which also gives the Operations Committee `MsgUpdateOperationalParams` for storage prices. Other bodies do not hold them: holding `MsgApproveOperator` or `MsgApproveScanner` is what lets a body hire storage operators and scanners ([x-storage-spec.md](x-storage-spec.md) §5).
+
 ### 3.5. Proposal, Vote, AnonVoteTally
 
 ```protobuf

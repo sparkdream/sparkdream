@@ -87,7 +87,8 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	types.RegisterQueryServer(registrar, keeper.NewQueryServerImpl(am.keeper))
 
 	if cfg, ok := registrar.(module.Configurator); ok {
-		// v1 -> v2: admit the x/rep work and staking messages to the allowlist.
+		// v1 -> v2: admit the x/rep work and staking messages and the
+		// x/storage worker messages to the allowlist.
 		if err := cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error {
 			return am.keeper.MigrateV1ToV2(ctx)
 		}); err != nil {

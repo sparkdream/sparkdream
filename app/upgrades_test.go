@@ -1,17 +1,23 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"cosmossdk.io/core/header"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/app/upgrades"
 	blogkeeper "sparkdream/x/blog/keeper"
 	blogtypes "sparkdream/x/blog/types"
+	commonstypes "sparkdream/x/commons/types"
+	servicetypes "sparkdream/x/service/types"
 	sessiontypes "sparkdream/x/session/types"
+	storagekeeper "sparkdream/x/storage/keeper"
+	storagetypes "sparkdream/x/storage/types"
 )
 
 // A plan whose name has no handler halts every node at its height with
@@ -61,7 +67,7 @@ func TestRunMigrationsHandlerApplies(t *testing.T) {
 	require.Equal(t, int64(10), done)
 }
 
-// pinned-index-rep-sessions on a chain still at x/blog v1 runs the v1 -> v2
+// storage-pinned-index-rep-sessions on a chain still at x/blog v1 runs the v1 -> v2
 // migration: a post pinned before the index existed becomes listed.
 func TestBlogPinnedIndexUpgradeBackfills(t *testing.T) {
 	app := testApp(t)
@@ -79,7 +85,7 @@ func TestBlogPinnedIndexUpgradeBackfills(t *testing.T) {
 	vm := app.ModuleManager.GetVersionMap()
 	vm[blogtypes.ModuleName] = 1
 	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
-	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "pinned-index-rep-sessions", Height: 10}))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "storage-pinned-index-rep-sessions", Height: 10}))
 
 	msg, broken := blogkeeper.PinnedIndexInvariant(app.BlogKeeper)(ctx)
 	require.False(t, broken, msg)
@@ -124,7 +130,7 @@ func TestUpgradeAdmitsRepWorkSessionMsgs(t *testing.T) {
 	vm := app.ModuleManager.GetVersionMap()
 	vm[sessiontypes.ModuleName] = 1
 	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
-	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "pinned-index-rep-sessions", Height: 10}))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "storage-pinned-index-rep-sessions", Height: 10}))
 
 	after, err := app.SessionKeeper.Params.Get(ctx)
 	require.NoError(t, err)
@@ -136,4 +142,121 @@ func TestUpgradeAdmitsRepWorkSessionMsgs(t *testing.T) {
 	versions, err := app.UpgradeKeeper.GetModuleVersionMap(ctx)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), versions[sessiontypes.ModuleName])
+}
+
+// The upgrade on a chain that predates x/storage brings the module up whole:
+// its genesis runs (params and the arweave backend), x/service v2 writes the
+// storage-arweave service type, x/session v2 admits the worker messages, and
+// x/commons v3 gives the Commons Council and its Operations Committee the
+// storage council messages. After it, x/storage's own cross-module check
+// (the hold windows fit inside the operator unbonding period) holds.
+func TestUpgradeBringsUpStorage(t *testing.T) {
+	app := testApp(t)
+	ctx := app.NewUncachedContext(false, cmtproto.Header{Height: 10}).
+		WithHeaderInfo(header.Info{Height: 10})
+
+	// The state of a chain that predates the module (the test app starts
+	// empty): no storage state, x/service without the storage-arweave type,
+	// a session allowlist without the worker messages, and the two commons
+	// bodies holding only what they held before.
+	_, err := app.StorageKeeper.Params.Get(ctx)
+	require.Error(t, err, "storage must have no state before the upgrade")
+	require.NoError(t, app.ServiceKeeper.Params.Set(ctx, servicetypes.DefaultParams()))
+	_, found := app.ServiceKeeper.GetServiceTypeConfig(ctx, servicetypes.StorageArweaveServiceType)
+	require.False(t, found)
+
+	isStorage := func(m string) bool { return strings.HasPrefix(m, "/sparkdream.storage.v1.") }
+	sp := sessiontypes.DefaultParams()
+	strip := func(in []string) (out []string) {
+		for _, m := range in {
+			if !isStorage(m) {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	sp.MaxAllowedMsgTypes, sp.AllowedMsgTypes = strip(sp.MaxAllowedMsgTypes), strip(sp.AllowedMsgTypes)
+	require.NoError(t, sp.Validate())
+	require.NoError(t, app.SessionKeeper.Params.Set(ctx, sp))
+
+	bodies := map[string]string{
+		"Commons Council":              "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+		"Commons Operations Committee": "sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y",
+	}
+	const held = "/sparkdream.commons.v1.MsgSpendFromCommons"
+	for name, policy := range bodies {
+		require.NoError(t, app.CommonsKeeper.Groups.Set(ctx, name, commonstypes.Group{PolicyAddress: policy}))
+		require.NoError(t, app.CommonsKeeper.PolicyPermissions.Set(ctx, policy,
+			commonstypes.PolicyPermissions{PolicyAddress: policy, AllowedMessages: []string{held}}))
+	}
+
+	vm := app.ModuleManager.GetVersionMap()
+	delete(vm, storagetypes.ModuleName)
+	vm[servicetypes.ModuleName] = 1
+	vm[sessiontypes.ModuleName] = 1
+	vm[commonstypes.ModuleName] = 2
+	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "storage-pinned-index-rep-sessions", Height: 10}))
+
+	// x/storage: default params and the launch backend, nobody approved.
+	params, err := app.StorageKeeper.Params.Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, storagetypes.DefaultParams(), params)
+	backend, err := app.StorageKeeper.Backends.Get(ctx, storagetypes.ArweaveBackend)
+	require.NoError(t, err)
+	require.Equal(t, servicetypes.StorageArweaveServiceType, backend.ServiceType)
+	exported, err := app.StorageKeeper.ExportGenesis(ctx)
+	require.NoError(t, err)
+	require.Empty(t, exported.ApprovedOperators)
+	require.Empty(t, exported.ApprovedScanners)
+
+	// x/service: the operator type, with an unbonding period the storage
+	// windows fit inside.
+	period, ok := app.ServiceKeeper.UnbondingPeriodBlocks(ctx, servicetypes.StorageArweaveServiceType)
+	require.True(t, ok)
+	require.Greater(t, period, params.HoldSpan())
+
+	// x/session: the five worker messages, and only those.
+	sp, err = app.SessionKeeper.Params.Get(ctx)
+	require.NoError(t, err)
+	require.Subset(t, sp.MaxAllowedMsgTypes, sessiontypes.StorageWorkerMsgTypes)
+	require.Subset(t, sp.AllowedMsgTypes, sessiontypes.StorageWorkerMsgTypes)
+	require.ElementsMatch(t, sessiontypes.DefaultAllowedMsgTypes, sp.MaxAllowedMsgTypes)
+
+	// x/commons: the council messages for both bodies, prices for the committee.
+	for name, policy := range bodies {
+		perms, err := app.CommonsKeeper.PolicyPermissions.Get(ctx, policy)
+		require.NoError(t, err)
+		require.Subset(t, perms.AllowedMessages, storagetypes.CouncilMsgTypeURLs(), name)
+		require.Contains(t, perms.AllowedMessages, held, name)
+	}
+	ops, err := app.CommonsKeeper.PolicyPermissions.Get(ctx, bodies["Commons Operations Committee"])
+	require.NoError(t, err)
+	require.Contains(t, ops.AllowedMessages, "/sparkdream.storage.v1.MsgUpdateOperationalParams")
+	council, err := app.CommonsKeeper.PolicyPermissions.Get(ctx, bodies["Commons Council"])
+	require.NoError(t, err)
+	require.NotContains(t, council.AllowedMessages, "/sparkdream.storage.v1.MsgUpdateOperationalParams")
+
+	after, err := app.UpgradeKeeper.GetModuleVersionMap(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), after[storagetypes.ModuleName])
+	require.Equal(t, uint64(2), after[servicetypes.ModuleName])
+	require.Equal(t, uint64(2), after[sessiontypes.ModuleName])
+	require.Equal(t, uint64(3), after[commonstypes.ModuleName])
+
+	// The index and flag invariants hold on the upgraded state. (The escrow
+	// invariant reads the bond denom from x/identity, which this empty test
+	// app has not initialised; TestInvariants covers it on real genesis files.)
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, inv := range []sdk.Invariant{storagekeeper.IndexInvariant(app.StorageKeeper), storagekeeper.FlagInvariant(app.StorageKeeper)} {
+		msg, broken := inv(sdkCtx)
+		require.False(t, broken, msg)
+	}
+
+	// The entry adds the module's store at the upgrade height.
+	for _, u := range upgrades.All {
+		if u.Name == "storage-pinned-index-rep-sessions" {
+			require.Contains(t, u.StoreUpgrades.Added, storagetypes.StoreKey)
+		}
+	}
 }

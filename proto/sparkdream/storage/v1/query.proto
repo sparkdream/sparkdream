@@ -1,0 +1,279 @@
+syntax = "proto3";
+
+package sparkdream.storage.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/storage/v1/params.proto";
+import "sparkdream/storage/v1/storage.proto";
+
+option go_package = "sparkdream/x/storage/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/params";
+  }
+
+  // Backend returns one backend.
+  rpc Backend(QueryBackendRequest) returns (QueryBackendResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/backend/{name}";
+  }
+
+  // Backends lists the backends.
+  rpc Backends(QueryBackendsRequest) returns (QueryBackendsResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/backends";
+  }
+
+  // ApprovedOperators lists a backend's approved operators. An entry is marked stale when x/service no longer names its recorded controller.
+  rpc ApprovedOperators(QueryApprovedOperatorsRequest) returns (QueryApprovedOperatorsResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/approved_operators/{backend}";
+  }
+
+  // ApprovedScanners lists the approved scanners.
+  rpc ApprovedScanners(QueryApprovedScannersRequest) returns (QueryApprovedScannersResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/approved_scanners";
+  }
+
+  // OperatorStanding says whether an operator could claim now and what it has left in this window.
+  rpc OperatorStanding(QueryOperatorStandingRequest) returns (QueryOperatorStandingResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/operator_standing/{backend}/{operator}";
+  }
+
+  // Request returns one request.
+  rpc Request(QueryRequestRequest) returns (QueryRequestResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/request/{id}";
+  }
+
+  // RequestByHash returns the one live or settled request for a file.
+  rpc RequestByHash(QueryRequestByHashRequest) returns (QueryRequestByHashResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/request_by_hash/{backend}/{sha256}";
+  }
+
+  // RequestsByStatus lists a backend's requests in one status.
+  rpc RequestsByStatus(QueryRequestsByStatusRequest) returns (QueryRequestsByStatusResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/requests_by_status/{backend}/{status}";
+  }
+
+  // RequestsByRequester lists a member's requests, under every address the member has used.
+  rpc RequestsByRequester(QueryRequestsByRequesterRequest) returns (QueryRequestsByRequesterResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/requests_by_requester/{requester}";
+  }
+
+  // RequestsByOperator lists an operator's open claims and unsettled completions.
+  rpc RequestsByOperator(QueryRequestsByOperatorRequest) returns (QueryRequestsByOperatorResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/requests_by_operator/{operator}";
+  }
+
+  // RemovedHash returns the flags on a hash.
+  rpc RemovedHash(QueryRemovedHashRequest) returns (QueryRemovedHashResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/removed_hash/{sha256}";
+  }
+
+  // QuoteFee returns what a request would cost now.
+  rpc QuoteFee(QueryQuoteFeeRequest) returns (QueryQuoteFeeResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/quote_fee/{backend}";
+  }
+
+  // RequestLocation returns a request's source addresses and locators even when its hash is flagged, for scanners and reviewers.
+  rpc RequestLocation(QueryRequestLocationRequest) returns (QueryRequestLocationResponse) {
+    option (google.api.http).get = "/sparkdream/storage/v1/request_location/{id}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+
+// QueryBackendRequest defines the QueryBackendRequest message.
+message QueryBackendRequest {
+  string name = 1;
+}
+
+// QueryBackendResponse defines the QueryBackendResponse message.
+message QueryBackendResponse {
+  Backend backend = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryBackendsRequest defines the QueryBackendsRequest message.
+message QueryBackendsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryBackendsResponse defines the QueryBackendsResponse message.
+message QueryBackendsResponse {
+  repeated Backend backends = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryApprovedOperatorsRequest defines the QueryApprovedOperatorsRequest message.
+message QueryApprovedOperatorsRequest {
+  string backend = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryApprovedOperatorsResponse defines the QueryApprovedOperatorsResponse message.
+message QueryApprovedOperatorsResponse {
+  repeated ApprovedOperator operators = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryApprovedScannersRequest defines the QueryApprovedScannersRequest message.
+message QueryApprovedScannersRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryApprovedScannersResponse defines the QueryApprovedScannersResponse message.
+message QueryApprovedScannersResponse {
+  repeated ApprovedScanner scanners = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOperatorStandingRequest defines the QueryOperatorStandingRequest message.
+message QueryOperatorStandingRequest {
+  string backend = 1;
+  string operator = 2;
+}
+
+// QueryOperatorStandingResponse defines the QueryOperatorStandingResponse message.
+message QueryOperatorStandingResponse {
+  bool approved = 1;
+  bool can_claim = 2;
+  string reason = 3;
+  uint32 open_claims = 4;
+  Counter lapses = 5 [(gogoproto.nullable) = false];
+  Counter mismatch_declines = 6 [(gogoproto.nullable) = false];
+  Counter unreachable_declines = 7 [(gogoproto.nullable) = false];
+  Counter completions = 8 [(gogoproto.nullable) = false];
+}
+
+// QueryRequestRequest defines the QueryRequestRequest message.
+message QueryRequestRequest {
+  uint64 id = 1;
+}
+
+// QueryRequestResponse defines the QueryRequestResponse message.
+message QueryRequestResponse {
+  Request request = 1 [(gogoproto.nullable) = false];
+  // withheld: the hash is flagged as removed content, so the request's source
+  // addresses and locators are returned empty.
+  bool withheld = 2;
+}
+
+// QueryRequestByHashRequest defines the QueryRequestByHashRequest message.
+message QueryRequestByHashRequest {
+  string backend = 1;
+  string sha256 = 2;
+}
+
+// QueryRequestByHashResponse defines the QueryRequestByHashResponse message.
+message QueryRequestByHashResponse {
+  Request request = 1 [(gogoproto.nullable) = false];
+  // withheld: the hash is flagged as removed content, so the request's source
+  // addresses and locators are returned empty.
+  bool withheld = 2;
+}
+
+// QueryRequestsByStatusRequest defines the QueryRequestsByStatusRequest message.
+message QueryRequestsByStatusRequest {
+  string backend = 1;
+  RequestStatus status = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryRequestsByStatusResponse defines the QueryRequestsByStatusResponse message.
+message QueryRequestsByStatusResponse {
+  repeated Request requests = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+  // withheld_ids lists the requests on this page whose hash is flagged as
+  // removed content: their source addresses and locators are returned empty.
+  repeated uint64 withheld_ids = 3;
+}
+
+// QueryRequestsByRequesterRequest defines the QueryRequestsByRequesterRequest message.
+message QueryRequestsByRequesterRequest {
+  string requester = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryRequestsByRequesterResponse defines the QueryRequestsByRequesterResponse message.
+message QueryRequestsByRequesterResponse {
+  repeated Request requests = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+  // withheld_ids lists the requests on this page whose hash is flagged as
+  // removed content: their source addresses and locators are returned empty.
+  repeated uint64 withheld_ids = 3;
+}
+
+// QueryRequestsByOperatorRequest defines the QueryRequestsByOperatorRequest message.
+message QueryRequestsByOperatorRequest {
+  string operator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryRequestsByOperatorResponse defines the QueryRequestsByOperatorResponse message.
+message QueryRequestsByOperatorResponse {
+  repeated Request requests = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+  // withheld_ids lists the requests on this page whose hash is flagged as
+  // removed content: their source addresses and locators are returned empty.
+  repeated uint64 withheld_ids = 3;
+}
+
+// QueryRemovedHashRequest defines the QueryRemovedHashRequest message.
+message QueryRemovedHashRequest {
+  string sha256 = 1;
+}
+
+// QueryRemovedHashResponse defines the QueryRemovedHashResponse message.
+message QueryRemovedHashResponse {
+  RemovedHash removed_hash = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryQuoteFeeRequest defines the QueryQuoteFeeRequest message.
+message QueryQuoteFeeRequest {
+  string backend = 1;
+  string content_type = 2;
+  uint64 size_bytes = 3;
+}
+
+// QueryQuoteFeeResponse defines the QueryQuoteFeeResponse message.
+message QueryQuoteFeeResponse {
+  string copy_fee = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string request_fee = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string total = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// QueryRequestLocationRequest defines the QueryRequestLocationRequest message.
+message QueryRequestLocationRequest {
+  uint64 id = 1;
+}
+
+// QueryRequestLocationResponse defines the QueryRequestLocationResponse message.
+message QueryRequestLocationResponse {
+  repeated Source sources = 1 [(gogoproto.nullable) = false];
+  string locator = 2;
+  string verdicts_locator = 3;
+  bool flagged = 4;
+}

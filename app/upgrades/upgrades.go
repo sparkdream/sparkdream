@@ -43,5 +43,16 @@ var All = []Upgrade{
 	// allowlist (sessiontypes.RepWorkMsgTypes), whose ceiling only an upgrade
 	// can raise. Not yet applied by any network, so later consensus changes of
 	// the same release fold in here.
-	{Name: "pinned-index-rep-sessions", Handler: RunMigrations},
+	//
+	// x/storage: a new module (its store is added here and its InitGenesis
+	// runs with the default genesis: params and the arweave backend).
+	// x/service v2 writes the storage-arweave service type, x/session v2
+	// also admits the storage worker messages, and x/commons v3 gives the
+	// Commons Council and its Operations Committee the storage council
+	// messages (docs/x-storage-spec.md, "Genesis, module account and upgrade").
+	{
+		Name:          "storage-pinned-index-rep-sessions",
+		Handler:       RunMigrations,
+		StoreUpgrades: storetypes.StoreUpgrades{Added: []string{"storage"}},
+	},
 }

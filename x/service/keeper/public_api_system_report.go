@@ -24,6 +24,9 @@ import (
 // barrier. Real authorization is keeper-wiring discipline.
 var allowedSystemCallers = []string{
 	types.FederationModuleName,
+	// x/storage reports an operator that lets too many claims lapse in a
+	// window (docs/x-storage-spec.md, "Claims, completion and settlement").
+	types.StorageModuleName,
 }
 
 // resolveSystemCaller forward-derives each allowed module's account

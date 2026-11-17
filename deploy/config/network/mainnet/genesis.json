@@ -1951,6 +1951,23 @@
           "unbonding_period_blocks": "241920",
           "underfunded_grace_blocks": "120960",
           "unilateral_slash_cap_bps": 500
+        },
+        {
+          "service_type": "storage-arweave",
+          "description": "Off-chain operator making permanent copies on Arweave (docs/x-storage-spec.md)",
+          "min_bond_amount": "1000000000",
+          "unbonding_period_blocks": "1036800",
+          "unilateral_slash_cap_bps": 500,
+          "tier1_window_blocks": "1555200",
+          "tier1_aggregate_cap_bps": 1500,
+          "tier1_cooldown_blocks": "120960",
+          "underfunded_grace_blocks": "120960",
+          "enabled": true,
+          "report_timeout_action": "REPORT_TIMEOUT_ACTION_ESCALATE",
+          "challenge_default_slash_bps": 100,
+          "attestation_quorum": 0,
+          "elevated_attestation_quorum": 0,
+          "checkpoint_max_lag_blocks": "0"
         }
       ],
       "system_report_dedup": [],
@@ -2054,7 +2071,12 @@
           "/sparkdream.rep.v1.MsgStake",
           "/sparkdream.rep.v1.MsgUnstake",
           "/sparkdream.rep.v1.MsgClaimStakingRewards",
-          "/sparkdream.rep.v1.MsgCompoundStakingRewards"
+          "/sparkdream.rep.v1.MsgCompoundStakingRewards",
+          "/sparkdream.storage.v1.MsgClaimRequest",
+          "/sparkdream.storage.v1.MsgExtendClaim",
+          "/sparkdream.storage.v1.MsgCompleteRequest",
+          "/sparkdream.storage.v1.MsgDeclineRequest",
+          "/sparkdream.storage.v1.MsgFlagRemoved"
         ],
         "authorized_grant_creators": [
           "sprkdrm1m0a2t448gsfxq5nr6el96jmm6svj43sym0derq",
@@ -2149,7 +2171,12 @@
           "/sparkdream.rep.v1.MsgStake",
           "/sparkdream.rep.v1.MsgUnstake",
           "/sparkdream.rep.v1.MsgClaimStakingRewards",
-          "/sparkdream.rep.v1.MsgCompoundStakingRewards"
+          "/sparkdream.rep.v1.MsgCompoundStakingRewards",
+          "/sparkdream.storage.v1.MsgClaimRequest",
+          "/sparkdream.storage.v1.MsgExtendClaim",
+          "/sparkdream.storage.v1.MsgCompleteRequest",
+          "/sparkdream.storage.v1.MsgDeclineRequest",
+          "/sparkdream.storage.v1.MsgFlagRemoved"
         ],
         "max_endblocker_dispatches_per_pass": 100,
         "max_exec_count": "10000",
@@ -2553,6 +2580,73 @@
       "redelegations": [],
       "unbonding_delegations": [],
       "validators": []
+    },
+    "storage": {
+      "params": {
+        "enabled": true,
+        "min_requester_trust_level": 1,
+        "request_fee": "1000000",
+        "request_ttl_blocks": "120960",
+        "claim_window_blocks": "1440",
+        "settle_window_blocks": "17280",
+        "dispute_window_blocks": "241920",
+        "flag_hold_blocks": "241920",
+        "min_unreachable_blocks": "720",
+        "terminal_retention_blocks": "518400",
+        "counter_window_blocks": "17280",
+        "deadline_retry_blocks": "720",
+        "max_sources_per_request": 4,
+        "max_attestations_per_completion": 8,
+        "max_operators_per_backend": 16,
+        "max_approved_scanners": 16,
+        "max_open_claims_per_operator": 50,
+        "max_lapses_per_window": 10,
+        "max_mismatch_declines_per_operator_per_window": 20,
+        "max_unreachable_declines_per_operator_per_window": 20,
+        "max_completions_per_operator_per_window": 100,
+        "max_flags_per_scanner_per_window": 50,
+        "max_flags_per_hash": 8,
+        "max_hashes_per_unflag": 50,
+        "max_url_bytes": 512,
+        "max_reason_bytes": 256,
+        "max_barred_per_request": 32,
+        "max_open_requests_per_requester": 20,
+        "max_deadlines_per_block": 200
+      },
+      "backends": [
+        {
+          "name": "arweave",
+          "service_type": "storage-arweave",
+          "kind": "BACKEND_KIND_PERMANENT",
+          "locator_format": "LOCATOR_FORMAT_ARWEAVE_TX",
+          "enabled": true,
+          "price_per_byte": "10",
+          "min_fee": "1000000",
+          "min_price_per_byte": "1",
+          "max_price_per_byte": "1000000",
+          "min_min_fee": "100000",
+          "max_min_fee": "1000000000",
+          "declines_to_close": 1,
+          "types": [
+            {
+              "content_type": "image/png",
+              "scanned": true,
+              "max_size": "10485760"
+            },
+            {
+              "content_type": "image/jpeg",
+              "scanned": true,
+              "max_size": "10485760"
+            }
+          ]
+        }
+      ],
+      "approved_operators": [],
+      "approved_scanners": [],
+      "requests": [],
+      "removed_hashes": [],
+      "counters": [],
+      "request_seq": "0"
     },
     "transfer": {
       "denoms": [],

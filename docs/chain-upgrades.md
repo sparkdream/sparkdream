@@ -3,9 +3,13 @@
 How a release that changes the state machine reaches a running chain without
 a reset. The machinery is wired (handler registration, store loader, the
 Technical Council's `MsgForceUpgrade`), and the first entry in
-`upgrades.All`, `pinned-index-rep-sessions`, is listed for the next release: the
-x/blog v2 pinned post index and the x/session v2 migration that admits the
-x/rep work and staking messages to the session allowlist. Until a
+`upgrades.All`, `storage-pinned-index-rep-sessions`, is listed for the next release: the
+x/blog v2 pinned post index, the x/session v2 migration that admits the
+x/rep work and staking messages and the x/storage worker messages to the
+session allowlist, and the new x/storage module (its store, the x/service v2
+migration that writes the `storage-arweave` service type, and the x/commons
+v3 migration that gives the Commons Council and its Operations Committee the
+storage council messages). Until a
 network applies it, earlier consensus-affecting releases shipped by resetting
 the networks (or by swapping binaries at a `halt-height`, which works only
 when replaying old blocks on the new binary gives the same results). A reset
@@ -89,3 +93,34 @@ call it off, an x/gov proposal carries `/cosmos.upgrade.v1beta1.MsgCancelUpgrade
 (the council does not hold that message). As a last resort every node starts
 with `--unsafe-skip-upgrades <height>`; the handler then never runs, so only
 for a plan whose release changed nothing.
+
+## Rehearsing an upgrade
+
+`go test ./app/ -run Upgrade` runs the handler against state the test writes
+itself. A rehearsal runs it on a node, against state the previous release
+wrote. Do one before every release that carries an entry:
+
+1. Build the previous release and start a chain from it. Take the source with
+   `git archive <tag> | tar -x -C <dir>` and run
+   `ignite chain init --build.tags testparams` there; this installs the old
+   `sparkdreamd` and writes a fresh home. Start it.
+2. Write state the migrations touch (for `storage-pinned-index-rep-sessions`:
+   a pinned blog post).
+3. Schedule the plan through the councils, as a network would:
+   `UPGRADE_NAME=<name> UPGRADE_HEIGHT=<height> bash test/commons/tech_upgrade_golden_share.sh`.
+   Pick a height about 120 blocks out.
+4. Wait for `UPGRADE "<name>" NEEDED at height: <h>` in the node log, stop the
+   node, and check that starting the old binary again repeats the message.
+5. Build the current tree (`ignite chain build --build.tags testparams`) and
+   start it on the same home. The log shows `applying upgrade` and one
+   `migrating module` line per bumped module, and blocks continue.
+6. Check `sparkdreamd query upgrade applied <name>`, the migrated state, and
+   run the e2e suite of every module the release adds on the upgraded chain
+   (`bash test/<module>/run_all_tests.sh --no-auto-snapshot`).
+
+`storage-pinned-index-rep-sessions` was rehearsed this way from v1.0.58: the
+old node halted at the plan height, the new one migrated blog, commons,
+service and session, the post pinned before the upgrade appeared in
+`list-pinned-posts`, the session allowlist grew from 76 to 91 types, both
+Commons bodies held the storage council messages, and the x/storage suite
+passed on the upgraded chain.

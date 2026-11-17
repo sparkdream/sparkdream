@@ -62,6 +62,24 @@ func LeafHash(a Attestation) ([32]byte, error) {
 	return sha256.Sum256(append([]byte{0x00}, b...)), nil
 }
 
+// AttestationHash is the sha256 (lowercase hex) of a signed attestation's
+// canonical JSON, signature included. x/storage names verdicts by it: a
+// completion lists the hashes of the clean verdicts it relied on, and a
+// scanner's MsgFlagRemoved carries the hash of its removed verdict
+// (docs/x-storage-spec.md). It is not the feed's merkle leaf, which is
+// domain-separated with a 0x00 prefix.
+func AttestationHash(a Attestation) (string, error) {
+	if a.Sig == "" {
+		return "", errors.New("contentscan: attestation is not signed")
+	}
+	b, err := CanonicalJSON(a)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // MerkleRoot is the RFC 6962 tree hash over leaves (in feed order). The root
 // of an empty feed is sha256 of the empty string. This is the root a worker
 // submits in MsgSubmitCheckpoint: a feed that later fails to reproduce an

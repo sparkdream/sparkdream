@@ -78,6 +78,15 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	types.RegisterMsgServer(registrar, keeper.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(registrar, keeper.NewQueryServerImpl(am.keeper))
 
+	if cfg, ok := registrar.(module.Configurator); ok {
+		// v1 -> v2: write the storage-arweave service type for x/storage.
+		if err := cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error {
+			return am.keeper.MigrateV1ToV2(ctx)
+		}); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -135,7 +144,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, _ codec.JSONCodec) json.RawMe
 // ConsensusVersion is a sequence number for state-breaking change of the module.
 // It should be incremented on each consensus-breaking change introduced by the module.
 // To avoid wrong/empty versions, the initial version should be set to 1.
-func (AppModule) ConsensusVersion() uint64 { return 1 }
+func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // BeginBlock contains the logic that is automatically triggered at the beginning of each block.
 // The begin block implementation is optional.

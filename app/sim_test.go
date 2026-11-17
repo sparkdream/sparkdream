@@ -34,6 +34,8 @@ import (
 	forumtypes "sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
 	seasontypes "sparkdream/x/season/types"
+	servicetypes "sparkdream/x/service/types"
+	storagekeeper "sparkdream/x/storage/keeper"
 )
 
 const (
@@ -156,6 +158,16 @@ func TestFullAppSimulation(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, simErr)
 
+	// x/crisis is not wired, so nothing evaluates invariants during the run.
+	// x/storage's must hold on the state the random operations left behind:
+	// the escrow covers every held fee, and every request sits in exactly
+	// the indexes and timers its status calls for.
+	if config.Commit {
+		ctx := app.NewContextLegacy(true, cmtproto.Header{Height: app.LastBlockHeight(), ChainID: SimAppChainID})
+		msg, broken := storagekeeper.AllInvariants(app.StorageKeeper)(ctx)
+		require.False(t, broken, msg)
+	}
+
 	if config.Commit {
 		simtestutil.PrintStats(db)
 	}
@@ -273,6 +285,15 @@ func TestAppImportExport(t *testing.T) {
 		},
 		blogtypes.StoreKey: {
 			[]byte(blogtypes.RateLimitKey), // per-address daily action counters restart at import
+		},
+		servicetypes.StoreKey: {
+			// Checkpoint liveness queue and its reverse index: rebuilt at
+			// import from each operator's last checkpoint (or registration)
+			// height. The live queue also holds what a rebuild cannot know:
+			// an operator already reported is next due one window after the
+			// report, and one that is winding down is no longer tracked.
+			servicetypes.CheckpointDeadlinesKey.Bytes(),
+			servicetypes.CheckpointDeadlineByOperatorKey.Bytes(),
 		},
 	}
 

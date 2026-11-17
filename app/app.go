@@ -78,6 +78,7 @@ import (
 	shieldante "sparkdream/x/shield/ante"
 	shieldmodulekeeper "sparkdream/x/shield/keeper"
 	shieldmoduletypes "sparkdream/x/shield/types"
+	storagemodulekeeper "sparkdream/x/storage/keeper"
 	vaultmodulekeeper "sparkdream/x/vault/keeper"
 
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
@@ -159,6 +160,7 @@ type App struct {
 	GuardianKeeper   *guardianmodulekeeper.Keeper
 	ArtifactKeeper   artifactmodulekeeper.Keeper
 	VaultKeeper      vaultmodulekeeper.Keeper
+	StorageKeeper    storagemodulekeeper.Keeper
 }
 
 func init() {
@@ -257,6 +259,7 @@ func New(
 		&app.GuardianKeeper,
 		&app.ArtifactKeeper,
 		&app.VaultKeeper,
+		&app.StorageKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -522,6 +525,18 @@ func New(
 	app.VaultKeeper.SetRepKeeper(app.RepKeeper)
 	app.VaultKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.RepKeeper.SetVaultChecker(app.VaultKeeper.IsVault)
+
+	// x/storage: a leaf module. It reads membership and the alias contract
+	// from x/rep, operator status and controllers from x/service, council
+	// checks from x/commons, and sends an undeliverable payout or refund to
+	// the community pool. All late-wired, so it can never be part of a
+	// depinject cycle. x/service lets it file claim-lapse system reports
+	// (allowedSystemCallers).
+	app.StorageKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.StorageKeeper.SetRepKeeper(app.RepKeeper)
+	app.StorageKeeper.SetServiceKeeper(app.ServiceKeeper)
+	app.StorageKeeper.SetCommonsKeeper(app.CommonsKeeper)
+	app.StorageKeeper.SetDistrKeeper(NewServiceDistributionAdapter(app.DistrKeeper))
 
 	// Wire CommonsKeeper into Session so Commons Operations Committee can update
 	// operational params alongside governance authority.

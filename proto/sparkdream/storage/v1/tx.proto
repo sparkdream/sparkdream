@@ -1,0 +1,356 @@
+syntax = "proto3";
+
+package sparkdream.storage.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/storage/v1/params.proto";
+import "sparkdream/storage/v1/storage.proto";
+
+option go_package = "sparkdream/x/storage/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // RequestPermanentCopy asks for a permanent copy of an off-chain file. It burns the request fee and escrows the copy fee.
+  rpc RequestPermanentCopy(MsgRequestPermanentCopy) returns (MsgRequestPermanentCopyResponse);
+
+  // AddSource adds another address a request's file can be fetched from. It burns the request fee.
+  rpc AddSource(MsgAddSource) returns (MsgAddSourceResponse);
+
+  // CancelRequest withdraws a request that is still pending and refunds its copy fee.
+  rpc CancelRequest(MsgCancelRequest) returns (MsgCancelRequestResponse);
+
+  // DisputeCompletion holds a completion's settlement for the dispute window. Free for the requester; any other eligible member burns the request fee.
+  rpc DisputeCompletion(MsgDisputeCompletion) returns (MsgDisputeCompletionResponse);
+
+  // ClaimRequest takes a pending request for the claim window.
+  rpc ClaimRequest(MsgClaimRequest) returns (MsgClaimRequestResponse);
+
+  // ExtendClaim adds one claim window to a claim, once.
+  rpc ExtendClaim(MsgExtendClaim) returns (MsgExtendClaimResponse);
+
+  // CompleteRequest records where the copy is.
+  rpc CompleteRequest(MsgCompleteRequest) returns (MsgCompleteRequestResponse);
+
+  // DeclineRequest says this operator cannot store the file.
+  rpc DeclineRequest(MsgDeclineRequest) returns (MsgDeclineRequestResponse);
+
+  // FlagRemoved flags a hash as removed content.
+  rpc FlagRemoved(MsgFlagRemoved) returns (MsgFlagRemovedResponse);
+
+  // UnflagRemoved lifts flags. A council lifts the flags of scanners it controls; governance lifts all.
+  rpc UnflagRemoved(MsgUnflagRemoved) returns (MsgUnflagRemovedResponse);
+
+  // VoidCompletion voids a completion whose copy is missing or wrong.
+  rpc VoidCompletion(MsgVoidCompletion) returns (MsgVoidCompletionResponse);
+
+  // ApproveOperator lets a storage operator act for a backend. Signed by the operator's controller or governance.
+  rpc ApproveOperator(MsgApproveOperator) returns (MsgApproveOperatorResponse);
+
+  // RemoveOperator removes a storage operator's approval.
+  rpc RemoveOperator(MsgRemoveOperator) returns (MsgRemoveOperatorResponse);
+
+  // ApproveScanner makes a content scanner's flags and verdicts count. Signed by the scanner's controller or governance.
+  rpc ApproveScanner(MsgApproveScanner) returns (MsgApproveScannerResponse);
+
+  // RemoveScanner removes a content scanner's approval. Its flags stay.
+  rpc RemoveScanner(MsgRemoveScanner) returns (MsgRemoveScannerResponse);
+
+  // UpdateBackend creates a backend when the name is new, and otherwise replaces its mutable fields. Governance only.
+  rpc UpdateBackend(MsgUpdateBackend) returns (MsgUpdateBackendResponse);
+
+  // UpdateOperationalParams sets one backend's prices inside its governance bounds. Commons Operations Committee or governance.
+  rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgRequestPermanentCopy asks for a permanent copy of an off-chain file. It burns the request fee and escrows the copy fee.
+message MsgRequestPermanentCopy {
+  option (cosmos.msg.v1.signer) = "requester";
+  option (amino.name) = "sparkdream/x/storage/MsgRequestPermanentCopy";
+
+  string requester = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // backend: the backend to store on
+  string backend = 2;
+  // sha256: the sha256 of the exact file, 64 lowercase hex characters
+  string sha256 = 3;
+  // size_bytes: the file's length in bytes
+  uint64 size_bytes = 4;
+  // content_type: must be listed by the backend
+  string content_type = 5;
+  // url: an https address the file can be fetched from; public and permanent in history
+  string url = 6;
+  // max_fee: the most the requester will pay in total (request fee plus copy fee)
+  string max_fee = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgRequestPermanentCopyResponse defines the MsgRequestPermanentCopyResponse message.
+message MsgRequestPermanentCopyResponse {
+  // request_id: the id of the new request
+  uint64 request_id = 1;
+}
+
+// MsgAddSource adds another address a request's file can be fetched from. It burns the request fee.
+message MsgAddSource {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/storage/MsgAddSource";
+
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+  string url = 3;
+  // max_fee: the most the member will pay
+  string max_fee = 4 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgAddSourceResponse defines the MsgAddSourceResponse message.
+message MsgAddSourceResponse {}
+
+// MsgCancelRequest withdraws a request that is still pending and refunds its copy fee.
+message MsgCancelRequest {
+  option (cosmos.msg.v1.signer) = "requester";
+  option (amino.name) = "sparkdream/x/storage/MsgCancelRequest";
+
+  string requester = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+}
+
+// MsgCancelRequestResponse defines the MsgCancelRequestResponse message.
+message MsgCancelRequestResponse {}
+
+// MsgDisputeCompletion holds a completion's settlement for the dispute window. Free for the requester; any other eligible member burns the request fee.
+message MsgDisputeCompletion {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/storage/MsgDisputeCompletion";
+
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+  // max_fee: the most a non-requester will pay
+  string max_fee = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgDisputeCompletionResponse defines the MsgDisputeCompletionResponse message.
+message MsgDisputeCompletionResponse {}
+
+// MsgClaimRequest takes a pending request for the claim window.
+message MsgClaimRequest {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/storage/MsgClaimRequest";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+}
+
+// MsgClaimRequestResponse defines the MsgClaimRequestResponse message.
+message MsgClaimRequestResponse {}
+
+// MsgExtendClaim adds one claim window to a claim, once.
+message MsgExtendClaim {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/storage/MsgExtendClaim";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+}
+
+// MsgExtendClaimResponse defines the MsgExtendClaimResponse message.
+message MsgExtendClaimResponse {}
+
+// MsgCompleteRequest records where the copy is.
+message MsgCompleteRequest {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/storage/MsgCompleteRequest";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+  // locator: where the copy is, in the backend's locator format
+  string locator = 3;
+  // attestations: sha256 hashes (hex) of the signed clean verdicts relied on; required for a scanned request
+  repeated string attestations = 4;
+  // verdicts_locator: where those signed verdicts are published; required for a scanned request
+  string verdicts_locator = 5;
+}
+
+// MsgCompleteRequestResponse defines the MsgCompleteRequestResponse message.
+message MsgCompleteRequestResponse {}
+
+// MsgDeclineRequest says this operator cannot store the file.
+message MsgDeclineRequest {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/storage/MsgDeclineRequest";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+  DeclineReason reason = 3;
+}
+
+// MsgDeclineRequestResponse defines the MsgDeclineRequestResponse message.
+message MsgDeclineRequestResponse {}
+
+// MsgFlagRemoved flags a hash as removed content.
+message MsgFlagRemoved {
+  option (cosmos.msg.v1.signer) = "scanner";
+  option (amino.name) = "sparkdream/x/storage/MsgFlagRemoved";
+
+  string scanner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // sha256: the flagged file's sha256, 64 lowercase hex characters
+  string sha256 = 2;
+  // attestation_hash: the sha256 (hex) of the scanner's signed removed verdict
+  string attestation_hash = 3;
+}
+
+// MsgFlagRemovedResponse defines the MsgFlagRemovedResponse message.
+message MsgFlagRemovedResponse {}
+
+// MsgUnflagRemoved lifts flags. A council lifts the flags of scanners it controls; governance lifts all.
+message MsgUnflagRemoved {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgUnflagRemoved";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // hashes: the flagged hashes; the message fails as a whole if any is refused
+  repeated string hashes = 2;
+}
+
+// MsgUnflagRemovedResponse defines the MsgUnflagRemovedResponse message.
+message MsgUnflagRemovedResponse {}
+
+// MsgVoidCompletion voids a completion whose copy is missing or wrong.
+message MsgVoidCompletion {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgVoidCompletion";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 request_id = 2;
+  // reason: free text for the record, length-capped
+  string reason = 3;
+}
+
+// MsgVoidCompletionResponse defines the MsgVoidCompletionResponse message.
+message MsgVoidCompletionResponse {}
+
+// MsgApproveOperator lets a storage operator act for a backend. Signed by the operator's controller or governance.
+message MsgApproveOperator {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgApproveOperator";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string backend = 2;
+  string operator = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgApproveOperatorResponse defines the MsgApproveOperatorResponse message.
+message MsgApproveOperatorResponse {}
+
+// MsgRemoveOperator removes a storage operator's approval.
+message MsgRemoveOperator {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgRemoveOperator";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string backend = 2;
+  string operator = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgRemoveOperatorResponse defines the MsgRemoveOperatorResponse message.
+message MsgRemoveOperatorResponse {}
+
+// MsgApproveScanner makes a content scanner's flags and verdicts count. Signed by the scanner's controller or governance.
+message MsgApproveScanner {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgApproveScanner";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string scanner = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgApproveScannerResponse defines the MsgApproveScannerResponse message.
+message MsgApproveScannerResponse {}
+
+// MsgRemoveScanner removes a content scanner's approval. Its flags stay.
+message MsgRemoveScanner {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgRemoveScanner";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string scanner = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgRemoveScannerResponse defines the MsgRemoveScannerResponse message.
+message MsgRemoveScannerResponse {}
+
+// MsgUpdateBackend creates a backend when the name is new, and otherwise replaces its mutable fields. Governance only.
+message MsgUpdateBackend {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgUpdateBackend";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // backend: every field must be supplied
+  Backend backend = 2 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+
+// MsgUpdateBackendResponse defines the MsgUpdateBackendResponse message.
+message MsgUpdateBackendResponse {}
+
+// MsgUpdateOperationalParams sets one backend's prices inside its governance bounds. Commons Operations Committee or governance.
+message MsgUpdateOperationalParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/storage/MsgUpdateOperationalParams";
+
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string backend = 2;
+  string price_per_byte = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string min_fee = 4 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateOperationalParamsResponse defines the MsgUpdateOperationalParamsResponse message.
+message MsgUpdateOperationalParamsResponse {}

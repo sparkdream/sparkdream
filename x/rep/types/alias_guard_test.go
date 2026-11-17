@@ -60,6 +60,17 @@ var aliasGuardAllowlist = map[string]string{
 	"service/keeper/msg_server_open_controller_transfer_case.go|msg.ProposedNewController == op.Controller": "controller is a group policy address",
 	"vault/keeper/vault.go|signer != v.Address":                                                             "the vault's own address",
 	"federation/keeper/msg_server_submit_federated_content.go|prev.SubmittedBy != msg.Operator":             "operator address is the x/service identity; operators retire and re-register instead of migrating",
+	// x/storage: an approval and a claim belong to an x/service operator
+	// address, and a migrated member registers and is approved again under
+	// its new one (docs/x-storage-spec.md, "Approved operators"); the
+	// requester side goes through CanActAs. Controllers and paid councils
+	// are group policy addresses.
+	"storage/keeper/msg_server_extend_claim.go|r.Operator != msg.Operator":       "claimant is the x/service operator address; operators re-register instead of migrating",
+	"storage/keeper/msg_server_complete_request.go|r.Operator != msg.Operator":   "claimant is the x/service operator address; operators re-register instead of migrating",
+	"storage/keeper/msg_server_decline_request.go|r.Operator != msg.Operator":    "claimant is the x/service operator address; operators re-register instead of migrating",
+	"storage/keeper/msg_server_approvals.go|msg.Authority != a.Controller":       "controller is a group policy address",
+	"storage/keeper/msg_server_unflag_removed.go|op.Controller == msg.Authority": "controller is a group policy address",
+	"storage/keeper/msg_server_void_completion.go|msg.Authority != r.Controller": "controller is a group policy address",
 	// Re-keyed by the owning module's migration hook, so the stored address
 	// is always the current one.
 	"session/keeper/msg_server_decline_grant.go|msg.Grantee != grant.Grantee":          "session re-keys grants (granter and grantee side) at migration",

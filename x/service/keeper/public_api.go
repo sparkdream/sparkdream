@@ -89,6 +89,21 @@ func (k Keeper) GetServiceTypeConfig(ctx context.Context, serviceType string) (t
 	return cfg, true
 }
 
+// UnbondingPeriodBlocks returns the effective unbonding period of a service
+// type: its own override, or the module default. x/storage reads it to keep
+// its dispute and hold windows inside the time an operator's bond stays held.
+func (k Keeper) UnbondingPeriodBlocks(ctx context.Context, serviceType string) (int64, bool) {
+	cfg, ok := k.GetServiceTypeConfig(ctx, serviceType)
+	if !ok {
+		return 0, false
+	}
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return 0, false
+	}
+	return k.effectiveUnbondingPeriodBlocks(cfg, params), true
+}
+
 // GetArchivedOperators returns all archived (SLASHED/RETIRED) records
 // for (address, service_type), ordered by retired_at ascending.
 func (k Keeper) GetArchivedOperators(ctx context.Context, addr sdk.AccAddress, serviceType string) ([]types.Operator, error) {

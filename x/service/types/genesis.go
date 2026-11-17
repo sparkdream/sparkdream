@@ -24,8 +24,42 @@ import (
 func DefaultGenesis() *GenesisState {
 	params := DefaultParams()
 	return &GenesisState{
-		Params:       params,
-		ServiceTypes: append(defaultFederationBridgeServiceTypes(params), defaultContentScannerServiceType(params)),
+		Params: params,
+		ServiceTypes: append(defaultFederationBridgeServiceTypes(params),
+			defaultContentScannerServiceType(params), DefaultStorageArweaveServiceType(params)),
+	}
+}
+
+// StorageArweaveServiceType is the service type of the operators that make
+// permanent copies on Arweave for x/storage (docs/x-storage-spec.md).
+const StorageArweaveServiceType = "storage-arweave"
+
+// DefaultStorageArweaveServiceType seeds the storage-arweave service type. A
+// storage operator's completion can stay open to a dispute, a flag hold and
+// a second dispute, and its bond must be held for all of it, so the
+// unbonding period is about four times the default (x/storage refuses
+// windows that would overtake it). A report nobody resolves escalates: the
+// controller that would resolve it is the council the operator's completions
+// pay. Storage operators attest to nothing and submit no checkpoints; every
+// unit of their work is already a transaction. Exported for the x/service
+// v1 -> v2 migration, which writes it on a running chain.
+func DefaultStorageArweaveServiceType(params Params) ServiceTypeConfig {
+	// 1000 SPARK, as the federation bridges: the operator's word moves
+	// other people's fees.
+	const minBondUspark = int64(1_000_000_000)
+	return ServiceTypeConfig{
+		ServiceType:              StorageArweaveServiceType,
+		Description:              "Off-chain operator making permanent copies on Arweave (docs/x-storage-spec.md)",
+		MinBondAmount:            math.NewInt(minBondUspark),
+		UnbondingPeriodBlocks:    params.DefaultUnbondingPeriodBlocks * 30 / 7,
+		UnilateralSlashCapBps:    params.DefaultUnilateralSlashCapBps,
+		Tier1WindowBlocks:        params.DefaultTier1WindowBlocks,
+		Tier1AggregateCapBps:     params.DefaultTier1AggregateCapBps,
+		Tier1CooldownBlocks:      params.DefaultTier1CooldownBlocks,
+		UnderfundedGraceBlocks:   params.DefaultUnderfundedGraceBlocks,
+		Enabled:                  true,
+		ReportTimeoutAction:      ReportTimeoutAction_REPORT_TIMEOUT_ACTION_ESCALATE,
+		ChallengeDefaultSlashBps: 100,
 	}
 }
 

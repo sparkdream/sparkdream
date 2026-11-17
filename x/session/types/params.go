@@ -12,6 +12,7 @@ import (
 	federationtypes "sparkdream/x/federation/types"
 	reptypes "sparkdream/x/rep/types"
 	servicetypes "sparkdream/x/service/types"
+	storagetypes "sparkdream/x/storage/types"
 	vaulttypes "sparkdream/x/vault/types"
 )
 
@@ -311,8 +312,24 @@ var (
 		"/sparkdream.rep.v1.MsgUnstake",
 		"/sparkdream.rep.v1.MsgClaimStakingRewards",
 		"/sparkdream.rep.v1.MsgCompoundStakingRewards",
+		// x/storage — operator and scanner workers (StorageWorkerMsgTypes
+		// below). They run unattended beside a funded storage-network key,
+		// so they sign with a session key. None moves the signer's funds,
+		// and x/storage caps each closing power per window.
+		"/sparkdream.storage.v1.MsgClaimRequest",
+		"/sparkdream.storage.v1.MsgExtendClaim",
+		"/sparkdream.storage.v1.MsgCompleteRequest",
+		"/sparkdream.storage.v1.MsgDeclineRequest",
+		"/sparkdream.storage.v1.MsgFlagRemoved",
 	}
 )
+
+// StorageWorkerMsgTypes are the x/storage messages a session key may send:
+// what a storage operator worker and a content-scanner worker sign
+// (storagetypes.DelegableMsgTypeURLs, docs/x-session-spec.md section 12.8).
+// Every other x/storage message is in ForbiddenAllowlistMsgs. The session
+// v1 -> v2 migration adds these to a running chain.
+var StorageWorkerMsgTypes = storagetypes.DelegableMsgTypeURLs()
 
 // RepWorkMsgTypes are the x/rep messages a session key may send: running the
 // initiatives of the granter's own projects, doing the granter's own assigned
@@ -396,6 +413,12 @@ var ForbiddenAllowlistMsgs = func() map[string]bool {
 	// its SPARK bond for a remote identity and takes effect unchecked, so
 	// it is signed by the operator key, never a daemon session key.
 	for _, url := range federationtypes.NonDelegableMsgTypeURLs() {
+		m[url] = true
+	}
+	// x/storage: requests, sources and disputes move the member's funds, and
+	// the rest are council or governance decisions. Only the worker
+	// messages (StorageWorkerMsgTypes) are delegable.
+	for _, url := range storagetypes.NonDelegableMsgTypeURLs() {
 		m[url] = true
 	}
 	// Messages guarded by an ante rule (commons proposal-fee floor, gnovm

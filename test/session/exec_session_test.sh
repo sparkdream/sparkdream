@@ -111,7 +111,10 @@ exec_session_via_json() {
     local GRANTER=$2
     local GRANTEE=$3
     local INNER_MSG=$4
-    local GAS=${5:-300000}
+    # 400000: the first exec of a session also records the grantee's consent,
+    # and every exec reads the session params, whose allowlist grows with each
+    # module that admits messages (it passed 300000 when x/storage joined).
+    local GAS=${5:-400000}
     local FEES="50000"
 
     # Get account number and sequence for the grantee
@@ -200,7 +203,7 @@ TX_RES=$($BINARY tx session create-session \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000${BOND_DENOM} \
-    --gas 300000 \
+    --gas 400000 \
     -y \
     --output json 2>&1)
 
@@ -368,7 +371,7 @@ TX_RES=$($BINARY tx session create-session \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 50000${BOND_DENOM} \
-    --gas 300000 \
+    --gas 400000 \
     -y \
     --output json 2>&1)
 

@@ -14,7 +14,8 @@
 #   6. Runs legacy module tests (ecosystem, split, gov)
 #   7. Runs per-module tests (every module in MODULE_ORDER below: commons,
 #      name, futarchy, gnovm, rep, blog, forum, collect, session, shield,
-#      reveal, federation, season, service, artifact, identity, guardian) plus
+#      reveal, federation, season, service, artifact, identity, guardian, vault,
+#      storage) plus
 #      the app-level `rest` suite — each with its own run_all_tests.sh
 #   8. Runs destructive commons tests last (tech upgrade, fire council)
 #   9. Reports results
@@ -87,7 +88,7 @@ ONLY_MODULE=""
 # mtimes in e2e/latest/ after a full parallel run.
 # `rest` is app-level LCD wiring rather than a module, and runs in seconds —
 # it stays last so it never delays a batch.
-MODULE_ORDER="forum rep federation season commons collect blog session shield futarchy name service artifact reveal gnovm identity guardian vault rest"
+MODULE_ORDER="forum rep federation season commons collect blog session shield futarchy name service artifact reveal gnovm identity guardian vault storage rest"
 
 # Track results
 PASSED_TESTS=()

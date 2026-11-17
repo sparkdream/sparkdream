@@ -46,6 +46,7 @@ import (
 	shieldtypes "sparkdream/x/shield/types"
 	sparkdreamtypes "sparkdream/x/sparkdream/types"
 	splittypes "sparkdream/x/split/types"
+	storagetypes "sparkdream/x/storage/types"
 )
 
 // ProjectModules maps each Spark Dream-owned module's app_state key to a
@@ -72,6 +73,7 @@ var ProjectModules = map[string]func() proto.Message{
 	"shield":     func() proto.Message { p := shieldtypes.DefaultParams(); return &p },
 	"sparkdream": func() proto.Message { p := sparkdreamtypes.DefaultParams(); return &p },
 	"split":      func() proto.Message { p := splittypes.DefaultParams(); return &p },
+	"storage":    func() proto.Message { p := storagetypes.DefaultParams(); return &p },
 }
 
 // SDKModules maps third-party (Cosmos SDK / IBC / gnovm) module app_state

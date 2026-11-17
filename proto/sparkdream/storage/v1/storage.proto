@@ -1,0 +1,275 @@
+syntax = "proto3";
+package sparkdream.storage.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/storage/types";
+
+// BackendKind says what a backend offers. Only permanent copies exist today;
+// the field is kept so paid-by-the-period hosting can be added later.
+enum BackendKind {
+  BACKEND_KIND_UNSPECIFIED = 0;
+  BACKEND_KIND_PERMANENT = 1;
+}
+
+// LocatorFormat is the shape of a copy's locator, checked by code.
+enum LocatorFormat {
+  LOCATOR_FORMAT_UNSPECIFIED = 0;
+  // 43 base64url characters: an Arweave transaction or bundled data item id.
+  LOCATOR_FORMAT_ARWEAVE_TX = 1;
+}
+
+// RequestStatus is the lifecycle status of a request (spec section 3.2).
+enum RequestStatus {
+  REQUEST_STATUS_UNSPECIFIED = 0;
+  REQUEST_STATUS_PENDING = 1;
+  REQUEST_STATUS_CLAIMED = 2;
+  REQUEST_STATUS_COMPLETED = 3;
+  REQUEST_STATUS_SETTLED = 4;
+  REQUEST_STATUS_REJECTED = 5;
+  REQUEST_STATUS_EXPIRED = 6;
+  REQUEST_STATUS_CANCELLED = 7;
+}
+
+// ClosedReason says why a request reached a terminal status.
+enum ClosedReason {
+  CLOSED_REASON_UNSPECIFIED = 0;
+  CLOSED_REASON_FLAGGED = 1;
+  CLOSED_REASON_DECLINED = 2;
+  CLOSED_REASON_VOIDED = 3;
+  CLOSED_REASON_EXPIRED = 4;
+  CLOSED_REASON_CANCELLED = 5;
+}
+
+// DeclineReason is an operator's reason for not storing a file.
+enum DeclineReason {
+  DECLINE_REASON_UNSPECIFIED = 0;
+  // No source served bytes with the declared hash.
+  DECLINE_REASON_UNREACHABLE = 1;
+  // Bytes with the declared hash are not the declared size or type, or fail
+  // the file profile.
+  DECLINE_REASON_MISMATCH = 2;
+}
+
+// CounterKind names a per-address, per-window counter.
+enum CounterKind {
+  COUNTER_KIND_UNSPECIFIED = 0;
+  COUNTER_KIND_LAPSE = 1;
+  COUNTER_KIND_DECLINE_MISMATCH = 2;
+  COUNTER_KIND_DECLINE_UNREACHABLE = 3;
+  COUNTER_KIND_COMPLETION = 4;
+  COUNTER_KIND_FLAG = 5;
+}
+
+// BackendType is one content type a backend accepts.
+message BackendType {
+  option (gogoproto.equal) = true;
+
+  // content_type is a MIME type, for example "image/png".
+  string content_type = 1;
+  // scanned: copied only with a clean verdict from approved scanners.
+  bool scanned = 2;
+  // max_size is the largest file of this type, in bytes.
+  uint64 max_size = 3;
+}
+
+// Backend is one storage network (spec section 3.1).
+message Backend {
+  option (gogoproto.equal) = true;
+
+  // name matches [a-z0-9-]{1,32}. Immutable.
+  string name = 1;
+  // service_type is the x/service type whose operators serve it. Immutable.
+  string service_type = 2;
+  // kind is immutable.
+  BackendKind kind = 3;
+  // locator_format is immutable.
+  LocatorFormat locator_format = 4;
+  // enabled false refuses new requests; open ones run to their end.
+  bool enabled = 5;
+  // price_per_byte is in bond-denom micro-units.
+  string price_per_byte = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // min_fee is the floor for the copy fee.
+  string min_fee = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // min_price_per_byte and max_price_per_byte bound price_per_byte.
+  string min_price_per_byte = 8 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string max_price_per_byte = 9 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // min_min_fee and max_min_fee bound min_fee.
+  string min_min_fee = 10 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string max_min_fee = 11 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // declines_to_close is how many different members must decline before a
+  // request closes.
+  uint32 declines_to_close = 12;
+  // types lists the accepted content types.
+  repeated BackendType types = 13 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+}
+
+// Approval is a controller's consent for an operator or scanner to act here.
+message Approval {
+  // controller is the council recorded when the approval was given.
+  string controller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // height is the block the approval was given at.
+  int64 height = 2;
+}
+
+// ApprovedOperator is an operator approval with its key (genesis, queries).
+message ApprovedOperator {
+  string backend = 1;
+  string operator = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string controller = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 height = 4;
+  // stale is set in query responses when x/service no longer names the
+  // recorded controller, so the approval does not count.
+  bool stale = 5;
+}
+
+// ApprovedScanner is a scanner approval with its key (genesis, queries).
+message ApprovedScanner {
+  string scanner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string controller = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 height = 3;
+  // stale: see ApprovedOperator.
+  bool stale = 4;
+}
+
+// Source is one address a file can be fetched from.
+message Source {
+  string url = 1;
+  string added_by = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 added_at = 3;
+}
+
+// Decline is one operator's decline of a request.
+message Decline {
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // member is the operator's canonical member when the decline was sent.
+  string member = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  DeclineReason reason = 3;
+}
+
+// Request is a request for a permanent copy (spec section 3.2).
+message Request {
+  uint64 id = 1;
+  string requester = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // requester_trust_level is the x/rep trust level (0-4) at creation.
+  uint32 requester_trust_level = 3;
+  string backend = 4;
+  // sha256 of the exact file, 64 lowercase hex characters.
+  string sha256 = 5;
+  // size_bytes is the file's length as declared by the requester.
+  uint64 size_bytes = 6;
+  string content_type = 7;
+  // scanned is the content type's flag at creation.
+  bool scanned = 8;
+  repeated Source sources = 9 [(gogoproto.nullable) = false];
+  // copy_fee is what this request holds in escrow, in bond-denom micro-units.
+  string copy_fee = 10 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  RequestStatus status = 11;
+  ClosedReason closed_reason = 12;
+  int64 created_at = 13;
+  // opened_at is the start of the current attempt: creation, or the last
+  // void or reopen. Verdicts scanned before it do not count.
+  int64 opened_at = 14;
+  // deadline is the height after which a PENDING request expires.
+  int64 deadline = 15;
+  // operator and controller are set by a claim.
+  string operator = 16 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string controller = 17 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 claimed_at = 18;
+  int64 claim_expires_at = 19;
+  bool claim_extended = 20;
+  // required_attestations is the scanner quorum fixed by the claim.
+  uint32 required_attestations = 21;
+  // locator says where the copy is.
+  string locator = 22;
+  // attestations are sha256 hashes (hex) of the clean verdicts relied on.
+  repeated string attestations = 23;
+  // verdicts_locator says where those signed verdicts are published.
+  string verdicts_locator = 24;
+  int64 completed_at = 25;
+  int64 settle_at = 26;
+  bool disputed = 27;
+  // paid_to and paid_amount are set at settlement. paid_to is empty when the
+  // payout was redirected to the community pool.
+  string paid_to = 28 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string paid_amount = 29 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // closed_at is the height the request reached a terminal status.
+  int64 closed_at = 30;
+  // forfeit_at is set while a flagged request's fee is held: when it burns.
+  int64 forfeit_at = 31;
+  repeated Decline declined_by = 32 [(gogoproto.nullable) = false];
+  // barred lists operators that may not claim this request.
+  repeated string barred = 33;
+}
+
+// Flag is one scanner's flag on a hash.
+message Flag {
+  string scanner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // attestation_hash is the sha256 (hex) of the scanner's signed verdict.
+  string attestation_hash = 2;
+  int64 height = 3;
+}
+
+// RemovedHash records the flags on a hash and the requests whose fee is held
+// because of them.
+message RemovedHash {
+  string sha256 = 1;
+  repeated Flag flags = 2 [(gogoproto.nullable) = false];
+  // held lists requests closed after a claim, reopened if every flag is
+  // lifted before their fee is burned.
+  repeated uint64 held = 3;
+}
+
+// Counter is a per-window count.
+message Counter {
+  int64 window_start = 1;
+  uint64 count = 2;
+}
+
+// CounterEntry is a counter with its key (genesis).
+message CounterEntry {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  CounterKind kind = 2;
+  int64 window_start = 3;
+  uint64 count = 4;
+}

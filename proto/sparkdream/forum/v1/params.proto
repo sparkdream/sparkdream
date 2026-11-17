@@ -55,9 +55,6 @@ message Params {
     (gogoproto.nullable) = false
   ];
 
-
-
-
   // edit_fee_amount charged for edits past grace period, in bond-denom micro-units.
   string edit_fee_amount = 11 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",

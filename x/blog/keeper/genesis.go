@@ -74,7 +74,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			k.addPinnedPostIndex(ctx, post)
 		}
 
-		if post.ExpiresAt > 0 {
+		// A deleted post keeps its expires_at but has left both expiry
+		// indexes (delete and expiry remove the entries), so it is not put
+		// back: the import must rebuild exactly what the live chain holds.
+		if post.ExpiresAt > 0 && post.Status != types.PostStatus_POST_STATUS_DELETED {
 			k.AddToExpiryIndex(ctx, post.ExpiresAt, "post", post.Id)
 			k.AddEphemeralAuthorIndex(ctx, post.Creator, EphemeralKindPost, post.Id)
 		}
@@ -86,7 +89,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		postKey := append(GetPostIDBytes(reply.PostId), GetReplyIDBytes(reply.Id)...)
 		postStore.Set(postKey, []byte{0x01})
 
-		if reply.ExpiresAt > 0 {
+		if reply.ExpiresAt > 0 && reply.Status != types.ReplyStatus_REPLY_STATUS_DELETED {
 			k.AddToExpiryIndex(ctx, reply.ExpiresAt, "reply", reply.Id)
 			k.AddEphemeralAuthorIndex(ctx, reply.Creator, EphemeralKindReply, reply.Id)
 		}

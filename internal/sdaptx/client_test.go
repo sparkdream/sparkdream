@@ -297,9 +297,9 @@ func TestSessionModeWrapsInMsgExecSession(t *testing.T) {
 	if feeTx.GetGas() != 300_000+SessionGasOverhead {
 		t.Fatalf("gas = %d", feeTx.GetGas())
 	}
-	// 7500 for 300k gas is 0.025/gas; 400k gas at that price is 10000
-	if got := feeTx.GetFee().AmountOf("usparz.sparkdreamdev").Int64(); got != 10_000 {
-		t.Fatalf("fee = %d, want 10000", got)
+	// 7500 for 300k gas is 0.025/gas; 500k gas at that price is 12500
+	if got := feeTx.GetFee().AmountOf("usparz.sparkdreamdev").Int64(); got != 12_500 {
+		t.Fatalf("fee = %d, want 12500", got)
 	}
 }
 

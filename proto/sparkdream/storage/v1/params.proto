@@ -1,0 +1,62 @@
+syntax = "proto3";
+package sparkdream.storage.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/storage/types";
+
+// Params defines the parameters for the module (spec section 4.2).
+message Params {
+  option (amino.name) = "sparkdream/x/storage/Params";
+  option (gogoproto.equal) = true;
+
+  // enabled false refuses new requests and nothing else.
+  bool enabled = 1;
+  // min_requester_trust_level is the x/rep trust level (0-4) a requester needs.
+  uint32 min_requester_trust_level = 2;
+  // request_fee is burned per request, added source and non-requester
+  // dispute, in bond-denom micro-units.
+  string request_fee = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // request_ttl_blocks: a PENDING request expires this long after it opens.
+  int64 request_ttl_blocks = 4;
+  // claim_window_blocks: how long a claim is exclusive.
+  int64 claim_window_blocks = 5;
+  // settle_window_blocks: from completion to settlement.
+  int64 settle_window_blocks = 6;
+  // dispute_window_blocks: how long a dispute holds settlement.
+  int64 dispute_window_blocks = 7;
+  // flag_hold_blocks: how long a flagged request's fee is held before it burns.
+  int64 flag_hold_blocks = 8;
+  // min_unreachable_blocks: earliest unreachable decline after the newest source.
+  int64 min_unreachable_blocks = 9;
+  // terminal_retention_blocks: how long a closed request is kept.
+  int64 terminal_retention_blocks = 10;
+  // counter_window_blocks: window for the per-address caps.
+  int64 counter_window_blocks = 11;
+  // deadline_retry_blocks: when a failed timer is tried again.
+  int64 deadline_retry_blocks = 12;
+  uint32 max_sources_per_request = 13;
+  uint32 max_attestations_per_completion = 14;
+  uint32 max_operators_per_backend = 15;
+  uint32 max_approved_scanners = 16;
+  uint32 max_open_claims_per_operator = 17;
+  uint32 max_lapses_per_window = 18;
+  uint32 max_mismatch_declines_per_operator_per_window = 19;
+  uint32 max_unreachable_declines_per_operator_per_window = 20;
+  uint32 max_completions_per_operator_per_window = 21;
+  uint32 max_flags_per_scanner_per_window = 22;
+  uint32 max_flags_per_hash = 23;
+  uint32 max_hashes_per_unflag = 24;
+  uint32 max_url_bytes = 25;
+  uint32 max_reason_bytes = 26;
+  uint32 max_barred_per_request = 27;
+  uint32 max_open_requests_per_requester = 28;
+  uint32 max_deadlines_per_block = 29;
+}

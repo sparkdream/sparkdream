@@ -102,6 +102,7 @@ so those values change only through a chain upgrade. See
 2. **Governance**: Vote on x/gov proposals
 3. **Staking**: Delegate to validators for rewards
 4. **Treasury**: Fund external expenses (audits, infrastructure)
+5. **Permanent copies** (x/storage): a request burns a flat request fee (also charged for an added source and a non-requester's dispute) and escrows a per-byte copy fee. The copy fee is paid to the council that funds the storage operator when the copy settles, refunded when the request closes without a copy, and burned when the file is flagged as removed content after an operator has claimed it. See [x-storage-spec.md](x-storage-spec.md) §3.4.
 
 ## DREAM Token
 

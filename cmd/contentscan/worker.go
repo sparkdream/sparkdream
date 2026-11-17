@@ -48,6 +48,10 @@ type Worker struct {
 	// whose media the classifier cannot check. In memory only.
 	skip           map[string]time.Time
 	lastCheckpoint int64
+	// storageBackends is the x/storage backend list read on the last poll.
+	storageBackends []string
+	// flags holds, by sha256, the x/storage flags not yet seen on chain.
+	flags map[string]*pendingFlag
 }
 
 // loadDone rebuilds the done-set from the worker's own feed and its state
@@ -74,25 +78,41 @@ func (w *Worker) loadDone(atts []contentscan.Attestation) {
 		w.done[k] = exp
 	}
 	w.lastCheckpoint = st.LastCheckpoint
+	w.flags = st.Flags
 }
 
 // workerState is the worker's private bookkeeping (never published: the
 // feed directory is public, this file is not).
 type workerState struct {
-	Done           map[string]time.Time `json:"done"`
-	LastCheckpoint int64                `json:"last_checkpoint"`
+	Done           map[string]time.Time    `json:"done"`
+	LastCheckpoint int64                   `json:"last_checkpoint"`
+	Flags          map[string]*pendingFlag `json:"flags,omitempty"`
 }
 
 func (w *Worker) saveState() error {
 	if w.cfg.StateFile == "" {
 		return nil
 	}
-	b, err := json.Marshal(workerState{Done: w.done, LastCheckpoint: w.lastCheckpoint})
+	b, err := json.Marshal(workerState{Done: w.done, LastCheckpoint: w.lastCheckpoint, Flags: w.flags})
 	if err != nil {
 		return err
 	}
+	// Synced before the rename: the file holds the x/storage flags still
+	// owed, which the feed cannot give back after a crash.
 	tmp := w.cfg.StateFile + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, w.cfg.StateFile)
@@ -158,6 +178,11 @@ func (w *Worker) poll(ctx context.Context) error {
 	}
 
 	var atts []contentscan.Attestation
+	type flagJob struct {
+		s      subject
+		signed contentscan.Attestation
+	}
+	var flags []flagJob
 	for len(queue) > 0 {
 		s := queue[0]
 		queue = queue[1:]
@@ -189,6 +214,7 @@ func (w *Worker) poll(ctx context.Context) error {
 			return err
 		}
 		atts = append(atts, signed)
+		flags = append(flags, flagJob{s, signed})
 		for _, k := range append(attestationKeys(signed), s.key()) {
 			w.done[k] = signed.ExpiresAt
 		}
@@ -199,6 +225,19 @@ func (w *Worker) poll(ctx context.Context) error {
 		}
 		log.Printf("contentscan: issued %d verdicts at height %d", len(atts), height)
 	}
+	// Flag removed hashes in x/storage only once their verdicts are in the
+	// feed: a flag names the verdict behind it.
+	for _, f := range flags {
+		w.flagRemoved(ctx, f.s, f.signed)
+	}
+	// The notes are saved before anything is sent, and kept until each flag
+	// is read back from the chain.
+	if len(flags) > 0 {
+		if err := w.saveState(); err != nil {
+			return err
+		}
+	}
+	w.sendFlags(ctx)
 	if err := w.feed.SetScannedHeight(height); err != nil {
 		return err
 	}
@@ -251,6 +290,10 @@ func (w *Worker) judge(ctx context.Context, s subject, height int64) (contentsca
 	a.Subject.Record = s.record
 
 	switch s.kind {
+	case kindStorage:
+		a, err := w.judgeStorage(ctx, s, a)
+		return a, nil, err
+
 	case kindBody:
 		body, chainHash, err := w.readBody(ctx, s)
 		if err != nil {

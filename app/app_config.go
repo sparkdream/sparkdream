@@ -39,6 +39,8 @@ import (
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	_ "sparkdream/x/split/module"
 	splitmoduletypes "sparkdream/x/split/types"
+	_ "sparkdream/x/storage/module"
+	storagemoduletypes "sparkdream/x/storage/types"
 	_ "sparkdream/x/vault/module"
 	vaultmoduletypes "sparkdream/x/vault/types"
 
@@ -139,7 +141,9 @@ var (
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 		{Account: servicemoduletypes.ModuleName},
 		// x/artifact escrows token deposits and burns creation / inbox fees.
-		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}, {Account: vaultmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
+		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}, {Account: vaultmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
+		// x/storage escrows copy fees and burns request fees and flagged fees.
+		{Account: storagemoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
 
 	// blocked account addresses: no MsgSend, MultiSend or IBC transfer may
 	// credit them, and x/session refuses them as a pull or transfer
@@ -162,6 +166,7 @@ var (
 		guardianmoduletypes.ModuleName,
 		servicemoduletypes.ModuleName,
 		vaultmoduletypes.ModuleName,
+		storagemoduletypes.ModuleName,
 		// The community pool is funded through MsgFundCommunityPool, never
 		// by a plain send, which would sit outside the fee pool's bookkeeping.
 		distrtypes.ModuleName,
@@ -251,7 +256,7 @@ var (
 						servicemoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
-						artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
+						artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName, storagemoduletypes.ModuleName},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{
 						{
@@ -306,7 +311,7 @@ var (
 						federationmoduletypes.ModuleName,
 						guardianmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
-						artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
+						artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName, storagemoduletypes.ModuleName},
 				}),
 			},
 			{
@@ -505,6 +510,9 @@ var (
 			}, {
 				Name:   vaultmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&vaultmoduletypes.Module{}),
+			}, {
+				Name:   storagemoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&storagemoduletypes.Module{}),
 			}},
 	})
 )

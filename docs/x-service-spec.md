@@ -414,7 +414,7 @@ func (k Keeper) OpenSystemReport(
 
 #### 3.7.1. Caller authorization
 
-The OpenSystemReport surface is privilege-gated by a **sorted slice allowlist** (`allowedSystemCallers = []string{"federation"}` at launch) plus a forward-derive auth check against the x/auth keeper:
+The OpenSystemReport surface is privilege-gated by a **sorted slice allowlist** (`allowedSystemCallers = []string{"federation", "storage"}`; x/storage files a report against an operator that lets too many claims lapse in a window) plus a forward-derive auth check against the x/auth keeper:
 
 1. Iterate the allowlist in deterministic order.
 2. For each name, look up the module's account address via `authKeeper.GetModuleAddress(name)`.
@@ -999,6 +999,8 @@ GenesisState {
 - `federation-bridge-atproto`, `federation-bridge-nostr`, `federation-bridge-lens` — same settings.
 
 All four are seeded by **x/service**, NOT by x/federation. The rationale (Decision 1 / Phase 2 init-order constraint of the migration plan): federation's genesis loads `BridgeBinding` records that reference `service.Operator`s, so the operator's `ServiceTypeConfig` must already exist when x/federation's `InitGenesis` runs. Init order: x/gov → x/bank → x/commons → **x/service** (seeds these configs + any genesis operators) → x/federation (consumes via keeper API).
+
+**`storage-arweave` is seeded too** ([x-storage-spec.md](x-storage-spec.md) §8.1): `enabled = true`, `min_bond = 1000 SPARK`, `report_timeout_action = ESCALATE`, `challenge_default_slash_bps = 100`, no attestation quorum and no liveness tracking, and an unbonding period about four times the default, because x/storage requires it to outlast the longest time a completion can stay open to dispute. On a running chain the type is written by the x/service v1 → v2 migration.
 
 **`content-scanner` is seeded too** ([content-scanning.md](content-scanning.md) §8): `enabled = true`, `min_bond = 100 SPARK`, `report_timeout_action = DISMISS` (liveness lapses are routine council matters), `challenge_default_slash_bps = 100`, `attestation_quorum = 1` (rollout phase 2: one council-controlled worker; gov raises it as independent workers join), `checkpoint_max_lag_blocks ≈ 1 day`.
 

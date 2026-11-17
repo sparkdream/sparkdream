@@ -22,6 +22,11 @@ const (
 	// Used by the OpenSystemReport caller allowlist (Phase 0). Sync
 	// with x/federation/types/keys.go.
 	FederationModuleName = "federation"
+
+	// StorageModuleName is the x/storage module's account name. Used by the
+	// OpenSystemReport caller allowlist (claim-lapse reports). Sync with
+	// x/storage/types/keys.go.
+	StorageModuleName = "storage"
 )
 
 // Service-operator "bonded" tag — written/deducted by x/service to grant

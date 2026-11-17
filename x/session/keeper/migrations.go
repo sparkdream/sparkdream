@@ -7,7 +7,9 @@ import (
 )
 
 // MigrateV1ToV2 admits the x/rep work and staking messages
-// (types.RepWorkMsgTypes) on a chain that started before they were delegable.
+// (types.RepWorkMsgTypes) and the x/storage worker messages
+// (types.StorageWorkerMsgTypes) on a chain that started before they were
+// delegable.
 // The ceiling is set at genesis and no message can raise it, so the upgrade
 // is the only way in. They are appended to the active list as well: a network
 // that narrowed its active list never decided on these entries, and the
@@ -17,8 +19,10 @@ func (k Keeper) MigrateV1ToV2(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	params.MaxAllowedMsgTypes = appendMissing(params.MaxAllowedMsgTypes, types.RepWorkMsgTypes)
-	params.AllowedMsgTypes = appendMissing(params.AllowedMsgTypes, types.RepWorkMsgTypes)
+	for _, added := range [][]string{types.RepWorkMsgTypes, types.StorageWorkerMsgTypes} {
+		params.MaxAllowedMsgTypes = appendMissing(params.MaxAllowedMsgTypes, added)
+		params.AllowedMsgTypes = appendMissing(params.AllowedMsgTypes, added)
+	}
 	if err := params.Validate(); err != nil {
 		return err
 	}

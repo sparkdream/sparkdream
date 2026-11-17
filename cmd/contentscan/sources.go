@@ -29,12 +29,21 @@ type subject struct {
 	bodyField   string // JSON field holding the body in that response
 	uri         string // for kindURI / resolved kindRef
 	cid         string // for kindRef
+
+	// kindStorage (storage.go): the requested hash, where to fetch the file,
+	// and the request's opened_at, which moves on every void and reopen.
+	wantSHA256 string
+	sources    []string
+	openedAt   string
 }
 
 // key identifies a subject for the done-set: a body is done per stored
 // version (its hash), a URI per URI (re-scanned after its verdict expires).
 func (s subject) key() string {
 	switch s.kind {
+	case kindStorage:
+		// Done per attempt: a void or a reopen needs a fresh verdict.
+		return s.record + "#" + s.openedAt
 	case kindBody:
 		return s.record + "#" + s.bodyHashHex
 	case kindRef:
@@ -287,6 +296,10 @@ func (w *Worker) collect(ctx context.Context) ([]subject, error) {
 		}); err != nil {
 			return nil, fmt.Errorf("items of collection %s: %w", id, err)
 		}
+	}
+	// x/storage requests waiting for a permanent copy.
+	if w.cfg.Storage {
+		out = append(out, w.collectStorage(ctx)...)
 	}
 	return dedupe(out), nil
 }

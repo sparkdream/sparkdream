@@ -104,8 +104,10 @@ rm check_proto_support.json
 # --- 2. CALCULATE UPGRADE HEIGHT ---
 echo "--- STEP 2: Calculating Upgrade Schedule ---"
 CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
-UPGRADE_HEIGHT=999999999  # Set very high to avoid halting the chain during tests
-UPGRADE_NAME="v2.0-spark-dream"
+# Set very high to avoid halting the chain during tests. An upgrade rehearsal
+# (docs/chain-upgrades.md) overrides both to schedule a real plan.
+UPGRADE_HEIGHT=${UPGRADE_HEIGHT:-999999999}
+UPGRADE_NAME=${UPGRADE_NAME:-v2.0-spark-dream}
 echo "Target Upgrade Height: $UPGRADE_HEIGHT"
 
 # --- 3. SUBMIT TECH PROPOSAL (PROXY UPGRADE) ---

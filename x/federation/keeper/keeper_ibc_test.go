@@ -2,9 +2,10 @@ package keeper_test
 
 import (
 	"context"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"testing"
 	"time"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 	"github.com/stretchr/testify/require"

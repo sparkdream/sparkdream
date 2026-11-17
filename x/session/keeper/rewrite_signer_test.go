@@ -18,6 +18,7 @@ import (
 	servicetypes "sparkdream/x/service/types"
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
+	storagetypes "sparkdream/x/storage/types"
 )
 
 // The allowlisted x/artifact messages name their signer "minter" and
@@ -94,6 +95,7 @@ func TestDefaultAllowlistResolvesAndRewrites(t *testing.T) {
 	reptypes.RegisterInterfaces(reg)
 	seasontypes.RegisterInterfaces(reg)
 	servicetypes.RegisterInterfaces(reg)
+	storagetypes.RegisterInterfaces(reg)
 	cdc := encCfg.Codec
 
 	granterBz := sdk.AccAddress([]byte("granter_____________"))

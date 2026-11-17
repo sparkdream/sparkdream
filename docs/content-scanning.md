@@ -337,6 +337,17 @@ Decided: the fee is **burned**, like the storage fee, rather than routed into a 
 
 The chain cannot verify that two workers run on different providers or belong to different people. One party running several workers to control the quorum is the residual risk. Bonds and member identity raise its cost; the hiring council must judge independence when it approves operators.
 
+### 8.7. Permanent-copy requests (x/storage)
+
+A permanent copy cannot be taken back, so x/storage ([x-storage-spec.md](x-storage-spec.md)) is stricter than the display rules above:
+
+- **Subjects.** A worker follows `storage.request_created`, `source_added`, `completion_voided` and `request_reopened` and scans each scanned request as the subject `storage/request/<id>` with the request's `sha256`. It tries each source until one serves bytes with that hash, and signs nothing if none does.
+- **A fresh verdict per attempt.** A completion counts only verdicts whose `record` is its own request, whose `chain_id` is this chain's, and whose `scanned_height` is at or after the request's `opened_at`, which moves on every void and reopen. A verdict held for the same hash from a post, or from before a void, does not count.
+- **The file profile.** `contentscan.FileProfile(content_type, bytes)` decides whether a file is one x/storage keeps: PNG or JPEG, one still image, no transparency, no metadata, no colour management. A worker signs nothing for a file outside it. Clients, workers and storage operators call the same function; its answers are pinned by `fileprofile_test.go`. Media in posts is not held to the profile.
+- **Approved scanners.** x/storage counts a worker's flags and clean verdicts only after its controller council, or governance, has approved it there (`MsgApproveScanner`). A storage operator's combined verdict reads approved scanners only, for held and removed as well as clean. Display in clients goes on counting every `ACTIVE` worker.
+- **Flags.** A worker that signs **removed** for a storage request, or for any other subject whose bytes a storage request names, sends `MsgFlagRemoved` (session-delegable, capped per window) once the verdict is in its feed. The flag carries `contentscan.AttestationHash` of that verdict: the sha256 of the signed attestation's canonical JSON, signature included. A completion's `attestations` are the same hash of the clean verdicts it relied on. The worker keeps a flag as owed until it reads its own flag back from the chain, and sends it again every 10 minutes until then: an accepted broadcast is not a recorded flag.
+- **Reference worker.** `cmd/contentscan` does all of the above when `CS_STORAGE` is `true` (the default): its session key must also cover `/sparkdream.storage.v1.MsgFlagRemoved`. On a chain without x/storage it logs the failed query and scans everything else.
+
 ## 9. Trust and cost for media
 
 An open classifier can be defeated: anyone can download the weights and tune generated images until they pass. Generation is cheap; getting past a bonded, invite-only identity system repeatedly is not. The rules, all governance parameters:
@@ -413,6 +424,7 @@ Open:
 | Collect data-URI rejection and labels | `x/collect/keeper/media_labels.go` (`ErrDataURINotAllowed`, 1271) |
 | `content-scanner` type, quorum, checkpoints, liveness | `x/service/types/genesis.go` (seed), `x/service/keeper/checkpoints.go`, `msg_server_submit_checkpoint.go`, `query_checkpoint*.go` |
 | Verdict format, combine rule, feed, metadata, fetch guard, detection | [tools/contentscan](../tools/contentscan) |
+| Permanent-copy requests: storage subjects, file profile, flags | `cmd/contentscan/storage.go`, [tools/fileprofile](../tools/fileprofile) (`contentscan.FileProfile`), `contentscan.AttestationHash` |
 | Reference worker | [cmd/contentscan](../cmd/contentscan) (shipped in the `sparkdreamnft/sdap` image: `docker run … sdap:<ver> contentscan`) |
 | Built-in image-safety model (ViT inference, image decoding, views) | [tools/contentscan/vision](../tools/contentscan/vision); weights pinned in [Dockerfile-sdap](../deploy/docker/Dockerfile-sdap) |
 | Verifier compatibility (withheld federated bodies) | `cmd/sdapverify` reads `federated_content_body` for labelled rows |

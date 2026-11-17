@@ -53,6 +53,7 @@ import (
 	"sparkdream/x/federation/types"
 	servicetypes "sparkdream/x/service/types"
 	sessiontypes "sparkdream/x/session/types"
+	storagetypes "sparkdream/x/storage/types"
 )
 
 // Config configures a Client.
@@ -98,7 +99,16 @@ func CheckSigningConfig(mnemonic, sessionKeyFile, granter string) error {
 // message: the grant read and write, the allowlist checks and the nested
 // dispatch. Added to GasLimit in session mode, with the fee scaled in
 // proportion so the tx still meets the node's minimum gas price.
-const SessionGasOverhead = 100_000
+//
+// It is sized for a key's first message, not a typical one. Measured on a
+// test chain (2026-11), the wrapper costs about 63,000 gas, and about
+// 181,000 on the first message of a key the granter created without the
+// key's prior consent: that exec also accepts the pending grant. A first
+// message that runs out of gas reverts the acceptance with it, so every
+// retry fails the same way and the daemon never starts. At 100,000 that
+// happened to a verifier (MsgVerifyContent uses up to about 138,000 on its
+// own, against a 200,000 default) and to a scanner's first flag.
+const SessionGasOverhead = 200_000
 
 // ErrNoSessionKey reports that session mode has no usable key file yet:
 // the granter has not delivered one, or it is not a valid mnemonic.
@@ -141,6 +151,8 @@ func New(cfg Config) (*Client, error) {
 	sessiontypes.RegisterInterfaces(ir)
 	// x/service: content-scanner workers sign MsgSubmitCheckpoint.
 	servicetypes.RegisterInterfaces(ir)
+	// x/storage: a content-scanner worker flags removed hashes (MsgFlagRemoved).
+	storagetypes.RegisterInterfaces(ir)
 	cdc := codec.NewProtoCodec(ir)
 	c := &Client{
 		cfg:      cfg,
