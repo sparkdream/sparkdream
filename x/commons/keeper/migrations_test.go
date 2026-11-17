@@ -35,10 +35,13 @@ func TestMigrateV2ToV3GrantsStorageMessages(t *testing.T) {
 	}
 	require.NotContains(t, perms.AllowedMessages, "/sparkdream.storage.v1.MsgUpdateOperationalParams")
 
-	// Another council is not given them.
+	// Another council is not given them. (The Technical Council gets its
+	// board seat messages, see TestMigrateV2ToV3GrantsBoardSeatMessages.)
 	otherPerms, err := f.keeper.PolicyPermissions.Get(f.ctx, other)
 	require.NoError(t, err)
-	require.Len(t, otherPerms.AllowedMessages, 1)
+	for _, m := range otherPerms.AllowedMessages {
+		require.NotContains(t, m, "/sparkdream.storage.v1.")
+	}
 
 	// The committee, with no allowlist record yet, gets one; prices included.
 	require.NoError(t, f.keeper.Groups.Set(f.ctx, "Commons Operations Committee", types.Group{PolicyAddress: committee}))
@@ -52,4 +55,43 @@ func TestMigrateV2ToV3GrantsStorageMessages(t *testing.T) {
 	perms2, err := f.keeper.PolicyPermissions.Get(f.ctx, council)
 	require.NoError(t, err)
 	require.Equal(t, perms, perms2)
+}
+
+// The same migration gives the Technical and Ecosystem Councils, on their
+// standard and veto policies, the messages a council needs to propose and
+// vote as a member of the Commons Supervisory Board. Without them the board
+// could never reach its threshold of two.
+func TestMigrateV2ToV3GrantsBoardSeatMessages(t *testing.T) {
+	f := initFixture(t)
+	policies := map[string][2]string{
+		"Technical Council": {"tech-policy", "tech-veto"},
+		"Ecosystem Council": {"eco-policy", "eco-veto"},
+		"Commons Council":   {"commons-policy", "commons-veto"},
+	}
+	for name, p := range policies {
+		require.NoError(t, f.keeper.Groups.Set(f.ctx, name, types.Group{PolicyAddress: p[0], VetoPolicyAddress: p[1]}))
+		require.NoError(t, f.keeper.PolicyPermissions.Set(f.ctx, p[0], types.PolicyPermissions{
+			PolicyAddress: p[0], AllowedMessages: []string{"/sparkdream.commons.v1.MsgRenewGroup"},
+		}))
+		require.NoError(t, f.keeper.PolicyPermissions.Set(f.ctx, p[1], types.PolicyPermissions{
+			PolicyAddress: p[1], AllowedMessages: []string{"/sparkdream.commons.v1.MsgVetoGroupProposals"},
+		}))
+	}
+
+	require.NoError(t, f.keeper.MigrateV2ToV3(f.ctx))
+	require.NoError(t, f.keeper.MigrateV2ToV3(f.ctx)) // twice: nothing is added twice
+
+	for _, name := range []string{"Technical Council", "Ecosystem Council"} {
+		for _, policy := range policies[name] {
+			perms, err := f.keeper.PolicyPermissions.Get(f.ctx, policy)
+			require.NoError(t, err)
+			require.Len(t, perms.AllowedMessages, 3, policy)
+			require.Contains(t, perms.AllowedMessages, "/sparkdream.commons.v1.MsgSubmitProposal")
+			require.Contains(t, perms.AllowedMessages, "/sparkdream.commons.v1.MsgVoteProposal")
+		}
+	}
+	// The Commons Council holds no board seat: its veto policy is untouched.
+	perms, err := f.keeper.PolicyPermissions.Get(f.ctx, "commons-veto")
+	require.NoError(t, err)
+	require.Equal(t, []string{"/sparkdream.commons.v1.MsgVetoGroupProposals"}, perms.AllowedMessages)
 }

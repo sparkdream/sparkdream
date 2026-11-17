@@ -338,11 +338,19 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
 			"/sparkdream.commons.v1.MsgForceUpgrade",
+			// The council's seat on the Commons Supervisory Board: a policy
+			// member proposes and votes by executing these (BoardSeatMsgs).
+			"/sparkdream.commons.v1.MsgSubmitProposal",
+			"/sparkdream.commons.v1.MsgVoteProposal",
 		},
+		// The veto policy also holds the seat messages: it may cast the
+		// council's board seat on a pure veto (veto_seat.go).
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
 			"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
 			"/sparkdream.commons.v1.MsgVetoGroupProposals",
+			"/sparkdream.commons.v1.MsgSubmitProposal",
+			"/sparkdream.commons.v1.MsgVoteProposal",
 		},
 		MaxSpendPerEpoch: math.NewInt(500000000000),
 		UpdateCooldown:   int64(CouncilUpdateCooldown.Seconds()),
@@ -440,11 +448,19 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
+			// The council's seat on the Commons Supervisory Board
+			// (BoardSeatMsgs).
+			"/sparkdream.commons.v1.MsgSubmitProposal",
+			"/sparkdream.commons.v1.MsgVoteProposal",
 		},
+		// As on the Technical Council: the veto policy may cast the
+		// council's board seat on a pure veto (veto_seat.go).
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
 			"/sparkdream.commons.v1.MsgEmergencyCancelGovProposal",
 			"/sparkdream.commons.v1.MsgVetoGroupProposals",
+			"/sparkdream.commons.v1.MsgSubmitProposal",
+			"/sparkdream.commons.v1.MsgVoteProposal",
 		},
 		MaxSpendPerEpoch: math.NewInt(500000000000),
 		UpdateCooldown:   int64(CouncilUpdateCooldown.Seconds()),

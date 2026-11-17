@@ -1,7 +1,8 @@
 #!/bin/bash
 # Member key migration e2e: the three authorization paths (key, recovery,
-# council), the alias contract, the tombstone ante backstop, the SPARK redirect
-# and the ZK key change discipline. docs/x-rep-spec.md, "Member key migration".
+# council), the alias contract, the tombstone ante backstop, the SPARK redirect,
+# the ZK key change discipline and batched committee moves (one proposal,
+# several MsgForceMigration). docs/x-rep-spec.md, "Member key migration".
 #
 # Test-build timings (x/rep/types/params_vals_testparams.go): key delay 20s,
 # recovery delay 10s, council delay 40s, accept window 120s, cooldown 30s,
@@ -327,7 +328,95 @@ done
 [ -n "$ACTIVATED" ] && pass "pending key activated by the EndBlocker" || fail "key never activated"
 run_tx "a change in the same season is refused (once per season)" fail rep register-zk-public-key --gas 300000 "$ZK3" --from $KD
 
-rm -f "$PROP_DIR/force.json"; rmdir "$PROP_DIR" 2>/dev/null
+# --- 6. Batched committee moves -------------------------------------------
+# One HR proposal carries several MsgForceMigration (x/commons allows 20
+# messages) and executes all or nothing. Nobody accepts here: the batch is
+# opened, checked and cancelled, so the second member (a suite account) keeps
+# its address.
+echo ""
+echo "Step 6: batched council moves in one proposal, all or nothing"
+KE="migrant_e_$RUN_TAG"; KF="migrant_f_$RUN_TAG"
+for k in $KE $KF; do $BINARY keys add $k --keyring-backend test > /dev/null 2>&1; done
+E=$($BINARY keys show $KE -a --keyring-backend test)
+F=$($BINARY keys show $KF -a --keyring-backend test)
+# A second member to move: any suite member other than D.
+M2=""
+for cand in "$SENTINEL1_ADDR" "$SENTINEL2_ADDR" "$MODERATOR_ADDR" "$POSTER1_ADDR" "$ALICE_ADDR"; do
+    [ -z "$cand" ] && continue
+    # The CLI omits the zero enum value, so an active member has no status.
+    st=$($BINARY query rep get-member "$cand" --output json 2>/dev/null | jq -r 'select(.member.address != null) | .member.status // "MEMBER_STATUS_ACTIVE"')
+    [ "$st" = "MEMBER_STATUS_ACTIVE" ] && { M2="$cand"; break; }
+done
+echo "  D=$D -> E=$E"; echo "  M2=$M2 -> F=$F"
+
+# The query answers NotFound (no output) when nothing is pending.
+pending_id() {
+    local id
+    id=$($BINARY query rep pending-migration "$1" --output json 2>/dev/null | jq -r '.migration.id // "0"')
+    echo "${id:-0}"
+}
+
+# hr_proposal <file> <description> <ok|fail>: submit, vote and execute an HR
+# committee proposal; the third argument is the expected execution result.
+hr_proposal() {
+    local file=$1 desc=$2 expect=$3
+    FEE="$PROPOSAL_FEE" run_tx "$desc: submit" ok commons submit-proposal "$file" --gas 600000 --from alice || return 1
+    local id; id=$(event_attr "submit_proposal" "proposal_id")
+    run_tx "$desc: alice votes yes" ok commons vote-proposal "$id" yes --from alice
+    sleep 3
+    FEE="5000000${BOND_DENOM}" run_tx "$desc: execute" "$expect" commons execute-proposal "$id" --gas 4000000 --from alice
+}
+
+# force_batch <file> <member:new_address>...
+force_batch() {
+    local file=$1; shift
+    local msgs="[]" pair
+    for pair in "$@"; do
+        msgs=$(echo "$msgs" | jq --arg a "$HR_POLICY" --arg m "${pair%%:*}" --arg n "${pair#*:}" \
+            '. + [{"@type":"/sparkdream.rep.v1.MsgForceMigration","authority":$a,"member":$m,"new_address":$n,"evidence_uri":"ipfs://e2e-batch"}]')
+    done
+    jq -n --arg p "$HR_POLICY" --argjson msgs "$msgs" '{policy_address:$p, messages:$msgs, metadata:"e2e batched council migration"}' > "$file"
+}
+
+if [ -z "$M2" ]; then
+    fail "no second active member to batch with"
+else
+    # One bad row sinks the batch: D (a member) is not a fresh target.
+    force_batch "$PROP_DIR/batch_bad.json" "$D:$E" "$M2:$D"
+    hr_proposal "$PROP_DIR/batch_bad.json" "batch with a member as a target" fail
+    [ "$(pending_id $D)" = "0" ] && pass "the good move was reverted with the bad one" || fail "D has a pending migration after a failed batch"
+
+    force_batch "$PROP_DIR/batch.json" "$D:$E" "$M2:$F"
+    hr_proposal "$PROP_DIR/batch.json" "batch of two moves" ok
+    BATCH1=$(pending_id $D); BATCH2=$(pending_id $M2)
+    echo "  migrations: $BATCH1 (D), $BATCH2 (M2)"
+    if [ "$BATCH1" != "0" ] && [ "$BATCH2" != "0" ] && [ "$BATCH1" != "$BATCH2" ]; then
+        pass "one proposal opened two council migrations"
+    else
+        fail "batch opened migrations '$BATCH1' and '$BATCH2'"
+    fi
+    [ "$(migration_status $BATCH1)" = "MIGRATION_STATUS_REQUESTED" ] && [ "$(migration_status $BATCH2)" = "MIGRATION_STATUS_REQUESTED" ] \
+        && pass "both wait for their own accept" || fail "statuses $(migration_status $BATCH1) / $(migration_status $BATCH2)"
+
+    # The committee withdraws both in one proposal, then forces one again:
+    # the council path has no cooldown and a cancelled target is free.
+    jq -n --arg p "$HR_POLICY" --arg a "$BATCH1" --arg b "$BATCH2" '{policy_address:$p, metadata:"e2e batched cancel", messages:[
+        {"@type":"/sparkdream.rep.v1.MsgCancelMigration","signer":$p,"migration_id":$a},
+        {"@type":"/sparkdream.rep.v1.MsgCancelMigration","signer":$p,"migration_id":$b}]}' > "$PROP_DIR/cancel.json"
+    hr_proposal "$PROP_DIR/cancel.json" "batched cancel" ok
+    [ "$(migration_status $BATCH1)" = "MIGRATION_STATUS_CANCELLED" ] && [ "$(migration_status $BATCH2)" = "MIGRATION_STATUS_CANCELLED" ] \
+        && pass "both migrations cancelled" || fail "statuses $(migration_status $BATCH1) / $(migration_status $BATCH2)"
+    [ "$(pending_id $M2)" = "0" ] && pass "M2 has nothing pending" || fail "M2 still has a pending migration"
+
+    force_batch "$PROP_DIR/reforce.json" "$D:$E"
+    hr_proposal "$PROP_DIR/reforce.json" "force again after the cancel" ok
+    REFORCE=$(pending_id $D)
+    [ "$REFORCE" != "0" ] && [ "$REFORCE" != "$BATCH1" ] && pass "a cancelled move can be forced again (migration $REFORCE)" || fail "re-force gave '$REFORCE'"
+    # Left REQUESTED: nobody accepts and it expires with the accept window.
+fi
+
+for f in force batch_bad batch cancel reforce; do rm -f "$PROP_DIR/$f.json"; done
+rmdir "$PROP_DIR" 2>/dev/null
 
 echo ""
 echo "Member migration: $PASS passed, $FAIL failed"

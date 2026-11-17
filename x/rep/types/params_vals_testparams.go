@@ -106,7 +106,7 @@ func getMigrationTimings() migrationTimings {
 	return migrationTimings{
 		keyDelay:              20,  // production: 7 days
 		recoveryDelay:         10,  // production: 2 days
-		councilDelay:          40,  // production: 21 days
+		councilDelay:          40,  // production: 7 days
 		acceptWindow:          120, // production: 7 days
 		cooldown:              30,  // production: 30 days
 		keyWindow:             60,  // production: 365 days

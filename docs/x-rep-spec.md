@@ -5780,7 +5780,7 @@ max_extension_epochs` inside the horizon.
 |---|---|---|---|
 | KEY | `MsgRequestMigration` signed by `A` | `key_migration_delay` (7d) | `A`, `B`, HR committee policy, gov |
 | RECOVERY | `MsgRevealRecovery` (any account) against an active commitment | `recovery_migration_delay` (2d) | gov only |
-| COUNCIL | `MsgForceMigration` by the Commons Governance (HR) committee policy or gov | `council_migration_delay` (21d) | HR committee policy, gov |
+| COUNCIL | `MsgForceMigration` by the Commons Governance (HR) committee policy or gov | `council_migration_delay` (7d) | HR committee policy, gov |
 
 Every path ends with `MsgAcceptMigration` signed by `B` within
 `migration_accept_window` (7d; a multisig `B` multisigns it), which sets
@@ -5920,6 +5920,43 @@ event is emitted. Governance decides with the existing messages, no new Msg:
 
 OBJECTED migrations are tracked in `ObjectedMigrations`, so the deadline and
 escalation sweep walks only those.
+
+**Timing.** `council_migration_delay` is the objection window, not the whole
+notice period. A committee move is public for longer than that: the
+`MsgForceMigration` sits in a Commons HR committee proposal that, once
+passed, waits out the committee's `min_execution_period` (7 days on mainnet,
+an hour or less on devnet and testnet) and is open to a Supervisory Board
+veto in that time (docs/x-commons-spec.md, "Veto seats"). A recovery on
+mainnet therefore takes about 14 days plus the time `B` needs to accept (7
+days before execution, 7 after the accept); on testnet about 2 days and on
+devnet about 1. The delay has two floors, both in
+`Params.Validate`: it is positive, because `MsgObjectMigration` needs an
+ACCEPTED migration and a zero delay finalizes in the block after the accept,
+and it is at least `recovery_migration_delay`, because off-chain evidence
+judged by a committee is weaker proof than a pre-committed recovery code.
+
+A change of any path's delay applies to migrations accepted after it:
+`executes_at` is fixed at the accept. A REQUESTED migration gets the new
+delay, an ACCEPTED one keeps its date, an OBJECTED one waits on its verdict
+either way. To give an accepted council migration a new delay the committee
+cancels it and forces it again (the council path has no cooldown) and `B`
+accepts again.
+
+**Batches.** A commons proposal carries up to 20 messages
+(`MaxProposalMessages`), so one vote can open up to 20 council migrations.
+Execution is all or nothing: one refused `MsgForceMigration` (a target that
+became a member, a member with a pending recovery) reverts every other
+message, and the proposal stays ACCEPTED for a retry. After execution each
+migration is on its own: its own accept, delay and objection.
+
+**Stopping a migration in time.** The HR committee's `MsgCancelMigration`
+goes through the same proposal wait as a force. On mainnet that wait (7
+days) is as long as the KEY and COUNCIL delays, so the committee cannot be
+relied on to stop a hostile KEY migration or to withdraw a council migration
+`B` has already accepted. The timely routes are `A` or `B` themselves on the KEY path, a recovery
+reveal (it outranks and cancels KEY and COUNCIL migrations), the member's
+objection on the COUNCIL path, and an expedited x/gov proposal carrying
+`MsgCancelMigration` (1-day voting period on mainnet).
 
 ### Finalization and tombstones
 
@@ -6064,8 +6101,8 @@ return NotFound when nothing is pending. `GetMember` and x/season's
 |---|---|---|
 | `migration_enabled` / `key_path_enabled` | true | true |
 | `key_migration_delay` | 7d | 20s |
-| `recovery_migration_delay` | 2d | 10s |
-| `council_migration_delay` | 21d | 40s |
+| `recovery_migration_delay` | 2d (devnet 1d) | 10s |
+| `council_migration_delay` | 7d (testnet 2d, devnet 1d; positive and >= recovery delay) | 40s |
 | `migration_accept_window` | 7d | 120s |
 | `migration_cooldown` | 30d | 30s |
 | `max_key_migrations_per_window` / `key_migration_window` | 2 / 365d (>= 2 x cooldown) | 2 / 60s |

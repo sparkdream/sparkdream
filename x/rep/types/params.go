@@ -2022,15 +2022,23 @@ type migrationTimings struct {
 }
 
 // productionMigrationTimings are the plan's defaults: 7d key delay, 2d
-// recovery delay, 21d council delay, 7d accept window, 30d cooldown, 365d
+// recovery delay, 7d council delay, 7d accept window, 30d cooldown, 365d
 // rolling window, 30d commitment change delay, 20-block seal age, 7d seal
 // TTL, 14-epoch ZK key activation delay.
+//
+// The council delay is the objection window only, not the whole notice
+// period: a MsgForceMigration reaches the chain through a Commons HR
+// committee proposal that first waits out that committee's min execution
+// period (7 days on mainnet), in public and open to a Supervisory Board
+// veto. It stays at least as long as the recovery delay (Params.Validate):
+// off-chain evidence judged by a committee is weaker proof than a
+// pre-committed recovery code.
 func productionMigrationTimings() migrationTimings { //nolint:unused // used by the mainnet, testnet and devnet builds (params_vals_*.go)
 	const day = int64(86400)
 	return migrationTimings{
 		keyDelay:              7 * day,
 		recoveryDelay:         2 * day,
-		councilDelay:          21 * day,
+		councilDelay:          7 * day,
 		acceptWindow:          7 * day,
 		cooldown:              30 * day,
 		keyWindow:             365 * day,
@@ -2072,6 +2080,16 @@ func (p Params) validateMigrationParams() error {
 	// The window cap has to mean something on top of the cooldown.
 	if p.KeyMigrationWindow < 2*p.MigrationCooldown {
 		return fmt.Errorf("key_migration_window (%d) must be at least 2 * migration_cooldown (%d)", p.KeyMigrationWindow, p.MigrationCooldown)
+	}
+	// The council delay is the only window in which the old address can
+	// object to a committee move (MsgObjectMigration needs an ACCEPTED
+	// migration), so it can never be zero, and a move decided on off-chain
+	// evidence must not finalize faster than one backed by a recovery code.
+	if p.CouncilMigrationDelay == 0 {
+		return fmt.Errorf("council_migration_delay must be positive")
+	}
+	if p.CouncilMigrationDelay < p.RecoveryMigrationDelay {
+		return fmt.Errorf("council_migration_delay (%d) must be at least recovery_migration_delay (%d)", p.CouncilMigrationDelay, p.RecoveryMigrationDelay)
 	}
 	// The recovery path must never be a faster key path for whoever holds
 	// the key: a commitment set today must take longer to become active than

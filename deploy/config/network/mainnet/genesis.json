@@ -1236,7 +1236,7 @@
         "conviction_half_life_epochs": "7",
         "conviction_per_dream": "0.2",
         "conviction_propagation_ratio": "0.100000000000000000",
-        "council_migration_delay": "1814400",
+        "council_migration_delay": "604800",
         "curator_accuracy_window_epochs": "6",
         "curator_reward_epoch_blocks": "14400",
         "curator_reward_pool_overflow_burn_ratio": "0.500000000000000000",

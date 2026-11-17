@@ -40,8 +40,12 @@ var FounderName = "King of Bitchain"
 
 // --- COMMONS PILLAR ---
 var CommonsCouncilStandardMinExecution = 72 * time.Hour // 3 Days
-var CommonsMembershipMinExecution = 504 * time.Hour     // 21 Days
-var CommonsOpsMinExecution = 24 * time.Hour             // 1 Day
+// 7 days, like the other two governance committees. Its parent, the Commons
+// Supervisory Board, can veto inside that: each member council's veto policy
+// casts its seat without an execution wait (veto_seat.go), then the board's
+// own 1-day SupervisoryMinExecution runs.
+var CommonsMembershipMinExecution = 168 * time.Hour // 7 Days
+var CommonsOpsMinExecution = 24 * time.Hour         // 1 Day
 
 // --- TECHNICAL PILLAR ---
 var TechCouncilStandardMinExecution = 72 * time.Hour // 3 Days

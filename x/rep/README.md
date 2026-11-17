@@ -744,7 +744,7 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `max_proposed_projects_per_creator` | 3 | Budget-backed projects one creator (across their aliases) may hold in PROPOSED at once; the proposal also requires ACTIVE status and burns `project_creation_fee`, so a creator cannot fill the committee's review slots for free |
 
 | `migration_enabled` / `key_path_enabled` | true / true | Member key migration master switch / key-path ("Q-day") switch |
-| `key_migration_delay` / `recovery_migration_delay` / `council_migration_delay` | 7d / 2d / 21d | Accept-to-finalization delay per path (test build: 20s / 10s / 40s) |
+| `key_migration_delay` / `recovery_migration_delay` / `council_migration_delay` | 7d / 2d / 7d (testnet council 2d; devnet recovery and council 1d) | Accept-to-finalization delay per path; the council delay is positive and at least the recovery delay (test build: 20s / 10s / 40s) |
 | `migration_accept_window` | 7d | Time the new address has to accept |
 | `migration_cooldown` | 30d | Key-path cooldown after any migration |
 | `max_key_migrations_per_window` / `key_migration_window` | 2 / 365d | Rolling key-path cap (window >= 2 x cooldown) |

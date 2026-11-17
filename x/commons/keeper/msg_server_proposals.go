@@ -71,7 +71,15 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 		return nil, err
 	}
 	if !isMember {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "%s is not a member of %s", msg.Proposer, councilName)
+		// A council's veto policy may propose a pure veto for the seat its
+		// council holds here (veto_seat.go).
+		seat, err := k.vetoSeat(ctx, councilName, msg.Proposer, msg.Messages)
+		if err != nil {
+			return nil, err
+		}
+		if seat == "" {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "%s is not a member of %s", msg.Proposer, councilName)
+		}
 	}
 
 	// 5. Check permissions for proposed messages
@@ -214,21 +222,42 @@ func (k msgServer) VoteProposal(goCtx context.Context, msg *types.MsgVoteProposa
 	if err != nil {
 		return nil, err
 	}
+	// The vote is recorded under the member it counts for: the voter, or the
+	// seat a council's veto policy casts on a pure veto (veto_seat.go).
+	voter := msg.Voter
 	if !isMember {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "%s is not a member of %s", msg.Voter, proposal.CouncilName)
+		seat, err := k.vetoSeat(ctx, proposal.CouncilName, msg.Voter, proposal.Messages)
+		if err != nil {
+			return nil, err
+		}
+		if seat == "" {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "%s is not a member of %s", msg.Voter, proposal.CouncilName)
+		}
+		// One cast per seat on this path: the council's standard policy
+		// (its majority) can still vote or change the vote, the veto policy
+		// (a minority) cannot overwrite what the seat already said.
+		has, err := k.Votes.Has(ctx, collections.Join(msg.ProposalId, seat))
+		if err != nil {
+			return nil, err
+		}
+		if has {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+				"seat %s already voted on proposal %d; only its standard policy can change the vote", seat, msg.ProposalId)
+		}
+		voter = seat
 	}
 
 	// Store vote (overwrites previous vote)
 	vote := types.Vote{
-		Voter:      msg.Voter,
+		Voter:      voter,
 		Option:     msg.Option,
 		Metadata:   msg.Metadata,
 		SubmitTime: ctx.BlockTime().Unix(),
 	}
-	if err := k.Votes.Set(ctx, collections.Join(msg.ProposalId, msg.Voter), vote); err != nil {
+	if err := k.Votes.Set(ctx, collections.Join(msg.ProposalId, voter), vote); err != nil {
 		return nil, err
 	}
-	if voterBytes, err := k.addressCodec.StringToBytes(msg.Voter); err == nil {
+	if voterBytes, err := k.addressCodec.StringToBytes(voter); err == nil {
 		k.notifySeason(ctx, "OnVoteCast", func(sk types.SeasonKeeper) error {
 			return sk.OnVoteCast(ctx, voterBytes, msg.ProposalId)
 		})
@@ -242,7 +271,8 @@ func (k msgServer) VoteProposal(goCtx context.Context, msg *types.MsgVoteProposa
 		sdk.NewEvent(
 			"vote_proposal",
 			sdk.NewAttribute("proposal_id", fmt.Sprintf("%d", msg.ProposalId)),
-			sdk.NewAttribute("voter", msg.Voter),
+			sdk.NewAttribute("voter", voter),
+			sdk.NewAttribute("cast_by", msg.Voter),
 			sdk.NewAttribute("option", msg.Option.String()),
 		),
 	)
@@ -526,6 +556,13 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		return thresholdMet(decPolicy, proposalChangesMembership(proposal), yes, body), nil
 	}
 
+	// A council's decision about its Supervisory Board seat is its own
+	// members': the golden-share seat sits it out (veto_seat.go).
+	recused, err := k.boardSeatRecusal(ctx, proposal)
+	if err != nil {
+		return false, err
+	}
+
 	// Tally regular (council member) votes
 	var yesWeight, totalWeight math.LegacyDec
 	yesWeight = math.LegacyZeroDec()
@@ -533,6 +570,9 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 
 	rng := collections.NewPrefixedPairRange[uint64, string](proposal.Id)
 	err = k.Votes.Walk(ctx, rng, func(_ collections.Pair[uint64, string], vote types.Vote) (bool, error) {
+		if recused != "" && vote.Voter == recused {
+			return false, nil
+		}
 		// Get member weight
 		member, err := k.GetMember(ctx, proposal.CouncilName, vote.Voter)
 		if err != nil {
@@ -568,6 +608,15 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		allMembers, err := k.GetCouncilMembers(ctx, proposal.CouncilName)
 		if err != nil {
 			return false, err
+		}
+		if recused != "" {
+			voting := allMembers[:0:0]
+			for _, m := range allMembers {
+				if m.Address != recused {
+					voting = append(voting, m)
+				}
+			}
+			allMembers = voting
 		}
 		groupWeight = totalMemberWeight(allMembers)
 		if groupWeight.IsZero() {

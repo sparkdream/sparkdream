@@ -50,6 +50,17 @@ var All = []Upgrade{
 	// also admits the storage worker messages, and x/commons v3 gives the
 	// Commons Council and its Operations Committee the storage council
 	// messages (docs/x-storage-spec.md, "Genesis, module account and upgrade").
+	//
+	// x/commons v3 also gives the Technical and Ecosystem Councils (standard
+	// and veto policies) the messages to hold their Commons Supervisory
+	// Board seats, and the release carries the veto-seat and golden-share
+	// recusal rules (x/commons/keeper/veto_seat.go; no stored state).
+	//
+	// x/rep: Params.Validate now requires council_migration_delay to be
+	// positive and at least recovery_migration_delay. Validation only, no
+	// migration: stored params are untouched, so a network keeps its
+	// council delay until governance changes it (the new 7-day default, 2
+	// days on testnet and 1 on devnet, reaches only a fresh genesis).
 	{
 		Name:          "storage-pinned-index-rep-sessions",
 		Handler:       RunMigrations,

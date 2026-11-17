@@ -43,7 +43,7 @@ var FounderName = "Alice"
 
 // --- COMMONS PILLAR ---
 var CommonsCouncilStandardMinExecution = 5 * time.Minute // production: 72h
-var CommonsMembershipMinExecution = 30 * time.Minute     // production: 504h
+var CommonsMembershipMinExecution = 30 * time.Minute     // production: 168h
 var CommonsOpsMinExecution = 5 * time.Minute             // production: 24h
 
 // --- TECHNICAL PILLAR ---

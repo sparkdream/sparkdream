@@ -435,6 +435,7 @@ if [ "$RUN_VETOS" = true ]; then
     run_test "Executive Veto"             "executive_veto_test.sh"
     run_test "Social Veto Vote"           "social_veto_vote_test.sh"
     run_test "Parent Veto"                "parent_veto_test.sh"
+    run_test "Board Veto"                 "board_veto_test.sh"
     run_test "Veto Vote"                  "veto_vote_test.sh"
 else
     echo "Skipping vetos phase (--no-vetos)"

@@ -35,7 +35,7 @@ var FounderName = "King of Bitchain"
 
 // --- COMMONS PILLAR ---
 var CommonsCouncilStandardMinExecution = 10 * time.Minute // production: 72h
-var CommonsMembershipMinExecution = 1 * time.Hour         // production: 504h
+var CommonsMembershipMinExecution = 1 * time.Hour         // production: 168h
 var CommonsOpsMinExecution = 10 * time.Minute             // production: 24h
 
 // --- TECHNICAL PILLAR ---

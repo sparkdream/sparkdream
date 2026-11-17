@@ -165,7 +165,10 @@ x/gov (Root Authority)
 **Enforced Rules:**
 1. Committees cannot execute without parent council delegation
 2. Any council can veto another's decisions (cross-council checks)
-3. Supervisory Board can fire governance committees (HR)
+3. Supervisory Board (the Technical and Ecosystem Councils) can fire the
+   Commons governance committee (HR) and veto its proposals; each council's
+   veto policy casts its seat on a veto, and the Commons Council's
+   golden-share seat is recused from both councils' board decisions
 4. `x/gov` has ultimate backstop authority
 
 **Cannot Be Bypassed:**

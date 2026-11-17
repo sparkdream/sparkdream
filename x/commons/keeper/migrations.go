@@ -22,17 +22,26 @@ var storageCouncilMsgs = []string{
 
 // MigrateV2ToV3 gives the Commons Council and the Commons Operations
 // Committee the x/storage council messages on a chain that started before
-// x/storage existed, and the committee the storage price message. The
-// genesis bootstrap seeds the same entries on a new chain. A body that no
-// longer exists is skipped; entries already there are kept.
+// x/storage existed, and the committee the storage price message. It also
+// gives the Technical and Ecosystem Councils, on both their standard and
+// veto policies, the messages a council needs to hold its seat on the
+// Commons Supervisory Board (BoardSeatMsgs): without them the board's two
+// members could neither propose nor vote, so it could never veto the Commons
+// Governance Committee. The genesis bootstrap seeds the same entries on a
+// new chain. A body that no longer exists is skipped; entries already there
+// are kept.
 func (k Keeper) MigrateV2ToV3(ctx context.Context) error {
 	grants := []struct {
 		group string
 		msgs  []string
+		// veto: also grant the group's veto policy, when it has one.
+		veto bool
 	}{
-		{"Commons Council", storageCouncilMsgs},
-		{"Commons Operations Committee", append(append([]string(nil), storageCouncilMsgs...),
+		{group: "Commons Council", msgs: storageCouncilMsgs},
+		{group: "Commons Operations Committee", msgs: append(append([]string(nil), storageCouncilMsgs...),
 			"/sparkdream.storage.v1.MsgUpdateOperationalParams")},
+		{group: "Technical Council", msgs: BoardSeatMsgs, veto: true},
+		{group: "Ecosystem Council", msgs: BoardSeatMsgs, veto: true},
 	}
 	for _, g := range grants {
 		group, err := k.Groups.Get(ctx, g.group)
@@ -42,29 +51,41 @@ func (k Keeper) MigrateV2ToV3(ctx context.Context) error {
 			}
 			return err
 		}
-		if group.PolicyAddress == "" {
-			continue
+		policies := []string{group.PolicyAddress}
+		if g.veto {
+			policies = append(policies, group.VetoPolicyAddress)
 		}
-		perms, err := k.PolicyPermissions.Get(ctx, group.PolicyAddress)
-		if err != nil {
-			if !errors.Is(err, collections.ErrNotFound) {
+		for _, policy := range policies {
+			if policy == "" {
+				continue
+			}
+			if err := k.grantMessages(ctx, policy, g.msgs); err != nil {
 				return err
 			}
-			perms = types.PolicyPermissions{PolicyAddress: group.PolicyAddress}
-		}
-		have := make(map[string]bool, len(perms.AllowedMessages))
-		for _, m := range perms.AllowedMessages {
-			have[m] = true
-		}
-		for _, m := range g.msgs {
-			if !have[m] {
-				perms.AllowedMessages = append(perms.AllowedMessages, m)
-				have[m] = true
-			}
-		}
-		if err := k.PolicyPermissions.Set(ctx, group.PolicyAddress, perms); err != nil {
-			return err
 		}
 	}
 	return nil
+}
+
+// grantMessages adds msgs to a policy's allowlist, keeping what it holds and
+// adding nothing twice. A policy with no allowlist record gets one.
+func (k Keeper) grantMessages(ctx context.Context, policy string, msgs []string) error {
+	perms, err := k.PolicyPermissions.Get(ctx, policy)
+	if err != nil {
+		if !errors.Is(err, collections.ErrNotFound) {
+			return err
+		}
+		perms = types.PolicyPermissions{PolicyAddress: policy}
+	}
+	have := make(map[string]bool, len(perms.AllowedMessages))
+	for _, m := range perms.AllowedMessages {
+		have[m] = true
+	}
+	for _, m := range msgs {
+		if !have[m] {
+			perms.AllowedMessages = append(perms.AllowedMessages, m)
+			have[m] = true
+		}
+	}
+	return k.PolicyPermissions.Set(ctx, policy, perms)
 }

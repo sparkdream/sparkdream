@@ -302,6 +302,8 @@ var allowedVariations = map[string]string{
 	"rep.params.challenge_response_deadline_epochs":                "challenge response window varies per network",
 	"rep.params.staking_pool_cap_base":                             "the schedule ceiling is anchored to each network's own genesis DREAM supply (devnet 85,000, testnet/mainnet 25,000)",
 	"rep.params.min_stake_duration_seconds":                        "the claim gate must fit inside a season, and devnet's season is 15h — see TestRepMinStakeDurationFitsSeason",
+	"rep.params.council_migration_delay":                           "the objection window of a committee move follows each network's Commons HR committee execution wait: devnet (30 minutes) uses 1 day, testnet (1 hour) 2 days, mainnet (7 days) 7 days",
+	"rep.params.recovery_migration_delay":                          "devnet lowers it to 1 day so its 1-day council_migration_delay stays at the floor Params.Validate enforces (council >= recovery); testnet and mainnet keep 2 days",
 	"rep.params.jury_size":                                         "devnet uses smaller jury (3) due to small test member set",
 	"rep.params.min_juror_reputation":                              "devnet lowers juror rep threshold for testing",
 	"rep.params.sentinel_reward_epoch_blocks":                      "build-tag conditional cadence (devnet 6h / testnet 12h / mainnet 24h)",

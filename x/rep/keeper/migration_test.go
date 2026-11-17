@@ -379,9 +379,10 @@ func TestCouncilPath_ObjectionVerdicts(t *testing.T) {
 			require.Equal(t, types.MigrationObjectionInitiativeType, review.ChallengerClaim)
 
 			// An objected migration does not finalize on its own. Past the
-			// council delay, but inside the objection jury's deadline: on the
-			// network builds the delay (21 days) outlasts the jury (14 days),
-			// whose timeout would escalate the objection before the verdict.
+			// council delay, but inside the objection jury's deadline, whose
+			// timeout would escalate the objection before the verdict. The
+			// delay is a governance param and may be set past the jury's 14
+			// days, so the wait is capped rather than assumed shorter.
 			wait := p.CouncilMigrationDelay + 1
 			if wait >= types.DefaultAppealDeadline {
 				wait = types.DefaultAppealDeadline - 1
@@ -406,6 +407,56 @@ func TestCouncilPath_ObjectionVerdicts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A change of council_migration_delay applies to migrations accepted after
+// it. One already ACCEPTED keeps the finalization time fixed at its accept;
+// to give it the new delay the committee cancels it and forces it again
+// (the council path has no cooldown), and the new address accepts again.
+func TestCouncilPath_DelayChangeAndReforce(t *testing.T) {
+	f := migrationFixture(t)
+	a := sdk.AccAddress([]byte("reforce-a__________"))
+	b := sdk.AccAddress([]byte("reforce-b__________"))
+	seedMigrant(t, f, a, 1)
+	authority := f.keeper.GetAuthorityString()
+	p := mustParams(t, f)
+	oldDelay := p.CouncilMigrationDelay
+
+	first, err := f.keeper.ForceMigration(f.ctx, authority, a.String(), b.String(), "ipfs://evidence")
+	require.NoError(t, err)
+	require.NoError(t, f.keeper.AcceptMigration(f.ctx, b.String(), first))
+	acceptedAt := f.ctx.BlockTime().Unix()
+
+	// Governance shortens the delay to its floor, the recovery delay.
+	p.CouncilMigrationDelay = p.RecoveryMigrationDelay
+	require.NoError(t, p.Validate())
+	require.NoError(t, f.keeper.Params.Set(f.ctx, p))
+	require.Less(t, p.CouncilMigrationDelay, oldDelay, "the test needs a shorter delay to tell the two apart")
+
+	// The accepted migration keeps its date and does not finalize early.
+	m, _ := f.keeper.GetMemberMigration(f.ctx, first)
+	require.Equal(t, acceptedAt+oldDelay, m.ExecutesAt)
+	advance(f, p.CouncilMigrationDelay+1, 1)
+	f.keeper.ProcessMigrations(f.ctx)
+	m, _ = f.keeper.GetMemberMigration(f.ctx, first)
+	require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_ACCEPTED, m.Status)
+
+	// Cancel and force again to the same address: it is free once more.
+	require.NoError(t, f.keeper.CancelMigration(f.ctx, authority, first))
+	second, err := f.keeper.ForceMigration(f.ctx, authority, a.String(), b.String(), "ipfs://evidence")
+	require.NoError(t, err)
+	require.NotEqual(t, first, second)
+	require.NoError(t, f.keeper.AcceptMigration(f.ctx, b.String(), second))
+	m, _ = f.keeper.GetMemberMigration(f.ctx, second)
+	require.Equal(t, f.ctx.BlockTime().Unix()+p.CouncilMigrationDelay, m.ExecutesAt)
+
+	advance(f, p.CouncilMigrationDelay+1, 1)
+	f.keeper.ProcessMigrations(f.ctx)
+	m, _ = f.keeper.GetMemberMigration(f.ctx, second)
+	require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_FINALIZED, m.Status, m.FailureReason)
+	require.True(t, f.keeper.IsTombstoned(f.ctx, a.String()))
+	m, _ = f.keeper.GetMemberMigration(f.ctx, first)
+	require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_CANCELLED, m.Status)
 }
 
 func TestCouncilPath_RecoveryOutranksAndCancels(t *testing.T) {
@@ -585,6 +636,18 @@ func TestMigrationParamsValidation(t *testing.T) {
 	p = types.DefaultParams()
 	p.MaxKeyMigrationsPerWindow = 0
 	require.Error(t, p.Validate())
+
+	// The council delay is the objection window: never zero, and never
+	// shorter than the recovery delay (equal is the floor).
+	p = types.DefaultParams()
+	p.CouncilMigrationDelay = 0
+	require.ErrorContains(t, p.Validate(), "council_migration_delay must be positive")
+	p = types.DefaultParams()
+	p.CouncilMigrationDelay = p.RecoveryMigrationDelay - 1
+	require.ErrorContains(t, p.Validate(), "must be at least recovery_migration_delay")
+	p = types.DefaultParams()
+	p.CouncilMigrationDelay = p.RecoveryMigrationDelay
+	require.NoError(t, p.Validate())
 }
 
 func TestMigrationQueries_TargetAndPredecessor(t *testing.T) {

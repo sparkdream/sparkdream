@@ -192,6 +192,8 @@ are one member, one vote:
   many members join, and nothing passes the 66% threshold without its yes.
   Its veto policy (49%) passes on the Commons seat alone. Only x/gov may
   remove the seat (`ErrGoldenShareSeat`); a weight given for it is ignored.
+  The seat is recused from one kind of decision: how the council uses its
+  Commons Supervisory Board seat (§6.2a).
 
 The genesis bodies are a compiled list (`equalWeightGroups` in
 `x/commons/keeper/member_weights.go`), changed only by a chain upgrade.
@@ -521,7 +523,8 @@ The chain ships **ten** governance bodies (`Group` records) post-bootstrap:
 2. **Technical Council** (parent: gov) — implementation/upgrades.
 3. **Ecosystem Council** (parent: gov) — ecosystem programs.
 4. **Commons Supervisory Board** (parent: gov) — meta-governance over
-   commons committees.
+   commons committees. Its two members are the Technical and Ecosystem
+   Council policies (absolute threshold 2); how they act is §6.2a.
 5. **Technical Operations Committee** (parent: Technical Council).
 6. **Technical Governance Committee** (parent: Technical Council).
 7. **Ecosystem Operations Committee** (parent: Ecosystem Council).
@@ -589,6 +592,8 @@ Per-environment value selection (testparams snippet):
 |---|---|---|
 | `CommonsCouncilStandardMinExecution` | `1 * time.Second` | `72 * time.Hour` |
 | `TechCouncilStandardMinExecution` | `1 * time.Second` | `72 * time.Hour` |
+| `CommonsMembershipMinExecution` (Commons Governance Committee) | `1 * time.Second` | `168 * time.Hour` |
+| `SupervisoryMinExecution` | `1 * time.Second` | `24 * time.Hour` |
 | `WindowCouncil` (voting period) | `120 * time.Hour` | `120 * time.Hour` |
 | `TermDuration5Months` | `12_960_000` (constant) | `12_960_000` |
 | `TermDuration1Year` | `31_536_000` | `31_536_000` |
@@ -714,7 +719,8 @@ ACCEPTED ──(execution window of 14 days past execution_time closes, EndBlock
 `MsgSubmitProposal{proposer, policy_address, messages, metadata, secret_ballot}`:
 
 1. Authenticate proposer is a member of the council that owns
-   `policy_address` (lookup via `PolicyToName`).
+   `policy_address` (lookup via `PolicyToName`), or a council veto policy
+   proposing a pure veto for its council's seat (§6.2a).
 2. Verify the council has not expired (`now <= current_term_expiration`).
 3. The proposal fee (`Params.proposal_fee`, `x/commons/keeper/proposal_fee.go`) is owed once per fee-requiring proposal and collected by one of two paths that cannot both charge the same message:
    - **Top-level `MsgSubmitProposal`**: the `ProposalFeeDecorator` ante decorator (`x/commons/ante/group_policy.go`) requires the tx's `--fees` to cover the fee once per fee-requiring proposal in the tx (N proposals need N fees; `ErrInsufficientFee` otherwise, so the mempool turns unfunded spam away before any state is read). The fee is paid via the standard Cosmos SDK fee path (to validators), not transferred to `policy_address`, and like any tx fee it is kept when the submission fails. The decorator records what it floored as per-proposer *credits* on the tx context.
@@ -744,7 +750,9 @@ ACCEPTED ──(execution window of 14 days past execution_time closes, EndBlock
 1. Proposal must be in `SUBMITTED` status and not a secret ballot
    (`ErrBallotMode`; a secret ballot takes only anonymous votes, §11.2).
 2. Voter must be a current member of the council (re-checked on every vote
-   so a removed member's pending vote stops counting).
+   so a removed member's pending vote stops counting), or a council veto
+   policy casting its council's seat on a pure veto (§6.2a); the vote is
+   then stored under the seat's address.
 2a. The council's `policy_version` must still match the proposal's
     snapshot; a vote on an invalidated proposal is refused
     (`ErrInvalidRequest`), so it can never be accepted early. The
@@ -755,6 +763,53 @@ ACCEPTED ──(execution window of 14 days past execution_time closes, EndBlock
    set `execution_time = block_time + min_execution_period`. This is the
    "early acceptance" path: a quorum is enough; you don't have to wait out
    the full voting window.
+
+### 6.2a. Veto seats and board-seat recusal
+
+A body whose members are councils decides through its members' own
+proposals: a member that is a policy address has no key, so it proposes and
+votes by executing `MsgSubmitProposal` / `MsgVoteProposal` from a proposal of
+its own. The Commons Supervisory Board is such a body. Its members are the
+Technical and Ecosystem Council standard policies, and genesis gives both
+councils those two messages (`BoardSeatMsgs`) on their standard and veto
+policies. (They were missing before; the board could not reach its threshold
+of 2. The v2 -> v3 migration adds them on a running chain.)
+
+**Veto seats** (`x/commons/keeper/veto_seat.go`). A council's standard
+policy is slow by design: on mainnet a 3-day execution wait after the vote.
+That suits the board's lasting powers (`MsgUpdateGroupMembers`,
+`MsgDeleteGroup` on the Commons Governance Committee), but not its brake:
+the committee executes 7 days after a proposal passes, and a veto that lands
+later vetoes nothing. So on a board proposal whose every message is
+`MsgVetoGroupProposals`, a member council's **veto policy** (0.49, no
+execution wait) may propose it and cast the vote of its council's seat:
+
+- the vote is stored under the council's standard policy address, the seat,
+  and counted with the seat's weight (`vote_proposal` carries `voter` = the
+  seat and `cast_by` = the veto policy);
+- the veto policy casts a seat once; only the council's standard policy can
+  change the vote afterwards;
+- any other board proposal (and a signaling one) still needs the standard
+  policy, to propose and to vote;
+- the rule applies only in a body with no veto policy of its own (a council
+  has one, and its members vote there directly).
+
+A board veto therefore needs both councils' veto policies and then the
+board's own `SupervisoryMinExecution` (1 day on mainnet): about a day, inside
+the committee's 7.
+
+**Board-seat recusal.** The Commons Council's golden-share seat is half the
+votes of both member councils, and the board oversees the committee that
+elects the Commons Council. If the seat counted here, the Commons Council
+could block every board action through the standard policies and cast both
+veto seats by itself, a veto over the committee that can replace it. So on a
+council proposal (standard or veto policy) whose every message is one of
+`BoardSeatMsgs`, the golden-share seat is recused: `checkThreshold` skips
+its vote and leaves its weight out of the body. The council's own members
+decide: 66% of them through the standard policy, 49% through the veto
+policy. On every other proposal the golden share counts as before.
+
+e2e: `test/commons/board_veto_test.sh`.
 
 ### 6.3. Threshold check (`checkThreshold`)
 

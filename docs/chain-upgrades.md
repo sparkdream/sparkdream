@@ -9,7 +9,14 @@ x/rep work and staking messages and the x/storage worker messages to the
 session allowlist, and the new x/storage module (its store, the x/service v2
 migration that writes the `storage-arweave` service type, and the x/commons
 v3 migration that gives the Commons Council and its Operations Committee the
-storage council messages). Until a
+storage council messages, and the Technical and Ecosystem Councils the
+messages to propose and vote as members of the Commons Supervisory Board).
+The veto-seat and golden-share recusal rules of x/commons ship with it and
+need no stored state. It also carries one change with no migration: x/rep
+refuses a `council_migration_delay` of zero or below
+`recovery_migration_delay`. The delay's new default (7 days, 2 on testnet,
+1 on devnet) is a genesis value, so a running network keeps its stored 21 days
+until an x/gov `MsgUpdateParams` changes it. Until a
 network applies it, earlier consensus-affecting releases shipped by resetting
 the networks (or by swapping binaries at a `halt-height`, which works only
 when replaying old blocks on the new binary gives the same results). A reset

@@ -85,9 +85,19 @@ func getMaxInterimRewardsPerSeason() math.Int {
 	return math.NewInt(50_000_000_000) // 50,000 DREAM
 }
 
-// getMigrationTimings returns the member key migration windows (production
-// defaults, see productionMigrationTimings).
-func getMigrationTimings() migrationTimings { return productionMigrationTimings() }
+// getMigrationTimings returns the member key migration windows: the
+// production defaults (productionMigrationTimings) with a 1-day council
+// delay instead of 7 and a 1-day recovery delay instead of 2. The devnet's
+// Commons HR committee executes a proposal 30 minutes after it passes
+// (production: 7 days), so the council delay is the whole wait for a
+// recovery there. Params.Validate keeps the council delay at or above the
+// recovery delay, so the recovery delay comes down with it.
+func getMigrationTimings() migrationTimings {
+	t := productionMigrationTimings()
+	t.councilDelay = 86400
+	t.recoveryDelay = 86400
+	return t
+}
 
 // getAliasDedupHorizonEpochs is the production dedup horizon of the member
 // key migration: 240 epochs, which covers a 150-epoch season with its 7-epoch
