@@ -44,3 +44,15 @@ func ProposalChangesMembership(p types.Proposal) bool { return proposalChangesMe
 func ThresholdMet(dp types.DecisionPolicy, changesMembership bool, yes, body math.LegacyDec) bool {
 	return thresholdMet(dp, changesMembership, yes, body)
 }
+
+// UnbondMemberValidatorStake exposes unbondMemberValidatorStake, which the
+// member-update and renewal handlers call after a membership change.
+func (k Keeper) UnbondMemberValidatorStake(ctx sdk.Context, changed string) error {
+	return k.unbondMemberValidatorStake(ctx, changed)
+}
+
+// CheckProposalPermissions exposes checkProposalPermissions (the
+// execution-time allowlist check).
+func (k Keeper) CheckProposalPermissions(ctx context.Context, p types.Proposal) error {
+	return k.checkProposalPermissions(ctx, p)
+}

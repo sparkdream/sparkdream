@@ -82,6 +82,27 @@ message GenesisState {
   // poll_open_counts are the per-creator poll-opening buckets, so a round
   // trip does not grant a second daily allowance.
   repeated PollOpenCount poll_open_counts = 25 [(gogoproto.nullable) = false];
+  // treasury_wind_downs are the deleted groups whose staked treasury is
+  // still being unbonded and swept.
+  repeated TreasuryWindDown treasury_wind_downs = 26 [(gogoproto.nullable) = false];
+  // treasury_stakers are the standard policy addresses of the live groups
+  // that have delegated from their treasury. The treasury stake cap and the
+  // x/gov tally read this index instead of walking every group.
+  repeated string treasury_stakers = 27;
+}
+
+// TreasuryWindDown is the pending unwinding of a deleted group's treasury
+// stake: the EndBlocker undelegates what is still staked, waits for the
+// unbonding entries to mature and then sweeps the balance to the heir.
+message TreasuryWindDown {
+  // policy_address is the deleted group's standard policy address.
+  string policy_address = 1;
+  // heir receives the unbonded SPARK: the deleted group's parent policy.
+  // Empty when the parent was not a group policy (x/gov); the funds then
+  // stay at policy_address, like the rest of such a group's treasury.
+  string heir = 2;
+  // due is when the EndBlocker next looks at this entry (unix seconds).
+  int64 due = 3;
 }
 
 // ProposalVoterTreeEntry pairs a proposal ID with its voter snapshot.

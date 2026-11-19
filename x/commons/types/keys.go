@@ -84,6 +84,14 @@ var (
 	// on its current UTC day (the per-creator opening rate limit).
 	PollOpenCountsKey = collections.NewPrefix("pollOpenCounts/value/")
 
+	// TreasuryWindDowns: (due_time, policy_address) -> heir. Deleted groups
+	// whose staked treasury is still being unbonded and swept.
+	TreasuryWindDownsKey = collections.NewPrefix("treasuryWindDowns/value/")
+
+	// TreasuryStakers: policy_address. Live groups that have delegated from
+	// their treasury (the addresses the stake cap and the x/gov tally read).
+	TreasuryStakersKey = collections.NewPrefix("treasuryStakers/value/")
+
 	// --- Recurring Spend collections (M10 removed) ---
 	// The parallel commons.RecurringSpends storage was deleted by the
 	// RecurringSpend migration. Schedules now live in session.Grants.

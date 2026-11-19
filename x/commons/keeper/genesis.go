@@ -149,6 +149,16 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+	for _, w := range genState.TreasuryWindDowns {
+		if err := k.TreasuryWindDowns.Set(ctx, collections.Join(w.Due, w.PolicyAddress), w.Heir); err != nil {
+			return err
+		}
+	}
+	for _, addr := range genState.TreasuryStakers {
+		if err := k.TreasuryStakers.Set(ctx, addr); err != nil {
+			return err
+		}
+	}
 
 	// 12. Anonymous vote tallies and the per-(council, UTC day) anonymous
 	// proposal counters (a reset would grant a second daily allowance).
@@ -349,6 +359,18 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	if err := k.DeletedPolicies.Walk(ctx, nil, func(addr string) (bool, error) {
 		genesis.DeletedPolicies = append(genesis.DeletedPolicies, addr)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.TreasuryWindDowns.Walk(ctx, nil, func(key collections.Pair[int64, string], heir string) (bool, error) {
+		genesis.TreasuryWindDowns = append(genesis.TreasuryWindDowns, types.TreasuryWindDown{PolicyAddress: key.K2(), Heir: heir, Due: key.K1()})
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.TreasuryStakers.Walk(ctx, nil, func(addr string) (bool, error) {
+		genesis.TreasuryStakers = append(genesis.TreasuryStakers, addr)
 		return false, nil
 	}); err != nil {
 		return nil, err

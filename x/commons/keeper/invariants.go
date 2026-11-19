@@ -16,6 +16,54 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "policy-index", PolicyIndexInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "member-bounds", MemberBoundsInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "golden-share", GoldenShareInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "treasury-stakers", TreasuryStakersInvariant(k))
+}
+
+// TreasuryStakersInvariant: every group whose standard policy address holds
+// a delegation is in the TreasuryStakers index, and every index entry is the
+// standard policy of a live group. The treasury stake cap and the x/gov
+// tally read the index, so a staked treasury missing from it would vote and
+// escape the cap.
+func TreasuryStakersInvariant(k Keeper) sdk.Invariant {
+	return func(ctx sdk.Context) (string, bool) {
+		var problems string
+		sk := k.late.stakingKeeper
+		if err := k.Groups.Walk(ctx, nil, func(name string, g types.Group) (bool, error) {
+			if sk == nil || g.PolicyAddress == "" {
+				return false, nil
+			}
+			bz, err := k.addressCodec.StringToBytes(g.PolicyAddress)
+			if err != nil {
+				return false, nil
+			}
+			delegations, err := sk.GetDelegatorDelegations(ctx, bz, 1)
+			if err != nil {
+				return true, err
+			}
+			if len(delegations) == 0 {
+				return false, nil
+			}
+			indexed, err := k.TreasuryStakers.Has(ctx, g.PolicyAddress)
+			if err != nil {
+				return true, err
+			}
+			if !indexed {
+				problems += fmt.Sprintf("group %s (%s) holds a delegation but is not in TreasuryStakers\n", name, g.PolicyAddress)
+			}
+			return false, nil
+		}); err != nil {
+			problems += fmt.Sprintf("walking groups failed: %v\n", err)
+		}
+		if err := k.TreasuryStakers.Walk(ctx, nil, func(policy string) (bool, error) {
+			if _, group, found := k.GetGroupByPolicy(ctx, policy); !found || group.PolicyAddress != policy {
+				problems += fmt.Sprintf("TreasuryStakers entry %s is not the standard policy of a live group\n", policy)
+			}
+			return false, nil
+		}); err != nil {
+			problems += fmt.Sprintf("walking TreasuryStakers failed: %v\n", err)
+		}
+		return sdk.FormatInvariant(types.ModuleName, "treasury-stakers", problems), problems != ""
+	}
 }
 
 // PolicyIndexInvariant: every group's policy (and veto policy) maps back to

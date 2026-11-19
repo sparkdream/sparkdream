@@ -87,6 +87,14 @@ func (k msgServer) RemoveItem(ctx context.Context, msg *types.MsgRemoveItem) (*t
 		}
 	}
 
+	// An item that was hidden and restored still has its hide records
+	// indexed by target; drop those entries with the item, as collection
+	// deletion and TTL expiry do (the records stay for the sentinel's
+	// history).
+	if err := k.removeItemHideRecords(ctx, item, params); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to clean up the item's hide records")
+	}
+
 	// Remove item from storage and indexes
 	if err := k.Item.Remove(ctx, item.Id); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to remove item")

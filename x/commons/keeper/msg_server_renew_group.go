@@ -133,6 +133,12 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 		return nil, err
 	}
 
+	// Treasury stake with a validator a member of the new term operates is
+	// unbonded (treasury_staking.go, member-validator rule).
+	if err := k.unbondMemberValidatorStake(ctx, msg.GroupName); err != nil {
+		return nil, err
+	}
+
 	// Reset term
 	extGroup.CurrentTermExpiration = ctx.BlockTime().Unix() + extGroup.TermDuration
 	if err := k.Groups.Set(ctx, msg.GroupName, extGroup); err != nil {

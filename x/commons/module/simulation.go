@@ -299,6 +299,67 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		commonssimulation.SimulateMsgCancelPoll(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
+	const (
+		opWeightMsgDelegateTreasury          = "op_weight_msg_commons"
+		defaultWeightMsgDelegateTreasury int = 100
+	)
+
+	var weightMsgDelegateTreasury int
+	simState.AppParams.GetOrGenerate(opWeightMsgDelegateTreasury, &weightMsgDelegateTreasury, nil,
+		func(_ *rand.Rand) {
+			weightMsgDelegateTreasury = defaultWeightMsgDelegateTreasury
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgDelegateTreasury,
+		commonssimulation.SimulateMsgDelegateTreasury(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgUndelegateTreasury          = "op_weight_msg_commons"
+		defaultWeightMsgUndelegateTreasury int = 100
+	)
+
+	var weightMsgUndelegateTreasury int
+	simState.AppParams.GetOrGenerate(opWeightMsgUndelegateTreasury, &weightMsgUndelegateTreasury, nil,
+		func(_ *rand.Rand) {
+			weightMsgUndelegateTreasury = defaultWeightMsgUndelegateTreasury
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUndelegateTreasury,
+		commonssimulation.SimulateMsgUndelegateTreasury(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgRedelegateTreasury          = "op_weight_msg_commons"
+		defaultWeightMsgRedelegateTreasury int = 100
+	)
+
+	var weightMsgRedelegateTreasury int
+	simState.AppParams.GetOrGenerate(opWeightMsgRedelegateTreasury, &weightMsgRedelegateTreasury, nil,
+		func(_ *rand.Rand) {
+			weightMsgRedelegateTreasury = defaultWeightMsgRedelegateTreasury
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRedelegateTreasury,
+		commonssimulation.SimulateMsgRedelegateTreasury(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgWithdrawTreasuryRewards          = "op_weight_msg_commons"
+		defaultWeightMsgWithdrawTreasuryRewards int = 100
+	)
+
+	var weightMsgWithdrawTreasuryRewards int
+	simState.AppParams.GetOrGenerate(opWeightMsgWithdrawTreasuryRewards, &weightMsgWithdrawTreasuryRewards, nil,
+		func(_ *rand.Rand) {
+			weightMsgWithdrawTreasuryRewards = defaultWeightMsgWithdrawTreasuryRewards
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgWithdrawTreasuryRewards,
+		commonssimulation.SimulateMsgWithdrawTreasuryRewards(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
 	// Recurring-spend simulations were removed by the M10 migration —
 	// they reached directly into the deleted parallel storage and the
 	// session-grant equivalent is exercised end-to-end by the M11 e2e

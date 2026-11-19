@@ -48,4 +48,11 @@ var (
 	ErrRecurringSpendInvalidWindow = errors.Register(ModuleName, 1705, "recurring spend start/end window is invalid")
 	ErrRecurringSpendCapReached    = errors.Register(ModuleName, 1706, "authority has reached max active recurring spends")
 	ErrRecurringSpendUnauthorized  = errors.Register(ModuleName, 1707, "caller is not authorized for this recurring spend")
+
+	// Treasury staking errors (treasury_staking.go)
+	ErrTreasuryStakeCap          = errors.Register(ModuleName, 1800, "delegation would take group treasuries above the treasury stake cap")
+	ErrValidatorOperatedByMember = errors.Register(ModuleName, 1801, "validator is operated by a member of the delegating group")
+	ErrTooManyTreasuryValidators = errors.Register(ModuleName, 1802, "group treasury is staked with too many validators")
+	ErrNotTreasury               = errors.Register(ModuleName, 1803, "address is not a group treasury")
+	ErrInvalidTreasuryStake      = errors.Register(ModuleName, 1804, "invalid treasury staking request")
 )

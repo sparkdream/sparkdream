@@ -16,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
+	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -212,6 +213,13 @@ func New(
 			depinject.Supply(
 				appOpts, // supply app options
 				logger,  // supply logger
+				// x/gov tally that gives group treasury stake no voting
+				// power (gov_tally.go). The keepers are read at tally time.
+				NewTreasuryExcludingTally(
+					func() TreasuryAddressSource { return app.CommonsKeeper },
+					func() TallyStakingKeeper { return app.StakingKeeper },
+					addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix()),
+				),
 				// here alternative options can be supplied to the DI container.
 				// those options can be used f.e to override the default behavior of some modules.
 				// for instance supplying a custom address codec for not using bech32 addresses.
@@ -352,6 +360,12 @@ func New(
 	app.RepKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.ForumKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.CommonsKeeper.SetIdentityKeeper(app.IdentityKeeper)
+
+	// Treasury staking: commons reads delegations and validators from
+	// x/staking for the treasury stake cap and the member-validator rule
+	// (x/commons/keeper/treasury_staking.go). The writes go through the
+	// message router.
+	app.CommonsKeeper.SetStakingKeeper(app.StakingKeeper)
 	app.FutarchyKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.CollectKeeper.SetIdentityKeeper(app.IdentityKeeper)
 	app.ShieldKeeper.SetIdentityKeeper(app.IdentityKeeper)

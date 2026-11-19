@@ -96,6 +96,7 @@ Key principles:
 | `x/bank` | Council treasury sends (`SpendFromCommons`, `ClaimRecurringSpend`), proposal-fee transfers from the proposer. The commons module account has no `Minter` or `Burner` permission: commons never creates SPARK, and its market subsidies come from SPARK already sent to the account |
 | `x/gov` | Source of the immutable `authority` (gov module account) used as the chain's `--authority` for `MsgUpdateParams`, `MsgEmergencyCancelGovProposal`, etc.; concrete keeper accessed via the narrow `GovKeeper` interface for the emergency-cancel path |
 | `x/upgrade` | `MsgForceUpgrade` calls `UpgradeKeeper.ScheduleUpgrade` |
+| `x/staking`, `x/distribution` | Treasury staking (§7.2). Commons reads validators, delegations, unbonding entries and total bonded stake through the narrow `StakingKeeper` interface (wired post-depinject via `SetStakingKeeper`), and runs `MsgDelegate`, `MsgUndelegate`, `MsgBeginRedelegate` and `MsgWithdrawDelegatorReward` through the message router as the policy address. Unwired, every treasury staking message is refused |
 | `x/futarchy` | `CreateMarketInternal` (initiated by commons for confidence-vote markets); commons registers as a `FutarchyHooks` consumer for elastic tenure on resolution. Injected directly via depinject |
 | `x/split` | `SetShareByAddress` registers the policy address with the revenue split when a `Group` is created. Injected directly via depinject |
 | `x/shield` | Anonymous proposal and vote routing — the `IsShieldCompatible` adapter advertises `MsgSubmit/AnonymousVoteProposal` to the shield router. No direct keeper dependency |
@@ -422,6 +423,8 @@ Notable design choices (post-migration):
 | `PollQueue` | `(due_time, poll_id)` | Deadline of an open poll, end of retention of a closed or cancelled one |
 | `PollVoterTrees` | `poll_id → VoterTree` | A secret poll's voter snapshot, deleted when the poll closes |
 | `PollOpenCounts` | `creator → PollOpenCount{creator, utc_day, count}` | Polls the creator opened on its current UTC day: the per-creator opening rate limit (§11.4); one record per creator, reset on a new day, never decremented |
+| `TreasuryWindDowns` | `(due_time, policy_address) → heir` | Deleted groups whose staked treasury is still being unbonded and swept (§7.2) |
+| `TreasuryStakers` | `policy_address` | Live groups that have delegated from their treasury: the addresses the stake cap and the x/gov tally read (§7.2) |
 | `ProposalSeq`, `CouncilSeq`, `CategorySeq`, `PollSeq` | sequences | Auto-increment ID generators (poll IDs start at 1) |
 
 The pre-migration `RecurringSpends*` collections (`RecurringSpends`,
@@ -951,7 +954,7 @@ run, and execution checks the status.
 | `MsgRenewGroup` | parent policy OR a registered electoral policy (throttled by its `update_cooldown`) | Replace members and reset `current_term_expiration` to `now + term_duration`. Permitted on expired councils (this is the escape hatch the executor honours). The member count must fit `[min_members, max_members]` for every signer, gov included. Bumps `PolicyVersion`: in-flight proposals of the old members end `VETOED` and cannot execute. Weight rules of §3.2 apply; leaving out the golden-share seat is refused unless the signer is gov |
 | `MsgUpdateGroupMembers` | parent policy OR the group's electoral policy | Add and/or remove members without resetting the term. The `update_cooldown` is enforced ONLY when the signer is the electoral policy; direct parent or gov calls bypass the cooldown. Weight rules of §3.2 apply; removing the golden-share seat is refused unless the signer is gov |
 | `MsgUpdateGroupConfig` | parent policy OR gov | Mutate group-config knobs (`max_spend_per_epoch`, `vote_threshold`, `voting_period`, `min_execution_period`, `futarchy_enabled`, `min_members`, `max_members`, `term_duration`, `policy_type`, `electoral_policy_address`, `funding_weight`, `ballot_mode`; `BALLOT_MODE_UNSPECIFIED` leaves the mode unchanged). A `voting_period` / `min_execution_period` sent without a new `vote_threshold` + `policy_type` updates the stored decision policy in place; both paths enforce the compiled 90-day period bounds (§3.3). Every change bumps `PolicyVersion`. The parent is throttled by `update_cooldown` from `last_config_update`; gov is not. Gov only: `min_members`/`max_members` (the standing committees' compiled [2,5] holds even for gov; `min_members` cannot be raised above the current roster of an operational group — two seats or more — so `MemberBoundsInvariant` keeps holding, `ErrInvalidGroupSize`: add members first) and `funding_weight` (replaces the x/split share). A parent may set `max_spend_per_epoch` only to a positive value within its own cap. A new `electoral_policy_address` must be a registered group policy (parent signer) and is cycle-checked. Turning `futarchy_enabled` on queues the first confidence market; turning it off removes the group's queued trigger, and turning it on replaces any trigger still queued, so an off/on toggle never leaves a group with two confidence-market loops (FUT-101); a trigger that fires while the group's market is still open skips the new market and only reschedules (FUT-201, docs/x-futarchy-spec.md §7.6) |
-| `MsgDeleteGroup` | parent policy OR a sibling veto policy OR gov | Remove a group from the registry. Refused while another group names it as its parent or electoral authority (`ErrGroupHasDependents`, 1615; delete or re-parent the dependents first, gov included). Members, decision policy, permissions, the x/split share are cleared and the policy version is bumped. Every x/session grant the group's standard or veto policy issued is revoked through `RevokeGrantInternal` (nobody can sign for a deleted policy to cancel them), the policies are tombstoned in `DeletedPolicies` (the session claim hook refuses any grant from a former group policy), and the residual treasury is swept to the parent policy when the parent is a group (with a gov parent the funds stay put). The group's open polls are cancelled (polls are keyed by group name, so a group later registered under the same name inherits none) |
+| `MsgDeleteGroup` | parent policy OR a sibling veto policy OR gov | Remove a group from the registry. Refused while another group names it as its parent or electoral authority (`ErrGroupHasDependents`, 1615; delete or re-parent the dependents first, gov included). Members, decision policy, permissions, the x/split share are cleared and the policy version is bumped. Every x/session grant the group's standard or veto policy issued is revoked through `RevokeGrantInternal` (nobody can sign for a deleted policy to cancel them), the policies are tombstoned in `DeletedPolicies` (the session claim hook refuses any grant from a former group policy), and the residual treasury is swept to the parent policy when the parent is a group (with a gov parent the funds stay put). Treasury stake is queued in `TreasuryWindDowns`: the EndBlocker unbonds it and sweeps it to the same parent once it matures (§7.2), so deletion never waits for a group's stake. The group's open polls are cancelled (polls are keyed by group name, so a group later registered under the same name inherits none) |
 | `MsgVetoGroupProposals` | parent policy OR a sibling veto policy OR gov | Bump `PolicyVersion` for the target group's policy — every in-flight proposal (voting or accepted) of that policy ends `VETOED` (§6) |
 | `MsgForceUpgrade` | Technical Council policy (via proposal) | Schedule a chain upgrade through `x/upgrade` |
 | `MsgSubmitProposal` | a council member | Open a new proposal (subject to allowlist + fee + term expiration); `secret_ballot` asks for a secret ballot in a PROPOSER_CHOICE group (§11.2) |
@@ -959,6 +962,10 @@ run, and execution checks the status.
 | `MsgExecuteProposal` | anyone | Run an accepted proposal's inner messages after `execution_time` |
 | `MsgSubmitAnonymousProposal` | x/shield module account only | Same as `MsgSubmitProposal` but skips the membership check (ZK proof attests registration); identical allowlist and term gates, no fee, at most 20 per council per UTC day |
 | `MsgAnonymousVoteProposal` | x/shield module account only | One secret-ballot vote (§11.2): proven against the proposal's voter snapshot, once per member; refused on an open proposal (`ErrBallotMode`). Triggers early acceptance like an open vote |
+| `MsgDelegateTreasury` | a registered group's standard policy | Stake treasury SPARK with a bonded validator (§7.2). Refused before activation or after the term, above `MaxSpendPerEpoch` (it counts as a spend), for a validator operated by a member of the group or of a group above it, above the validator limit or above the treasury stake cap |
+| `MsgUndelegateTreasury` | a registered group's standard policy | Start unbonding treasury stake; the SPARK returns to the treasury after the staking unbonding period. No activation or term gate |
+| `MsgRedelegateTreasury` | a registered group's standard policy | Move treasury stake to another validator; the destination is checked like a new delegation. No activation or term gate |
+| `MsgWithdrawTreasuryRewards` | anyone | Pay the pending staking rewards of a treasury into that treasury |
 | `MsgOpenPoll` | a member of the group | Open a single-choice poll (§11.4): 2-10 options, a duration within the bounds, open or `secret_ballot` |
 | `MsgVotePoll` | a current member of the poll's group | One final open vote on an open poll; refused on a secret poll |
 | `MsgAnonymousVotePoll` | x/shield module account only | One secret-ballot poll vote, proven against the poll's voter snapshot |
@@ -1047,6 +1054,162 @@ mostly unchanged; commons-specific translations are noted):
   must specify exactly one coin (D1.a restriction). The wrapper
   rejects multi-coin `amount_per_period` before calling session.
 
+#### 7.2. Treasury staking
+
+A council or committee can stake SPARK from its treasury (its standard
+policy address) with validators. The four messages are wrappers: after the
+group's own checks they run the SDK `MsgDelegate`, `MsgUndelegate`,
+`MsgBeginRedelegate` and `MsgWithdrawDelegatorReward` through the message
+router as the policy address. The stake is an ordinary delegation, so every
+x/staking rule applies (unbonding period, entry limits, slashing) and
+`q staking delegations <policy>` shows it. Code:
+`x/commons/keeper/treasury_staking.go`.
+
+The group treasuries receive the genesis community pool, most of the
+supply, and x/gov is their parent. Four rules bound what their stake can do:
+
+1. **Treasury stake cap.** All treasuries together may not delegate above
+   `TreasuryStakeCapBps` (2000, 20%) of total bonded stake. A delegation of
+   `x` is accepted only while
+   `(treasury_staked + x) / (total_bonded + x) <= 0.20`. The cap is a
+   compiled constant; only a chain upgrade changes it. It is checked when a
+   delegation is made. If other delegators unbond, treasury stake can end up
+   above the cap: nothing is unbonded by force, and no treasury can delegate
+   more until the share is back under it. Redelegation does not change the
+   total and is not re-checked. A treasury may delegate or redelegate only
+   to a **bonded** validator (`ErrInvalidTreasuryStake` otherwise), so a new
+   delegation always adds to both sides of the ratio. `treasury_staked`
+   counts treasury stake with any validator, including one that has left
+   the active set since: that stake returns to the bonded total when the
+   validator does.
+2. **No x/gov voting power.** The chain's x/gov tally
+   (`app/gov_tally.go`) leaves treasury stake out: it is taken out of the
+   voting power its validator inherits, and a vote cast by a treasury
+   address counts for nothing. The quorum denominator is still total bonded
+   stake, so treasury stake counts as stake that did not vote; the cap
+   bounds that effect (with treasuries at the 20% cap, a quorum of `q`
+   needs `q / 0.8` of the remaining stake).
+3. **No delegation to a member's validator.** A group may not delegate or
+   redelegate to a validator whose operator account is one of its members,
+   or a member of a group above it (its parent, the parent's parent, and so
+   on): `ErrValidatorOperatedByMember`. The members of a parent council
+   seat, veto and delete its committees, so their validators are no more
+   neutral than a committee member's own. The operator is also resolved
+   through the x/rep alias contract (`Canonical`), so a migrated key is
+   still the same member. The rule cannot see a member who runs a validator
+   under an unrelated key; the proposal vote and the cap bound that case.
+
+   The rule follows the membership. When `MsgUpdateGroupMembers` adds a
+   member or `MsgRenewGroup` seats a new term, every treasury of that group
+   and of the groups below it has the stake it holds with a validator one
+   of the members now operates undelegated in full (event
+   `treasury_member_validator_unbonded`). The membership change never waits
+   for the stake. If x/staking refuses the undelegation (too many unbonding
+   entries), the change still goes through and the event carries `refused`;
+   that treasury can then make no new delegation until the group has moved
+   the stake with `MsgUndelegateTreasury` or `MsgRedelegateTreasury`
+   (`MsgDelegateTreasury` re-reads the rule over everything the treasury
+   holds). At genesis the founder sits on every council and committee and
+   runs the first validator, so no treasury can stake with it.
+4. **Wrappers only.** The SDK `MsgDelegate`, `MsgBeginRedelegate`,
+   `MsgCancelUnbondingDelegation` and `MsgCreateValidator` are in
+   `ForbiddenMessages`, so no policy can stake around the cap or run a
+   validator on treasury funds. `MsgSetWithdrawAddress` was already
+   forbidden, so rewards can only be paid to the treasury itself.
+   `ForbiddenMessages` is checked when a permission is granted and again
+   when a proposal is submitted and when it is executed, so an entry on a
+   stored allowlist (from a genesis file, or granted before the message was
+   forbidden) never runs. The v3 → v4 migration also removes every
+   forbidden message from every stored allowlist.
+
+Other rules:
+
+- Only the **standard policy** address is a treasury; a veto policy address
+  is refused (`ErrNotTreasury`).
+- `MsgDelegateTreasury` applies the gates of `MsgSpendFromCommons`
+  (`CheckSpendPreconditions`): activation, term expiry and
+  `MaxSpendPerEpoch`. A delegation **counts against the group's epoch
+  budget like a spend** (`ErrRateLimitExceeded`): the SPARK stays the
+  treasury's, but it is locked for the unbonding period and exposed to
+  slashing, so the parent's rate limit bounds how fast a group can put its
+  treasury at risk. The budget is shared with ordinary spends.
+- `MsgUndelegateTreasury` and `MsgRedelegateTreasury` have no activation or
+  term gate and use no budget: neither puts more at stake, a group may
+  always bring its stake home, and a redelegation is how it leaves a
+  failing validator (or one a member has come to operate) without an
+  unbonding wait. The redelegation destination is still checked like a new
+  delegation (bonded, member rule).
+- One treasury stakes with at most `MaxTreasuryValidatorsPerGroup` (10)
+  validators, which bounds the cap check and the tally
+  (`ErrTooManyTreasuryValidators`). The count is taken after the delegation
+  or redelegation, so a treasury at the limit can move a whole delegation
+  to a new validator. A delegation worth less than one base unit (x/staking
+  can leave one after a slash) is not counted: it cannot be undelegated by
+  amount and would use up a slot for good.
+- `MsgDelegateTreasury` checks in this order: treasury, amount, stake cap,
+  validator (bonded, member rule), spend gates; then, after the delegation,
+  the validator limit and the member rule over all the treasury's stake.
+- The amount must be positive and in the bond denom
+  (`ErrInvalidTreasuryStake`).
+- `MsgWithdrawTreasuryRewards` may be sent by any account, for a group's
+  treasury or a deleted group's treasury still winding down. (x/staking also
+  pays pending rewards into the treasury whenever a delegation changes.)
+
+No stake ledger is kept. The staked amounts are read from x/staking for the
+treasury addresses (`Keeper.TreasuryAddresses`): the `TreasuryStakers`
+index, plus the deleted groups in `TreasuryWindDowns`. `TreasuryStakers`
+holds the standard policy address of every live group that has delegated;
+the first `MsgDelegateTreasury` writes the entry and `MsgDeleteGroup`
+removes it (the wind-down queue takes over). It holds no amounts. It keeps
+the cap check, the x/gov tally and the membership hook from walking every
+group; it is complete because a policy can only delegate through the
+wrapper, and `TreasuryStakersInvariant` checks it against x/staking. The
+v3 → v4 migration indexes any group that already holds a delegation.
+
+**Permissions.** The genesis bootstrap gives `MsgDelegateTreasury`,
+`MsgUndelegateTreasury` and `MsgRedelegateTreasury` to the bodies that hold
+a treasury: the three councils and their Operations Committees. The
+x/commons v3 → v4 migration (part of upgrade `storage-pinned-index-rep-sessions`) gives them to the
+same bodies on a running chain. A group registered later gets them from its
+parent or x/gov.
+
+**Deleted groups.** Nobody can sign for a deleted policy, and deletion must
+never wait for a group's stake (a group could shield itself from deletion
+by delegating). `MsgDeleteGroup` therefore queues a staked treasury in
+`TreasuryWindDowns` with its heir, the parent policy (empty when the parent
+is x/gov). The EndBlocker then, per entry: undelegates what is still staked
+(each undelegation in its own cache context; a refusal is retried after an
+hour), waits until the last unbonding entry has matured, and sweeps the
+balance to the heir if it is still a group. With no heir the SPARK stays at
+the deleted policy address, like the rest of such a group's treasury. Until
+the entry is done its stake still counts against the cap and stays out of
+the x/gov tally.
+
+An entry never finishes with a delegation still in place. A delegation
+worth less than one base unit cannot be named by `MsgUndelegate` (an
+amount), so it is unbonded by its shares through the staking keeper; a
+delegation whose validator cannot be read keeps the entry, which is retried
+after an hour. Otherwise the address would leave `TreasuryAddresses` with
+stake nobody can undelegate, which would vote in x/gov and escape the cap.
+
+If the heir is itself deleted before the stake matures, `MsgDeleteGroup`
+re-points every wind-down that named it to its own heir (its parent policy,
+or none when that is x/gov), so the SPARK follows the same path the heir's
+own treasury took instead of maturing at a dead address (event
+`treasury_wind_down_heir_changed`). Events: `treasury_wind_down_started`,
+`treasury_wind_down_finished`.
+
+A proposal message, for the Commons Operations Committee:
+
+```json
+{
+  "@type": "/sparkdream.commons.v1.MsgDelegateTreasury",
+  "authority": "<committee policy address>",
+  "validator_address": "<valoper address>",
+  "amount": { "denom": "uspark", "amount": "1000000000" }
+}
+```
+
 ---
 
 ## 8. Queries
@@ -1069,6 +1232,7 @@ mostly unchanged; commons-specific translations are noted):
 | `ListPolls` | `q commons list-polls [--council-name] [--status]` | Paginated polls in ID order (`--reverse` for newest first), filterable by group and status |
 | `GetPollVotes` | `q commons get-poll-votes [id]` | The open votes on a poll (a secret poll has none, only tallies) |
 | `GetPollVoterTree` | `q commons get-poll-voter-tree [id]` | A secret poll's voter snapshot while it is open |
+| `TreasuryStake` | `q commons treasury-stake` | SPARK all group treasuries have staked (`treasury_staked`), `total_bonded`, the cap (`cap_bps`) and the `headroom` a treasury could still delegate (§7.2) |
 | `GetCategory` | `q commons get-category [id]` | Single shared content category |
 | `ListCategory` | `q commons list-category` | Paginated categories |
 | `GetRecurringSpend` | `q commons get-recurring-spend [id]` | Single recurring spend schedule, projected from `session.Grants`. Returns `NotFound` for cancelled/declined schedules (the grant is deleted on terminal transitions — audit trail in events). COMPLETED schedules are retained and queryable |
@@ -1087,7 +1251,7 @@ all three are now public read-only queries.
 
 ## 9. EndBlocker
 
-Three phases per block:
+Four phases per block:
 
 1. **Proposal finalisation** (`EndBlockProposals`) — walk the due entries
    of `ProposalQueue`: finalise `SUBMITTED` proposals past their
@@ -1108,6 +1272,11 @@ Three phases per block:
    module account) commits nothing and is retried after one day, so one
    failure no longer ends the group's loop. A successful trigger links the
    market (`MarketToGroup`) and queues the next one at half a term.
+4. **Treasury wind-downs** (`EndBlockTreasuryWindDowns`) — advance the due
+   entries of `TreasuryWindDowns`, at most 5 per block: undelegate a deleted
+   group's remaining stake, wait for its unbonding entries, sweep the
+   matured SPARK to the heir (§7.2). A failing entry is logged and retried;
+   it never halts the chain.
 
 **Dependency on x/futarchy.** Wiring the loop makes the elastic-tenure hook
 (§10) reachable. Its safety depends on the x/futarchy fixes for FUT-01 (the
@@ -1351,6 +1520,11 @@ do not apply.
 | 1615 | `ErrGroupHasDependents` | The group is the parent or electoral authority of another group (`MsgDeleteGroup`) |
 | 1616 | `ErrPollRateLimit` | The creator already opened `MaxPollOpensPerCreatorPerDay` (3) polls this UTC day; cancelling one gives nothing back |
 | 1617 | `ErrInsufficientProposalFee` | A nested `MsgSubmitProposal` (not floored by the ante) whose proposer cannot pay `proposal_fee` to the fee collector |
+| 1800 | `ErrTreasuryStakeCap` | `MsgDelegateTreasury` would take all treasuries together above `TreasuryStakeCapBps` of total bonded stake |
+| 1801 | `ErrValidatorOperatedByMember` | The validator's operator is a member of the delegating group or of a group above it (delegate, or redelegation destination); or the treasury already holds stake with such a validator and must move it before delegating more |
+| 1802 | `ErrTooManyTreasuryValidators` | The delegation or redelegation would leave the treasury staked with more than `MaxTreasuryValidatorsPerGroup` validators |
+| 1803 | `ErrNotTreasury` | The address is not the standard policy address of a registered group (nor, for reward withdrawal, a deleted group still winding down) |
+| 1804 | `ErrInvalidTreasuryStake` | The amount is not positive or not in the bond denom, or the validator is not bonded |
 | 1700 | `ErrRecurringSpendNotFound` | Used internally; the wrapper layer now surfaces `codes.NotFound` for cancelled/declined schedules via projection (M9). Reserved for legacy use sites |
 | 1701 | `ErrRecurringSpendInactive` | Schedule is in a terminal state. Post-migration this is the translated error for session's `ErrGrantNotFound` and `ErrGrantTerminal` returned from cancel/decline on a grant that's been deleted or already COMPLETED |
 | 1705 | `ErrRecurringSpendInvalidWindow` | `start_time`/`end_time` malformed (past, out-of-order, shorter than one period). Other window errors (period below min, duration over max) bubble up as session errors — the wrapper does NOT translate them |
@@ -1406,6 +1580,14 @@ attribute is enumerated here; consult the keeper for the source of truth):
 | `recurring_spend_claimed` | `id`, `authority`, `recipient`, `amount`, `claim_number`, `last_claim_advance` | `MsgClaimRecurringSpend` |
 | `recurring_spend_canceled` | `id`, `authority`, `recipient` | `MsgCancelRecurringSpend` |
 | `recurring_spend_declined` | `id`, `authority`, `recipient` | `MsgDeclineRecurringSpend` |
+| `treasury_delegated` | `group`, `policy_address`, `validator`, `amount` | `MsgDelegateTreasury` |
+| `treasury_undelegated` | `group`, `policy_address`, `validator`, `amount` | `MsgUndelegateTreasury` |
+| `treasury_redelegated` | `group`, `policy_address`, `src_validator`, `dst_validator`, `amount` | `MsgRedelegateTreasury` |
+| `treasury_rewards_withdrawn` | `policy_address`, `validator`, `amount` | `MsgWithdrawTreasuryRewards` |
+| `treasury_wind_down_started` | `policy_address`, `heir` | `MsgDeleteGroup` |
+| `treasury_wind_down_finished` | `policy_address`, `heir` | EndBlocker |
+| `treasury_wind_down_heir_changed` | `policy_address`, `heir` | `MsgDeleteGroup` of the previous heir |
+| `treasury_member_validator_unbonded` | `group`, `policy_address`, `validator`, `member`, `member_of`, `refused` (only when x/staking refused) | `MsgUpdateGroupMembers`, `MsgRenewGroup` |
 
 ---
 
@@ -1440,6 +1622,14 @@ message GenesisState {
   repeated ProposalVoterTreeEntry proposal_voter_trees = 23; // snapshots of open secret ballots
   repeated PollVoterTreeEntry poll_voter_trees = 24;    // snapshots of open secret polls
   repeated PollOpenCount poll_open_counts = 25;         // (creator, utc_day, count), one per creator
+  repeated TreasuryWindDown treasury_wind_downs = 26;   // deleted groups whose stake is still unwinding (§7.2)
+  repeated string treasury_stakers = 27;                // live groups that have delegated from their treasury (§7.2)
+}
+
+message TreasuryWindDown {
+  string policy_address = 1;  // the deleted group's standard policy address
+  string heir = 2;            // parent policy that receives the unbonded SPARK; empty when the parent was x/gov
+  int64 due = 3;              // when the EndBlocker next looks at the entry (unix seconds)
 }
 ```
 
@@ -1478,7 +1668,11 @@ set from its key (both group constructors also store it).
 `GenesisState.Validate` checks, when `group_map` is non-empty: no empty
 group index, no policy or veto address claimed by two groups (it would
 collide in `PolicyToName`), and every `council_members` entry names an
-imported group. It also rejects duplicate anonymous tallies and counters.
+imported group. It also rejects duplicate anonymous tallies and counters,
+a `treasury_wind_downs` entry with a malformed address or a policy
+listed twice (the queue round-trips through genesis), and a
+`treasury_stakers` entry that is malformed, listed twice or also winding
+down.
 A launch genesis (empty `group_map`) has nothing to cross-check: the
 bootstrap builds the groups.
 
@@ -1540,7 +1734,15 @@ bootstrap builds the groups.
   `MsgCreateSession`, `MsgExecSession`, every x/vault message,
   x/shield `MsgShieldedExec`, x/guardian `MsgExec`, plus the authz/group
   and consensus entries. A policy holding one could hand its powers or
-  treasury to a single key and act without a proposal per action.
+  treasury to a single key and act without a proposal per action. The raw
+  staking messages (`MsgDelegate`, `MsgBeginRedelegate`,
+  `MsgCancelUnbondingDelegation`, `MsgCreateValidator`) are forbidden too:
+  a treasury stakes only through the wrappers of §7.2.
+- **Treasury stake is bounded**: the treasuries hold most of the supply, so
+  their stake is capped at 20% of total bonded stake, has no x/gov voting
+  power, counts against the group's epoch spend limit, and cannot go to a
+  validator operated by a member of the group or of a group above it
+  (§7.2). Treasury stake is exposed to slashing like any delegation.
 - **Group registration is bounded**: only gov or the Commons Council
   registers groups, and a council can delegate only what it holds (§7).
 - **Deleted groups stop paying**: `MsgDeleteGroup` revokes the group's
@@ -1613,6 +1815,16 @@ E2E coverage lives in `test/commons/`:
 - `anon_test.sh` — anonymous proposal via shield; anonymous votes refused.
 - `treasury_spend.sh` — `MsgSpendFromCommons` with cumulative cap
   enforcement.
+- `treasury_staking_test.sh` — treasury staking through committee
+  proposals: a member's validator refused, a delegation to an outside
+  validator, the stake cap, the raw `MsgDelegate` refused, reward
+  withdrawal by a non-member, undelegation. `go test ./app -run
+  TestTreasuryStakingEndToEnd` covers the x/gov tally and the wind-down of
+  a deleted group's stake against the real staking module, from the default
+  genesis (no snapshot). The simulation delivers all four messages
+  (`x/commons/simulation/treasury_staking.go`): the three policy-signed ones
+  through group proposals, with the member-validator rule, the cap and the
+  staked balance prechecked.
 - `recurring_spend_test.sh` — full lifecycle: gov-lowers the period min,
   schedules via Commons Operations Committee proposal, waits one period,
   recipient claims, verifies cadence enforcement (claim-too-soon), exercises

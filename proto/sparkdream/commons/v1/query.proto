@@ -125,6 +125,12 @@ service Query {
   rpc GetPollVoterTree(QueryGetPollVoterTreeRequest) returns (QueryGetPollVoterTreeResponse) {
     option (google.api.http).get = "/sparkdream/commons/v1/poll/{poll_id}/voter_tree";
   }
+
+  // TreasuryStake reports how much SPARK the group treasuries have staked
+  // together and how much more the treasury stake cap lets them delegate.
+  rpc TreasuryStake(QueryTreasuryStakeRequest) returns (QueryTreasuryStakeResponse) {
+    option (google.api.http).get = "/sparkdream/commons/v1/treasury_stake";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -367,4 +373,31 @@ message QueryGetPollVoterTreeRequest {
 // QueryGetPollVoterTreeResponse defines the QueryGetPollVoterTreeResponse message.
 message QueryGetPollVoterTreeResponse {
   VoterTree tree = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryTreasuryStakeRequest defines the QueryTreasuryStakeRequest message.
+message QueryTreasuryStakeRequest {}
+
+// QueryTreasuryStakeResponse defines the QueryTreasuryStakeResponse message.
+message QueryTreasuryStakeResponse {
+  // treasury_staked is the SPARK all group treasuries have delegated, at
+  // current validator exchange rates (deleted groups still winding down
+  // included).
+  string treasury_staked = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // total_bonded is the chain's total bonded stake.
+  string total_bonded = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // cap_bps is the treasury stake cap in basis points of total bonded stake.
+  uint64 cap_bps = 3;
+  // headroom is the largest amount a treasury could delegate now without
+  // crossing the cap.
+  string headroom = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }

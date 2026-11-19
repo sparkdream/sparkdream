@@ -8,6 +8,13 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgDelegateTreasury{},
+		&MsgUndelegateTreasury{},
+		&MsgRedelegateTreasury{},
+		&MsgWithdrawTreasuryRewards{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgCancelPoll{},
 	)
 

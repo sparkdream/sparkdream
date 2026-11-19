@@ -130,6 +130,11 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Show a secret-ballot poll's voter snapshot (for building a shield proof)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}},
 				},
+				{
+					RpcMethod: "TreasuryStake",
+					Use:       "treasury-stake",
+					Short:     "Show the SPARK group treasuries have staked and the room left under the treasury stake cap",
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -290,6 +295,24 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "cancel-poll [poll-id]",
 					Short:          "Withdraw a poll nobody has voted on (creator only)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}},
+				},
+				{
+					RpcMethod: "DelegateTreasury",
+					Skip:      true, // signer is the group policy; submit via JSON inside MsgSubmitProposal
+				},
+				{
+					RpcMethod: "UndelegateTreasury",
+					Skip:      true, // signer is the group policy; submit via JSON inside MsgSubmitProposal
+				},
+				{
+					RpcMethod: "RedelegateTreasury",
+					Skip:      true, // signer is the group policy; submit via JSON inside MsgSubmitProposal
+				},
+				{
+					RpcMethod:      "WithdrawTreasuryRewards",
+					Use:            "withdraw-treasury-rewards [policy-address] [validator-address]",
+					Short:          "Pay a group treasury's pending staking rewards into the treasury (anyone may send it)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "policy_address"}, {ProtoField: "validator_address"}},
 				},
 			},
 		},

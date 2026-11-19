@@ -103,6 +103,12 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 		}
 		typeURL := sdk.MsgTypeURL(sdkMsg)
 
+		// A forbidden message never runs, whatever the stored allowlist
+		// says (it may predate the ban, or come from a genesis file).
+		if types.ForbiddenMessages[typeURL] {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "msg %s is globally forbidden for group policies", typeURL)
+		}
+
 		isAllowed := false
 		for _, allowedURL := range perms.AllowedMessages {
 			if typeURL == allowedURL {
@@ -527,6 +533,9 @@ func (k Keeper) checkProposalPermissions(ctx context.Context, proposal types.Pro
 			return err
 		}
 		typeURL := sdk.MsgTypeURL(sdkMsg)
+		if types.ForbiddenMessages[typeURL] {
+			return errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %d: %s is globally forbidden for group policies", i, typeURL)
+		}
 		if !slices.Contains(perms.AllowedMessages, typeURL) {
 			return errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %d: %s is no longer allowed for policy %s", i, typeURL, proposal.PolicyAddress)
 		}

@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -94,20 +96,34 @@ func selfCorrectedBondHeld(hr types.HideRecord) bool {
 // content-restore step soft-skips the missing target. Closing it here would
 // let an owner delete, or a TTL expire, an item hide's appeal away before
 // the jury rules (COL-103).
-func (k Keeper) closeHideRecordOnTargetDelete(ctx context.Context, hr types.HideRecord) {
+//
+// Every step is attempted; the failures are returned joined. Message
+// handlers return the error (the tx reverts), EndBlock paths log it through
+// closeHideRecordOnTargetDelete.
+func (k Keeper) settleHideRecordOnTargetDelete(ctx context.Context, hr types.HideRecord) error {
 	if selfCorrectedBondHeld(hr) || (hr.Appealed && !hr.Resolved) {
-		return
+		return nil
 	}
+	var errs []error
 	if !hr.Resolved && k.late.repKeeper != nil && !hr.CommittedAmount.IsNil() && hr.CommittedAmount.IsPositive() {
 		if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("closeHideRecordOnTargetDelete: repKeeper.ReleaseBond failed", "err", err)
+			errs = append(errs, fmt.Errorf("repKeeper.ReleaseBond: %w", err))
 		}
 	}
 	hr.Resolved = true
 	if err := k.HideRecord.Set(ctx, hr.Id, hr); err != nil {
-		sdk.UnwrapSDKContext(ctx).Logger().Error("closeHideRecordOnTargetDelete: HideRecord.Set failed", "err", err)
+		errs = append(errs, fmt.Errorf("HideRecord.Set: %w", err))
 	}
 	if err := k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)); err != nil {
-		sdk.UnwrapSDKContext(ctx).Logger().Error("closeHideRecordOnTargetDelete: HideRecordExpiry.Remove failed", "err", err)
+		errs = append(errs, fmt.Errorf("HideRecordExpiry.Remove: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// closeHideRecordOnTargetDelete is settleHideRecordOnTargetDelete for the
+// EndBlock and cascade paths, which log a failure and go on.
+func (k Keeper) closeHideRecordOnTargetDelete(ctx context.Context, hr types.HideRecord) {
+	if err := k.settleHideRecordOnTargetDelete(ctx, hr); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("closeHideRecordOnTargetDelete failed", "hide_record", hr.Id, "err", err)
 	}
 }

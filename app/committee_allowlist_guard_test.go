@@ -17,6 +17,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/stretchr/testify/require"
 
+	commonskeeper "sparkdream/x/commons/keeper"
 	commonsmoduletypes "sparkdream/x/commons/types"
 )
 
@@ -144,4 +145,48 @@ func newAppFromDefaultGenesis(t *testing.T) (*App, sdk.Context) {
 	require.NoError(t, err)
 	ctx := app.NewContextLegacy(false, cmtproto.Header{Height: 1, ChainID: chainID, Time: genesisTime})
 	return app, ctx
+}
+
+// TestTreasuryBodiesHoldStakingMessages checks the bootstrap against the
+// lists the v3 -> v4 migration grants from (keeper.TreasuryStakingGroups and
+// keeper.TreasuryStakingMsgs): every body with a treasury can stake it, no
+// other body holds the messages, and a new chain and an upgraded one end up
+// with the same grants.
+func TestTreasuryBodiesHoldStakingMessages(t *testing.T) {
+	app, ctx := newAppFromDefaultGenesis(t)
+	holds := map[string]bool{}
+	for _, b := range commonskeeper.TreasuryStakingGroups {
+		holds[b] = true
+	}
+	seen := 0
+	require.NoError(t, app.CommonsKeeper.Groups.Walk(ctx, nil, func(name string, g commonsmoduletypes.Group) (bool, error) {
+		perms, err := app.CommonsKeeper.GetPolicyPermissions(ctx, g.PolicyAddress)
+		require.NoError(t, err, name)
+		if holds[name] {
+			seen++
+		}
+		for _, m := range commonskeeper.TreasuryStakingMsgs {
+			if holds[name] {
+				require.Contains(t, perms.AllowedMessages, m, name)
+				require.Positive(t, g.FundingWeight, "%s holds staking messages but has no revenue share", name)
+			} else {
+				require.NotContains(t, perms.AllowedMessages, m, name)
+			}
+		}
+		return false, nil
+	}))
+	require.Equal(t, len(commonskeeper.TreasuryStakingGroups), seen, "a treasury body is missing from genesis")
+}
+
+// TestNoPolicyHoldsForbiddenMessage checks that no bootstrap allowlist
+// (standard or veto policy) carries a globally forbidden message: such an
+// entry could never be proposed or executed.
+func TestNoPolicyHoldsForbiddenMessage(t *testing.T) {
+	app, ctx := newAppFromDefaultGenesis(t)
+	require.NoError(t, app.CommonsKeeper.PolicyPermissions.Walk(ctx, nil, func(policy string, perms commonsmoduletypes.PolicyPermissions) (bool, error) {
+		for _, m := range perms.AllowedMessages {
+			require.False(t, commonsmoduletypes.ForbiddenMessages[m], "%s holds forbidden %s", policy, m)
+		}
+		return false, nil
+	}))
 }

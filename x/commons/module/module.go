@@ -88,6 +88,13 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 		}); err != nil {
 			return err
 		}
+		// v3 -> v4: the treasury staking messages for the councils and
+		// their Operations Committees.
+		if err := cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
+			return am.keeper.MigrateV3ToV4(ctx)
+		}); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -142,7 +149,7 @@ func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
 }
 
 // ConsensusVersion is a sequence number for state-breaking change of the module.
-func (AppModule) ConsensusVersion() uint64 { return 3 }
+func (AppModule) ConsensusVersion() uint64 { return 4 }
 
 // BeginBlock contains the logic that is automatically triggered at the beginning of each block.
 func (am AppModule) BeginBlock(_ context.Context) error {
@@ -155,6 +162,9 @@ func (am AppModule) EndBlock(ctx context.Context) error {
 		return err
 	}
 	if err := am.keeper.EndBlockPolls(ctx); err != nil {
+		return err
+	}
+	if err := am.keeper.EndBlockTreasuryWindDowns(ctx); err != nil {
 		return err
 	}
 	// Confidence-vote recurrence (elastic tenure, x/futarchy).

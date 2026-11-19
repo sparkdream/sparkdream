@@ -77,8 +77,8 @@ func TestWeightedOperations(t *testing.T) {
 	// 14 operations after M10 (RecurringSpend migration; the 4
 	// recurring-spend simulations were removed because they reached into
 	// the deleted parallel storage, coverage moved to M11 e2e scripts),
-	// plus the 4 poll messages.
-	require.Len(t, ops, 18)
+	// plus the 4 poll messages and the 4 treasury staking messages.
+	require.Len(t, ops, 22)
 }
 
 func TestProposalMsgs(t *testing.T) {

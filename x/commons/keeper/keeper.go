@@ -28,6 +28,7 @@ type lateKeepers struct {
 	identityKeeper types.IdentityKeeper
 	seasonKeeper   types.SeasonKeeper
 	repKeeper      types.MigrationRepKeeper
+	stakingKeeper  types.StakingKeeper
 }
 
 type Keeper struct {
@@ -106,6 +107,18 @@ type Keeper struct {
 
 	Category    collections.Map[uint64, types.Category]
 	CategorySeq collections.Sequence
+
+	// TreasuryWindDowns queues deleted groups whose staked treasury is still
+	// being unbonded and swept: (due_time, policy_address) -> heir
+	// (treasury_staking.go).
+	TreasuryWindDowns collections.Map[collections.Pair[int64, string], string]
+
+	// TreasuryStakers indexes the live groups that have delegated from their
+	// treasury, by standard policy address. An entry is written by the first
+	// MsgDelegateTreasury and removed when the group is deleted (its stake
+	// then moves to TreasuryWindDowns). It holds no amounts: those are read
+	// from x/staking.
+	TreasuryStakers collections.KeySet[string]
 
 	// Recurring-spend storage moved to session.Grants as RECURRING_PULL
 	// variants; queries project on-the-fly. See query_recurring_spend.go.
@@ -256,6 +269,12 @@ func NewKeeper(
 			codec.CollValue[types.Category](cdc),
 		),
 		CategorySeq: collections.NewSequence(sb, types.CategorySeqKey, "categorySequence"),
+		TreasuryWindDowns: collections.NewMap(
+			sb, types.TreasuryWindDownsKey, "treasuryWindDowns",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey),
+			collections.StringValue,
+		),
+		TreasuryStakers: collections.NewKeySet(sb, types.TreasuryStakersKey, "treasuryStakers", collections.StringKey),
 
 		// Recurring Spend collections were removed by the M10 migration.
 		// Schedules live in session.Grants as RECURRING_PULL variants.
@@ -307,6 +326,13 @@ func (k Keeper) notifySeason(ctx context.Context, hook string, fn func(sk types.
 	if err := fn(k.late.seasonKeeper); err != nil {
 		sdk.UnwrapSDKContext(ctx).Logger().Error("x/season hook failed (non-fatal)", "hook", hook, "error", err)
 	}
+}
+
+// SetStakingKeeper wires the read side of x/staking for treasury staking
+// (treasury_staking.go). Late-wired from app.go; unwired, every treasury
+// staking message is refused.
+func (k Keeper) SetStakingKeeper(sk types.StakingKeeper) {
+	k.late.stakingKeeper = sk
 }
 
 // SetForumKeeper wires the ForumKeeper after depinject. Used by

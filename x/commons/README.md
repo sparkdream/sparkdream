@@ -134,6 +134,8 @@ When a group has `futarchy_enabled=true`:
 | `PollQueue` | `{due_time, poll_id}` | `—` | Poll closing and pruning schedule |
 | `PollVoterTrees` | `{poll_id}` | `VoterTree` | Voter snapshot of an open secret poll |
 | `PollSeq` | — | `uint64` | Auto-increment poll ID sequence (from 1) |
+| `TreasuryWindDowns` | `{due_time, policy_address}` | `string` (heir) | Deleted groups whose staked treasury is still being unbonded and swept |
+| `TreasuryStakers` | `{policy_address}` | `—` | Live groups that have delegated from their treasury |
 
 ### Group Fields
 
@@ -186,6 +188,19 @@ When a group has `futarchy_enabled=true`:
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgSpendFromCommons` | Transfer from community pool to recipient | Council policy via proposal |
+
+### Treasury Staking
+
+A group can stake SPARK from its treasury with validators. The messages wrap the SDK staking and distribution messages and run them as the group's standard policy address, so the stake is an ordinary delegation. Compiled limits: all treasuries together delegate at most 20% of total bonded stake, treasury stake has no x/gov voting power, a group cannot delegate to a validator operated by one of its members or by a member of a group above it (stake that comes to break this when the membership changes is unbonded), only bonded validators are accepted, and the raw staking messages are forbidden to every policy. A delegation counts against the group's `max_spend_per_epoch` like a spend. The stake of a deleted group is unbonded by the EndBlocker and swept to the parent. See [x-commons-spec.md](../../docs/x-commons-spec.md) §7.2.
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgDelegateTreasury` | Delegate treasury SPARK to a validator | Group policy via proposal |
+| `MsgUndelegateTreasury` | Start unbonding treasury stake | Group policy via proposal |
+| `MsgRedelegateTreasury` | Move treasury stake to another validator | Group policy via proposal |
+| `MsgWithdrawTreasuryRewards` | Pay a treasury's staking rewards into the treasury | Anyone |
+
+`q commons treasury-stake` shows the total staked, the cap and the room left under it.
 
 ### Categories
 
@@ -240,6 +255,7 @@ Cancelled and declined schedules return `NotFound` from `QueryGetRecurringSpend(
 | `GetPoll` / `ListPolls` | Polls with their tallies (filter by group and status) |
 | `GetPollVotes` | Open votes on a poll |
 | `GetPollVoterTree` | A secret poll's voter snapshot |
+| `TreasuryStake` | SPARK all group treasuries have staked, total bonded stake, the stake cap and the room left under it |
 
 ## Parameters
 

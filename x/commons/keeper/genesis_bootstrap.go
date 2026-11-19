@@ -228,6 +228,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgRegisterGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			// Treasury staking (treasury_staking.go): delegate treasury
+			// SPARK to validators under the stake cap.
+			"/sparkdream.commons.v1.MsgDelegateTreasury",
+			"/sparkdream.commons.v1.MsgUndelegateTreasury",
+			"/sparkdream.commons.v1.MsgRedelegateTreasury",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
@@ -332,6 +337,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgDeleteGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			// Treasury staking (treasury_staking.go): delegate treasury
+			// SPARK to validators under the stake cap.
+			"/sparkdream.commons.v1.MsgDelegateTreasury",
+			"/sparkdream.commons.v1.MsgUndelegateTreasury",
+			"/sparkdream.commons.v1.MsgRedelegateTreasury",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
@@ -376,6 +386,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		StandardMinExecution: TechOpsMinExecution,
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			// Treasury staking (treasury_staking.go): delegate treasury
+			// SPARK to validators under the stake cap.
+			"/sparkdream.commons.v1.MsgDelegateTreasury",
+			"/sparkdream.commons.v1.MsgUndelegateTreasury",
+			"/sparkdream.commons.v1.MsgRedelegateTreasury",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgVoteProposal",
@@ -443,6 +458,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgDeleteGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			// Treasury staking (treasury_staking.go): delegate treasury
+			// SPARK to validators under the stake cap.
+			"/sparkdream.commons.v1.MsgDelegateTreasury",
+			"/sparkdream.commons.v1.MsgUndelegateTreasury",
+			"/sparkdream.commons.v1.MsgRedelegateTreasury",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
@@ -484,6 +504,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		StandardMinExecution: EcoOpsMinExecution,
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			// Treasury staking (treasury_staking.go): delegate treasury
+			// SPARK to validators under the stake cap.
+			"/sparkdream.commons.v1.MsgDelegateTreasury",
+			"/sparkdream.commons.v1.MsgUndelegateTreasury",
+			"/sparkdream.commons.v1.MsgRedelegateTreasury",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
@@ -576,6 +601,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
+			// Treasury staking (treasury_staking.go): delegate treasury
+			// SPARK to validators under the stake cap.
+			"/sparkdream.commons.v1.MsgDelegateTreasury",
+			"/sparkdream.commons.v1.MsgUndelegateTreasury",
+			"/sparkdream.commons.v1.MsgRedelegateTreasury",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",

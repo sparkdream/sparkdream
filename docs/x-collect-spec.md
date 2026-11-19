@@ -1111,6 +1111,8 @@ message MsgRemoveItemResponse {}
 
 **Deposit refund:** If parent collection `deposit_burned = false`, the `per_item_deposit` for this item is refunded from module account to collection owner. `item_deposit_total` decremented.
 
+**Hide records:** an item that was hidden and restored keeps its `HideRecord`s. Removing the item drops their by-target index entries (`HideRecordByTarget`) and closes any record still open, as collection deletion and TTL expiry do; the records themselves stay for the sentinel's history. `MsgRemoveItems` does the same for every item of the batch.
+
 ### 5.8. MsgRemoveItems
 
 Batch remove. All items must belong to the same collection. Positions compacted once after all removals (not per-item).

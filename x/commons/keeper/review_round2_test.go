@@ -80,6 +80,7 @@ func (r zkDelayRep) CanActAs(_ context.Context, signer, stored string) bool {
 	return signer == stored
 }
 func (r zkDelayRep) ActiveZkPublicKey(context.Context, string) []byte { return nil }
+func (r zkDelayRep) Canonical(_ context.Context, addr string) string  { return addr }
 
 // CMN-101: council voting periods are no longer capped by the ZK key
 // activation delay. Secret ballots prove against a snapshot taken when they

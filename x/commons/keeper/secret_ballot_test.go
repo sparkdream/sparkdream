@@ -33,6 +33,12 @@ func (r keyRep) CanActAs(_ context.Context, signer, stored string) bool {
 	return signer == stored
 }
 func (r keyRep) ActiveZkPublicKey(_ context.Context, addr string) []byte { return r.keys[addr] }
+func (r keyRep) Canonical(_ context.Context, addr string) string {
+	if to, ok := r.alias[addr]; ok {
+		return to
+	}
+	return addr
+}
 
 // cosmosAddr encodes b with the fixture's address codec prefix ("cosmos"),
 // whatever the global SDK config holds.

@@ -4,10 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
@@ -189,4 +191,40 @@ func TestRemoveItemRefund(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, refundCalled)
+}
+
+// Removing an item drops its hide-record by-target index entries, as
+// collection deletion and TTL expiry do; the records stay. A stale entry
+// would not survive a genesis round trip (import only indexes records whose
+// target exists).
+func TestRemoveItemDropsHideRecordIndex(t *testing.T) {
+	f := initTestFixture(t)
+	collID := f.createCollection(t, f.owner)
+	single := f.addItem(t, collID, f.owner)
+	batched := f.addItem(t, collID, f.owner)
+
+	// A restored (resolved) hide of each item, as MsgHideContent files it.
+	indexKey := func(itemID, hideID uint64) collections.Pair[string, uint64] {
+		return collections.Join(keeper.HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, itemID), hideID)
+	}
+	for hideID, itemID := range map[uint64]uint64{1: single, 2: batched} {
+		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, hideID, types.HideRecord{
+			Id: hideID, TargetId: itemID, TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_ITEM,
+			Sentinel: f.sentinel, Resolved: true, CommittedAmount: math.ZeroInt(),
+		}))
+		require.NoError(t, f.keeper.HideRecordByTarget.Set(f.ctx, indexKey(itemID, hideID)))
+	}
+
+	_, err := f.msgServer.RemoveItem(f.ctx, &types.MsgRemoveItem{Creator: f.owner, Id: single})
+	require.NoError(t, err)
+	_, err = f.msgServer.RemoveItems(f.ctx, &types.MsgRemoveItems{Creator: f.owner, Ids: []uint64{batched}})
+	require.NoError(t, err)
+
+	for hideID, itemID := range map[uint64]uint64{1: single, 2: batched} {
+		has, err := f.keeper.HideRecordByTarget.Has(f.ctx, indexKey(itemID, hideID))
+		require.NoError(t, err)
+		require.False(t, has, "by-target entry of removed item %d", itemID)
+		_, err = f.keeper.HideRecord.Get(f.ctx, hideID)
+		require.NoError(t, err, "the record itself is kept")
+	}
 }

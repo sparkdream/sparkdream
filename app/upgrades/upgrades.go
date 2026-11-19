@@ -61,6 +61,16 @@ var All = []Upgrade{
 	// migration: stored params are untouched, so a network keeps its
 	// council delay until governance changes it (the new 7-day default, 2
 	// days on testnet and 1 on devnet, reaches only a fresh genesis).
+	//
+	// Treasury staking (x/commons/keeper/treasury_staking.go,
+	// docs/x-commons-spec.md "Treasury staking"): x/commons v4 gives the
+	// three councils and their Operations Committees the messages to
+	// delegate treasury SPARK to validators. With no stored state to
+	// migrate, the release also carries the x/gov tally that gives treasury
+	// stake no voting power (app/gov_tally.go), the raw staking messages
+	// added to the commons forbidden list, and the wind-down queue for the
+	// stake of a deleted group (a new prefix in the commons store, empty
+	// until a staked group is deleted).
 	{
 		Name:          "storage-pinned-index-rep-sessions",
 		Handler:       RunMigrations,

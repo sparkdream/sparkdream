@@ -123,6 +123,14 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 		return nil, err
 	}
 
+	// Treasury stake with a validator a new member operates is unbonded
+	// (treasury_staking.go, member-validator rule).
+	if len(adds) > 0 {
+		if err := k.unbondMemberValidatorStake(ctx, councilName); err != nil {
+			return nil, err
+		}
+	}
+
 	// 6. Update cooldown
 	if isElectoral {
 		signerGroup.LastParentUpdate = ctx.BlockTime().Unix()

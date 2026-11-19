@@ -43,6 +43,34 @@ func (gs GenesisState) Validate() error {
 	if err := gs.validatePolls(); err != nil {
 		return err
 	}
+	windDowns := make(map[string]struct{}, len(gs.TreasuryWindDowns))
+	for _, w := range gs.TreasuryWindDowns {
+		if _, err := sdk.AccAddressFromBech32(w.PolicyAddress); err != nil {
+			return fmt.Errorf("invalid treasury wind-down policy address %q: %w", w.PolicyAddress, err)
+		}
+		if w.Heir != "" {
+			if _, err := sdk.AccAddressFromBech32(w.Heir); err != nil {
+				return fmt.Errorf("invalid treasury wind-down heir %q: %w", w.Heir, err)
+			}
+		}
+		if _, ok := windDowns[w.PolicyAddress]; ok {
+			return fmt.Errorf("duplicate treasury wind-down for %s", w.PolicyAddress)
+		}
+		windDowns[w.PolicyAddress] = struct{}{}
+	}
+	stakers := make(map[string]struct{}, len(gs.TreasuryStakers))
+	for _, addr := range gs.TreasuryStakers {
+		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+			return fmt.Errorf("invalid treasury staker address %q: %w", addr, err)
+		}
+		if _, ok := stakers[addr]; ok {
+			return fmt.Errorf("duplicate treasury staker %s", addr)
+		}
+		if _, ok := windDowns[addr]; ok {
+			return fmt.Errorf("treasury staker %s is also winding down", addr)
+		}
+		stakers[addr] = struct{}{}
+	}
 
 	// founding_members is either empty (use the build's compiled-in
 	// founders) or a complete replacement, which must be able to bootstrap

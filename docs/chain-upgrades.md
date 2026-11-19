@@ -11,6 +11,13 @@ migration that writes the `storage-arweave` service type, and the x/commons
 v3 migration that gives the Commons Council and its Operations Committee the
 storage council messages, and the Technical and Ecosystem Councils the
 messages to propose and vote as members of the Commons Supervisory Board).
+The x/commons v4 migration, folded into the same entry, gives the three
+councils and their Operations Committees the treasury staking messages
+([x-commons-spec.md](x-commons-spec.md) §7.2); the x/gov tally change
+(treasury stake has no voting power) ships with it and has no stored state
+to migrate. The same migration removes every forbidden message, the raw
+staking messages included, from every stored allowlist, and writes the
+`TreasuryStakers` index for any group that already holds a delegation.
 The veto-seat and golden-share recusal rules of x/commons ship with it and
 need no stored state. It also carries one change with no migration: x/rep
 refuses a `council_migration_delay` of zero or below
@@ -130,4 +137,6 @@ old node halted at the plan height, the new one migrated blog, commons,
 service and session, the post pinned before the upgrade appeared in
 `list-pinned-posts`, the session allowlist grew from 76 to 91 types, both
 Commons bodies held the storage council messages, and the x/storage suite
-passed on the upgraded chain.
+passed on the upgraded chain. That rehearsal predates the x/commons v4 migration
+(treasury staking), which was folded in afterwards and is covered by
+`TestUpgradeGrantsTreasuryStakingMsgs` only.

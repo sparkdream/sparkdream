@@ -121,6 +121,11 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 
 	// Remove all items
 	for _, item := range items {
+		// Drop the item's hide-record index entries with it (see
+		// MsgRemoveItem).
+		if err := k.removeItemHideRecords(ctx, item, params); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to clean up the item's hide records")
+		}
 		if err := k.Item.Remove(ctx, item.Id); err != nil {
 			return nil, err
 		}

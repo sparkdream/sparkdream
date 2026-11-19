@@ -96,6 +96,27 @@ func (k msgServer) DeleteGroup(goCtx context.Context, msg *types.MsgDeleteGroup)
 		}
 	}
 
+	// Treasury stake: a deleted group can no longer undelegate, so the
+	// EndBlocker unbonds it and sweeps it to the parent once it matures
+	// (treasury_staking.go). Deletion never waits for the stake, or a group
+	// could shield itself from deletion by delegating.
+	heir := ""
+	if k.IsGroupPolicyAddress(ctx, groupInfo.ParentPolicyAddress) {
+		heir = groupInfo.ParentPolicyAddress
+	}
+	if err := k.startTreasuryWindDown(ctx, groupInfo.PolicyAddress, heir); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to queue the treasury stake wind-down")
+	}
+	// The wind-down queue now accounts for this treasury's stake.
+	if err := k.TreasuryStakers.Remove(ctx, groupInfo.PolicyAddress); err != nil {
+		return nil, err
+	}
+	// Wind-downs of groups deleted earlier that were to be swept to this
+	// group pass to its heir, or they would mature at a dead address.
+	if err := k.reheirTreasuryWindDowns(ctx, formerPolicies, heir); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to re-point treasury wind-downs")
+	}
+
 	// Sweep the residual treasury (including refunded oneshot deposits) to
 	// the parent policy, which can still spend it under its own gates. With
 	// a parent that is not a group policy (x/gov) the funds stay put; gov

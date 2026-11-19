@@ -8,11 +8,13 @@ import (
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/app/upgrades"
 	blogkeeper "sparkdream/x/blog/keeper"
 	blogtypes "sparkdream/x/blog/types"
+	commonskeeper "sparkdream/x/commons/keeper"
 	commonstypes "sparkdream/x/commons/types"
 	servicetypes "sparkdream/x/service/types"
 	sessiontypes "sparkdream/x/session/types"
@@ -242,7 +244,8 @@ func TestUpgradeBringsUpStorage(t *testing.T) {
 	require.Equal(t, uint64(1), after[storagetypes.ModuleName])
 	require.Equal(t, uint64(2), after[servicetypes.ModuleName])
 	require.Equal(t, uint64(2), after[sessiontypes.ModuleName])
-	require.Equal(t, uint64(3), after[commonstypes.ModuleName])
+	// v2 -> v3 and v3 -> v4 (treasury staking) run in the same pass.
+	require.Equal(t, uint64(4), after[commonstypes.ModuleName])
 
 	// The index and flag invariants hold on the upgraded state. (The escrow
 	// invariant reads the bond denom from x/identity, which this empty test
@@ -259,4 +262,50 @@ func TestUpgradeBringsUpStorage(t *testing.T) {
 			require.Contains(t, u.StoreUpgrades.Added, storagetypes.StoreKey)
 		}
 	}
+}
+
+// The upgrade on a chain at x/commons v3 runs the v3 -> v4
+// migration: every genesis body with a treasury gains the treasury staking
+// messages, and a body without one does not.
+func TestUpgradeGrantsTreasuryStakingMsgs(t *testing.T) {
+	app := testApp(t)
+	ctx := app.NewUncachedContext(false, cmtproto.Header{Height: 10}).
+		WithHeaderInfo(header.Info{Height: 10})
+
+	// The bodies as a v3 chain holds them: no treasury staking messages.
+	const held = "/sparkdream.commons.v1.MsgSpendFromCommons"
+	policyOf := func(name string) string { return authtypes.NewModuleAddress(name).String() }
+	const hr = "Commons Governance Committee"
+	for _, name := range append([]string{hr}, commonskeeper.TreasuryStakingGroups...) {
+		policy := policyOf(name)
+		require.NoError(t, app.CommonsKeeper.Groups.Set(ctx, name, commonstypes.Group{PolicyAddress: policy}))
+		require.NoError(t, app.CommonsKeeper.PolicyPermissions.Set(ctx, policy,
+			commonstypes.PolicyPermissions{PolicyAddress: policy, AllowedMessages: []string{held}}))
+	}
+
+	// One body was granted the raw staking message before it was forbidden.
+	const raw = "/cosmos.staking.v1beta1.MsgDelegate"
+	rawHolder := policyOf(commonskeeper.TreasuryStakingGroups[0])
+	require.NoError(t, app.CommonsKeeper.PolicyPermissions.Set(ctx, rawHolder,
+		commonstypes.PolicyPermissions{PolicyAddress: rawHolder, AllowedMessages: []string{held, raw}}))
+
+	vm := app.ModuleManager.GetVersionMap()
+	vm[commonstypes.ModuleName] = 3
+	require.NoError(t, app.UpgradeKeeper.SetModuleVersionMap(ctx, vm))
+	require.NoError(t, app.UpgradeKeeper.ApplyUpgrade(ctx, upgradetypes.Plan{Name: "storage-pinned-index-rep-sessions", Height: 10}))
+
+	for _, name := range commonskeeper.TreasuryStakingGroups {
+		perms, err := app.CommonsKeeper.PolicyPermissions.Get(ctx, policyOf(name))
+		require.NoError(t, err, name)
+		require.Contains(t, perms.AllowedMessages, held, name)
+		require.Subset(t, perms.AllowedMessages, commonskeeper.TreasuryStakingMsgs, name)
+		require.NotContains(t, perms.AllowedMessages, raw, name)
+	}
+	perms, err := app.CommonsKeeper.PolicyPermissions.Get(ctx, policyOf(hr))
+	require.NoError(t, err)
+	require.Equal(t, []string{held}, perms.AllowedMessages)
+
+	after, err := app.UpgradeKeeper.GetModuleVersionMap(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), after[commonstypes.ModuleName])
 }

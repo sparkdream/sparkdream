@@ -6,9 +6,11 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
+	"cosmossdk.io/math"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	v1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
 	sessiontypes "sparkdream/x/session/types"
 )
@@ -150,7 +152,28 @@ type MigrationRepKeeper interface {
 	// the stored address (alias contract: signer not tombstoned and stored
 	// resolves to signer).
 	CanActAs(ctx context.Context, signer, stored string) bool
+	// Canonical returns the address a member acts under today: the migration
+	// target of a tombstoned address, the address itself otherwise.
+	Canonical(ctx context.Context, addr string) string
 	// ActiveZkPublicKey returns the ZK public key an ACTIVE member proves
 	// with today, or nil (secret-ballot voter snapshots).
 	ActiveZkPublicKey(ctx context.Context, addr string) []byte
+}
+
+// StakingKeeper is the read side of x/staking that treasury staking needs
+// (treasury_staking.go). The writes go through the message router as the
+// SDK staking and distribution messages, so they keep every rule of those
+// modules (the one exception is Undelegate, below). Late-bound via
+// SetStakingKeeper; the SDK staking keeper satisfies it as is.
+type StakingKeeper interface {
+	GetValidator(ctx context.Context, addr sdk.ValAddress) (stakingtypes.Validator, error)
+	GetBondedValidatorsByPower(ctx context.Context) ([]stakingtypes.Validator, error)
+	GetDelegatorDelegations(ctx context.Context, delegator sdk.AccAddress, maxRetrieve uint16) ([]stakingtypes.Delegation, error)
+	GetUnbondingDelegations(ctx context.Context, delegator sdk.AccAddress, maxRetrieve uint16) ([]stakingtypes.UnbondingDelegation, error)
+	TotalBondedTokens(ctx context.Context) (math.Int, error)
+	ValidatorAddressCodec() address.Codec
+	// Undelegate unbonds shares of a delegation. Used only by the wind-down
+	// for a delegation worth less than one base unit, which MsgUndelegate
+	// (an amount) cannot name.
+	Undelegate(ctx context.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress, sharesAmount math.LegacyDec) (time.Time, math.Int, error)
 }

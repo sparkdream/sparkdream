@@ -80,6 +80,12 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 		}
 		typeURL := sdk.MsgTypeURL(sdkMsg)
 
+		// A forbidden message never runs, whatever the stored allowlist
+		// says (it may predate the ban, or come from a genesis file).
+		if types.ForbiddenMessages[typeURL] {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "msg %s is globally forbidden for group policies", typeURL)
+		}
+
 		isAllowed := false
 		for _, allowedURL := range perms.AllowedMessages {
 			if typeURL == allowedURL {

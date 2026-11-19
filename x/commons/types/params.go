@@ -39,6 +39,16 @@ var ForbiddenMessages = map[string]bool{
 	"/sparkdream.vault.v1.MsgExecute":         true,
 	"/sparkdream.vault.v1.MsgCancelProposal":  true,
 	"/sparkdream.vault.v1.MsgUpdateVault":     true,
+
+	// 5. RAW STAKING. A treasury stakes only through the x/commons wrappers
+	// (MsgDelegateTreasury etc.), which apply the treasury stake cap and the
+	// member-validator rule. A policy holding the SDK messages would stake
+	// past both, and one that created a validator would secure the chain
+	// with treasury funds under its own key.
+	"/cosmos.staking.v1beta1.MsgDelegate":                  true,
+	"/cosmos.staking.v1beta1.MsgBeginRedelegate":           true,
+	"/cosmos.staking.v1beta1.MsgCancelUnbondingDelegation": true, // re-stakes without the cap check
+	"/cosmos.staking.v1beta1.MsgCreateValidator":           true,
 }
 
 // DefaultProposalFee is 5 SPARK in the build's bond denom (the chain

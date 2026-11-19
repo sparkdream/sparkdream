@@ -954,9 +954,21 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 // cleanupItemHideRecords handles hide records for an item being deleted:
 // closes them and drops their by-target index entries, as the collection
 // path does (the records themselves stay for the sentinel's history).
+//
+// The EndBlock and cascade paths call this form, which logs a failure and
+// goes on; message handlers call removeItemHideRecords and return the error.
 func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, params types.Params) {
+	if err := k.removeItemHideRecords(ctx, item, params); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupItemHideRecords failed", "item", item.Id, "err", err)
+	}
+}
+
+// removeItemHideRecords does the work of cleanupItemHideRecords. Every step
+// is attempted; the failures are returned joined.
+func (k Keeper) removeItemHideRecords(ctx context.Context, item types.Item, _ types.Params) error {
 	targetKey := HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
 	var keys []collections.Pair[string, uint64]
+	var errs []error
 	if err := k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](targetKey),
 		func(key collections.Pair[string, uint64]) (bool, error) {
@@ -964,16 +976,23 @@ func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, par
 			return false, nil
 		},
 	); err != nil {
-		sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupItemHideRecords: HideRecordByTarget.Walk failed", "err", err)
+		errs = append(errs, fmt.Errorf("HideRecordByTarget.Walk: %w", err))
 	}
 	for _, key := range keys {
-		if hr, err := k.HideRecord.Get(ctx, key.K2()); err == nil {
-			k.closeHideRecordOnTargetDelete(ctx, hr)
+		hr, err := k.HideRecord.Get(ctx, key.K2())
+		switch {
+		case err == nil:
+			if err := k.settleHideRecordOnTargetDelete(ctx, hr); err != nil {
+				errs = append(errs, err)
+			}
+		case !errors.Is(err, collections.ErrNotFound):
+			errs = append(errs, fmt.Errorf("HideRecord.Get: %w", err))
 		}
 		if err := k.HideRecordByTarget.Remove(ctx, key); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupItemHideRecords: HideRecordByTarget.Remove failed", "err", err)
+			errs = append(errs, fmt.Errorf("HideRecordByTarget.Remove: %w", err))
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // countCollectionsByOwner counts how many collections an owner has.

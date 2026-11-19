@@ -182,6 +182,35 @@ x/gov (Root Authority)
 
 ---
 
+## Treasury Staking Limits (x/commons)
+
+**Location:** [x/commons/keeper/treasury_staking.go](../x/commons/keeper/treasury_staking.go), [app/gov_tally.go](../app/gov_tally.go)
+
+The council and committee treasuries receive the genesis community pool
+(95% of the supply), and x/gov is their parent. Councils and committees can
+delegate treasury SPARK to validators, so uncapped treasury stake could pick
+the validator set and decide every x/gov vote. Compiled limits, changed only
+by a chain upgrade:
+
+| Limit | Rule |
+|---|---|
+| Stake cap | All treasuries together delegate at most 20% of total bonded stake (`TreasuryStakeCapBps`), checked at each delegation; only a bonded validator is accepted |
+| Rate limit | A delegation counts against the group's `MaxSpendPerEpoch` like a spend |
+| No x/gov power | The x/gov tally leaves treasury delegations out of every validator's inherited voting power; a treasury address's own vote counts for nothing |
+| No self-dealing | A group cannot delegate or redelegate to a validator operated by one of its members or by a member of a group above it (x/rep alias contract applied). Stake that comes to break the rule when the membership changes is unbonded with the change |
+| Wrappers only | `MsgDelegate`, `MsgBeginRedelegate`, `MsgCancelUnbondingDelegation` and `MsgCreateValidator` are in the commons `ForbiddenMessages`, checked when a permission is granted and when a proposal is submitted and executed; a policy stakes only through `MsgDelegateTreasury` and its siblings |
+| Deletion | `MsgDeleteGroup` never waits for a group's stake: the EndBlocker unbonds all of it and sweeps it to the parent, or to the parent's own heir if the parent is deleted first |
+
+Known limits of these rules: the cap is checked when a delegation is made,
+so treasury stake can sit above 20% after other delegators unbond (nothing
+is unbonded by force, and no treasury can delegate more until the share is
+back under the cap); treasury stake still counts in the x/gov quorum
+denominator, as stake that did not vote; and the member rule cannot see a
+member who runs a validator under an unrelated key. Details:
+[x-commons-spec.md](x-commons-spec.md) §7.2.
+
+---
+
 ## Ante-Only Rules and In-Chain Executors
 
 A few rules run only in the ante handler: the tombstoned-signer backstop
