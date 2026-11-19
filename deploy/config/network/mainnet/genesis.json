@@ -473,7 +473,9 @@
       "polls": [],
       "proposal_voter_trees": [],
       "proposal_votes": [],
-      "proposals": []
+      "proposals": [],
+      "treasury_stakers": [],
+      "treasury_wind_downs": []
     },
     "consensus": null,
     "distribution": {
