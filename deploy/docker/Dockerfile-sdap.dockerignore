@@ -1,7 +1,8 @@
 # BuildKit reads this for Dockerfile-sdap only (per-Dockerfile ignore), so
 # the repo-wide build context (~2 GB of snapshots and archives) is not sent.
 # Allowlist: exactly what `go list -deps ./cmd/sdapbridge ./cmd/sdapverify ./cmd/sdaplogin ./cmd/contentscan`
-# needs from this module. Add a line here if the daemons grow a new import.
+# needs from this module. Add a line here if the daemons grow a new import;
+# `go test ./deploy/docker/` (sdap_context_test.go) fails until you do.
 *
 !go.mod
 !go.sum
@@ -14,6 +15,7 @@
 !tools/contentscan
 !tools/crypto
 !tools/datauri
+!tools/fileprofile
 !tools/tle
 !x/common/types
 !x/federation/types
@@ -22,6 +24,7 @@
 !x/service/types
 !x/session/types
 !x/shield/types
+!x/storage/types
 !x/vault/types
 !deploy/docker/sdap/sdap-entry.sh
 !deploy/docker/sdap/image-safety-model.txt
